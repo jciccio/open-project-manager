@@ -1,0 +1,98 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { executeMcpTool, MCP_TOOLS, createMcpServer } from "../core";
+import { createTestUser, cleanupTestUser } from "@/test/helpers";
+
+describe("MCP Server Core Tools", () => {
+  let userId: string;
+
+  beforeEach(async () => {
+    const res = await createTestUser(`mcp-core-${Date.now()}`);
+    userId = res.user.id;
+  });
+
+  afterEach(async () => {
+    await cleanupTestUser(userId);
+  });
+
+  it("exports a list of valid MCP tools", () => {
+    expect(Array.isArray(MCP_TOOLS)).toBe(true);
+    expect(MCP_TOOLS.length).toBeGreaterThan(10);
+    const toolNames = MCP_TOOLS.map((t) => t.name);
+    expect(toolNames).toContain("create_project");
+    expect(toolNames).toContain("create_card");
+    expect(toolNames).toContain("add_comment");
+  });
+
+  it("executes project, column, card, comment, and label tools correctly", async () => {
+    // 1. Create Project via MCP tool
+    const projRes = await executeMcpTool("create_project", {
+      name: "MCP Test Project",
+      userId,
+      description: "Testing via MCP",
+    });
+    expect(projRes.success).toBe(true);
+    const projectId = projRes.project!.id;
+    expect((projRes.project as any)?.columns?.length).toBe(4);
+
+    // 2. List Projects
+    const listProjRes = await executeMcpTool("list_projects", { userId });
+    expect(listProjRes.success).toBe(true);
+    expect(listProjRes.projects?.length).toBeGreaterThanOrEqual(1);
+
+    // 3. Get Project
+    const getProjRes = await executeMcpTool("get_project", { id: projectId });
+    expect(getProjRes.success).toBe(true);
+    const firstColId = (getProjRes.project as any).columns[0].id;
+    const secondColId = (getProjRes.project as any).columns[1].id;
+
+    // 4. Create Card via MCP tool
+    const cardRes = await executeMcpTool("create_card", {
+      projectId,
+      columnId: firstColId,
+      title: "MCP Task Card",
+      priority: "HIGH",
+      points: 5,
+    });
+    expect(cardRes.success).toBe(true);
+    const cardId = cardRes.card!.id;
+
+    // 5. Move Card via MCP tool
+    const moveRes = await executeMcpTool("move_card", {
+      id: cardId,
+      targetColumnId: secondColId,
+      newOrder: 0,
+    });
+    expect(moveRes.success).toBe(true);
+    expect(moveRes.card?.columnId).toBe(secondColId);
+
+    // 6. Add Comment via MCP tool
+    const commentRes = await executeMcpTool("add_comment", {
+      cardId,
+      author: "AI Agent",
+      content: "Automated test comment",
+    });
+    expect(commentRes.success).toBe(true);
+    expect(commentRes.comment?.content).toBe("Automated test comment");
+
+    // 7. Create Label via MCP tool
+    const labelRes = await executeMcpTool("create_label", {
+      name: "Automated",
+      color: "#ec4899",
+      userId,
+    });
+    expect(labelRes.success).toBe(true);
+
+    // 8. Delete Card, Column, Project
+    await executeMcpTool("delete_card", { id: cardId });
+    await executeMcpTool("delete_project", { id: projectId });
+  });
+
+  it("throws an error for unknown tool names", async () => {
+    await expect(executeMcpTool("non_existent_tool")).rejects.toThrow("Unknown MCP tool: non_existent_tool");
+  });
+
+  it("initializes MCP Server instance", () => {
+    const server = createMcpServer();
+    expect(server).toBeDefined();
+  });
+});
