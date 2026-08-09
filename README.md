@@ -17,12 +17,13 @@ A lightweight, fast, and self-hosted project management web application inspired
 
 ## ✨ Features
 
-- 🔒 **User Authentication & Data Isolation**: Registration, login, logout, and isolated user accounts (JWT HTTP-only cookies + `bcryptjs` password hashing).
+- 🔒 **User Authentication & Profile Management**: Registration, login, logout, profile settings modal (display name, email, and password update), and privacy-focused header user badge.
+- 🌐 **Multi-Language Support (i18n)**: Switch between English (`EN`) and Spanish (`ES`) locales with persistent preference.
 - 🔌 **Programmatic REST API (`/api/v1/*`)**: Complete REST API with Bearer token support for workflow automation, script integrations, and external tools.
 - 🎨 **Dark & Light Mode Switcher**: Seamless theme switcher with persistent user preference.
 - 📊 **Multiple Project Views**: Switch between Kanban Board, Structured List View, Analytics & Graphs (Recharts), and Monthly Calendar View.
 - 📁 **Project Archiving**: Archive completed or inactive projects to clean up your active dashboard.
-- 📋 **Customizable Kanban Boards**: Define columns (Backlog, To Do, In Progress, Done) per project.
+- 📋 **Customizable & Reorganizable Kanban Boards**: Create custom columns and easily reorder columns left or right with instant SQLite persistence.
 - 🎯 **Rich Task Card Metadata**:
   - **Story Points**: Track task estimation points.
   - **Priority Levels**: Assign Low, Medium, High, or Urgent badges.
@@ -30,6 +31,7 @@ A lightweight, fast, and self-hosted project management web application inspired
   - **Labels**: Tag cards with custom color-coded labels (e.g. Frontend, Backend, UI/UX, Bug).
   - **Due Dates**: Track deadlines per task.
 - 💬 **Comment Feeds**: Discuss tasks and post comments directly on task cards.
+- 🐳 **Official Docker Image & Compose**: Multi-stage `Dockerfile` standalone production build and single-command `docker-compose.yml` orchestration with volume persistence.
 - 🪶 **Lightweight & Portable**: Single `.sqlite` file database stored locally (`dev.db`).
 
 ---
@@ -88,7 +90,7 @@ When database seeding is executed (`npx tsx prisma/seed.ts`), sample accounts ar
 | Account | Email | Password | Isolated Project |
 |---|---|---|---|
 | Admin Account | `admin@example.com` | `password123` | Open Project Manager MVP |
-| Sarah Account | `sarah@example.com` | `password123` | Sarah's Autonomous Systems |
+| Jose Account | `jose@example.com` | `password123` | Jose's Autonomous Systems |
 
 ---
 
