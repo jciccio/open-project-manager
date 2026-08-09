@@ -8,7 +8,18 @@ export const es: TranslationKeys = {
     archived: "Archivados",
     labels: "Etiquetas",
     newProject: "Nuevo Proyecto",
+    profile: "Ajustes de Perfil",
     logout: "Cerrar sesión",
+  },
+  profileModal: {
+    title: "Ajustes de Perfil",
+    nameLabel: "Nombre Completo",
+    emailLabel: "Correo Electrónico",
+    currentPasswordLabel: "Contraseña Actual",
+    newPasswordLabel: "Nueva Contraseña (opcional)",
+    updateProfile: "Actualizar Perfil",
+    updating: "Actualizando...",
+    success: "¡Perfil actualizado con éxito!",
   },
   dashboard: {
     tagline: "Espacio Privado",
@@ -57,6 +68,8 @@ export const es: TranslationKeys = {
     assigneePlaceholder: "Nombre del responsable...",
     pts: "pts",
     confirmDeleteColumn: '¿Eliminar columna "{name}" y todas sus tarjetas?',
+    moveLeft: "Mover columna a la izquierda",
+    moveRight: "Mover columna a la derecha",
   },
   views: {
     kanban: "Kanban",

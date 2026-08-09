@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { FolderKanban, Plus, Tag, LogOut, Archive, Sun, Moon, Globe } from "lucide-react";
+import { FolderKanban, Plus, Tag, LogOut, Archive, Sun, Moon, Globe, User as UserIcon } from "lucide-react";
 import { useState } from "react";
 import NewProjectModal from "./NewProjectModal";
 import LabelManagerModal from "./LabelManagerModal";
+import UserProfileModal from "./UserProfileModal";
 import { logoutUser } from "@/actions/auth";
 import { useRouter } from "next/navigation";
 import { useTheme } from "./ThemeProvider";
@@ -22,6 +23,7 @@ interface Props {
 export default function Header({ user, archivedCount = 0 }: Props) {
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [isLabelModalOpen, setIsLabelModalOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const { theme, toggleTheme } = useTheme();
   const { locale, setLocale, t } = useTranslation();
@@ -118,20 +120,19 @@ export default function Header({ user, archivedCount = 0 }: Props) {
             </button>
 
             {user && (
-              <div className="pl-2 border-l border-slate-200 dark:border-slate-800 flex items-center gap-3">
-                <div className="flex items-center gap-2.5">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white font-bold text-xs shadow-md">
+              <div className="pl-2 border-l border-slate-200 dark:border-slate-800 flex items-center gap-2.5">
+                <button
+                  onClick={() => setIsProfileModalOpen(true)}
+                  className="flex items-center gap-2 rounded-lg bg-slate-200/80 dark:bg-slate-800/80 p-1.5 pr-3 hover:bg-slate-300 dark:hover:bg-slate-700 transition-all border border-slate-300 dark:border-slate-700 text-left"
+                  title={t("header.profile")}
+                >
+                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white font-bold text-xs shadow-xs">
                     {user.name.charAt(0).toUpperCase()}
                   </div>
-                  <div className="hidden md:block text-left">
-                    <span className="block font-bold text-xs text-slate-900 dark:text-white leading-tight">
-                      {user.name}
-                    </span>
-                    <span className="block text-[10px] text-slate-500 dark:text-slate-400 truncate max-w-[120px]">
-                      {user.email}
-                    </span>
-                  </div>
-                </div>
+                  <span className="hidden md:inline font-bold text-xs text-slate-900 dark:text-white truncate max-w-[100px]">
+                    {user.name}
+                  </span>
+                </button>
 
                 <button
                   onClick={handleLogout}
@@ -153,6 +154,10 @@ export default function Header({ user, archivedCount = 0 }: Props) {
 
       {isLabelModalOpen && (
         <LabelManagerModal onClose={() => setIsLabelModalOpen(false)} />
+      )}
+
+      {isProfileModalOpen && user && (
+        <UserProfileModal user={user} onClose={() => setIsProfileModalOpen(false)} />
       )}
     </>
   );

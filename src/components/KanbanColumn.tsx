@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Trash2, Layers } from "lucide-react";
+import { Plus, Trash2, Layers, ChevronLeft, ChevronRight } from "lucide-react";
 import TaskCard from "./TaskCard";
 import { createCard } from "@/actions/cards";
 import { deleteColumn } from "@/actions/columns";
@@ -19,6 +19,10 @@ interface Props {
   onRefresh: () => void;
   onDragStartCard: (e: React.DragEvent, cardId: string, sourceColumnId: string) => void;
   onDropCard: (e: React.DragEvent, targetColumnId: string) => void;
+  canMoveLeft?: boolean;
+  canMoveRight?: boolean;
+  onMoveLeft?: () => void;
+  onMoveRight?: () => void;
 }
 
 export default function KanbanColumn({
@@ -27,6 +31,10 @@ export default function KanbanColumn({
   onRefresh,
   onDragStartCard,
   onDropCard,
+  canMoveLeft,
+  canMoveRight,
+  onMoveLeft,
+  onMoveRight,
 }: Props) {
   const [isAdding, setIsAdding] = useState(false);
   const [newTitle, setNewTitle] = useState("");
@@ -103,7 +111,27 @@ export default function KanbanColumn({
           </span>
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-0.5">
+          {canMoveLeft && (
+            <button
+              onClick={onMoveLeft}
+              className="rounded-lg p-1 text-slate-500 hover:bg-slate-300 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-colors"
+              title={t("kanban.moveLeft")}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+          )}
+
+          {canMoveRight && (
+            <button
+              onClick={onMoveRight}
+              className="rounded-lg p-1 text-slate-500 hover:bg-slate-300 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-colors"
+              title={t("kanban.moveRight")}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          )}
+
           <button
             onClick={() => setIsAdding(true)}
             className="rounded-lg p-1.5 text-slate-600 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-colors"

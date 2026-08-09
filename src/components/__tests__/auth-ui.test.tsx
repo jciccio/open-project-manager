@@ -29,8 +29,26 @@ describe("Authentication & Header UI Components", () => {
 
     expect(screen.getByText("Open Project Manager")).toBeInTheDocument();
     expect(screen.getByText("John Doe")).toBeInTheDocument();
-    expect(screen.getByText("john@example.com")).toBeInTheDocument();
+    expect(screen.queryByText("john@example.com")).not.toBeInTheDocument();
     expect(screen.getByText("2")).toBeInTheDocument();
+  });
+
+  it("opens UserProfileModal when clicking profile button in Header", () => {
+    renderWithProviders(
+      <Header
+        user={{
+          userId: "u123",
+          email: "john@example.com",
+          name: "John Doe",
+        }}
+      />
+    );
+
+    const profileBtn = screen.getByTitle("Profile Settings");
+    fireEvent.click(profileBtn);
+
+    expect(screen.getByDisplayValue("John Doe")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("john@example.com")).toBeInTheDocument();
   });
 
   it("toggles locale when language button is clicked", () => {

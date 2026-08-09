@@ -20,7 +20,7 @@ import ListView from "./views/ListView";
 import AnalyticsView from "./views/AnalyticsView";
 import CalendarView from "./views/CalendarView";
 
-import { createColumn } from "@/actions/columns";
+import { createColumn, reorderColumns } from "@/actions/columns";
 import { moveCard } from "@/actions/cards";
 import { unarchiveProject } from "@/actions/projects";
 import { useRouter } from "next/navigation";
@@ -66,6 +66,23 @@ export default function KanbanBoard({ project }: Props) {
     if (res.success) {
       router.push("/");
       router.refresh();
+    }
+  }
+
+  async function handleMoveColumn(columnId: string, direction: "left" | "right") {
+    const currentIndex = project.columns.findIndex((c: any) => c.id === columnId);
+    if (currentIndex === -1) return;
+    const targetIndex = direction === "left" ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= project.columns.length) return;
+
+    const newColumns = [...project.columns];
+    const [movedColumn] = newColumns.splice(currentIndex, 1);
+    newColumns.splice(targetIndex, 0, movedColumn);
+
+    const orderedIds = newColumns.map((c: any) => c.id);
+    const res = await reorderColumns(project.id, orderedIds);
+    if (res.success) {
+      window.location.reload();
     }
   }
 
@@ -253,7 +270,7 @@ export default function KanbanBoard({ project }: Props) {
       <div className="flex-1 overflow-auto">
         {viewMode === "kanban" && (
           <div className="p-6 flex items-start gap-5 overflow-x-auto min-h-full">
-            {columnsWithFilteredCards.map((column: any) => (
+            {columnsWithFilteredCards.map((column: any, index: number) => (
               <KanbanColumn
                 key={column.id}
                 column={column}
@@ -261,6 +278,10 @@ export default function KanbanBoard({ project }: Props) {
                 onRefresh={() => window.location.reload()}
                 onDragStartCard={handleDragStartCard}
                 onDropCard={handleDropCard}
+                canMoveLeft={index > 0}
+                canMoveRight={index < columnsWithFilteredCards.length - 1}
+                onMoveLeft={() => handleMoveColumn(column.id, "left")}
+                onMoveRight={() => handleMoveColumn(column.id, "right")}
               />
             ))}
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { registerUser, loginUser, logoutUser, getCurrentUser } from "../auth";
+import { registerUser, loginUser, logoutUser, getCurrentUser, updateUserProfile } from "../auth";
 import { cleanupTestUser } from "@/test/helpers";
 
 describe("Auth Server Actions", () => {
@@ -92,9 +92,31 @@ describe("Auth Server Actions", () => {
     expect(loginRes.data?.email).toBe(testEmail);
   });
 
+  it("updates user profile name and password", async () => {
+    const regRes = await registerUser({
+      name: "Profile User",
+      email: testEmail,
+      password: testPass,
+    });
+    if (regRes.data) createdUserId = regRes.data.userId;
+
+    const updateRes = await updateUserProfile({
+      name: "Updated Profile Name",
+      currentPassword: testPass,
+      newPassword: "NewSecurePassword123!",
+    });
+
+    expect(updateRes.success).toBe(true);
+    expect(updateRes.data?.name).toBe("Updated Profile Name");
+
+    const current = await getCurrentUser();
+    expect(current?.name).toBe("Updated Profile Name");
+  });
+
   it("logs out user", async () => {
     await logoutUser();
     const current = await getCurrentUser();
     expect(current).toBeNull();
   });
 });
+

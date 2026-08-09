@@ -2,6 +2,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import ProjectCard from "../ProjectCard";
 import TaskCard from "../TaskCard";
+import KanbanColumn from "../KanbanColumn";
 import { LanguageProvider } from "../LanguageProvider";
 import { ThemeProvider } from "../ThemeProvider";
 
@@ -63,4 +64,44 @@ describe("Kanban & Project UI Components", () => {
     fireEvent.click(screen.getByText("Implement Stripe Webhooks"));
     expect(handleClick).toHaveBeenCalledTimes(1);
   });
+
+  it("renders KanbanColumn move buttons when enabled", () => {
+    const mockColumn = {
+      id: "col1",
+      projectId: "p1",
+      name: "In Progress",
+      order: 1,
+      cards: [],
+    };
+
+    const onMoveLeft = vi.fn();
+    const onMoveRight = vi.fn();
+
+    renderWithProviders(
+      <KanbanColumn
+        column={mockColumn}
+        onCardClick={vi.fn()}
+        onRefresh={vi.fn()}
+        onDragStartCard={vi.fn()}
+        onDropCard={vi.fn()}
+        canMoveLeft={true}
+        canMoveRight={true}
+        onMoveLeft={onMoveLeft}
+        onMoveRight={onMoveRight}
+      />
+    );
+
+    const leftBtn = screen.getByTitle("Move column left");
+    const rightBtn = screen.getByTitle("Move column right");
+
+    expect(leftBtn).toBeInTheDocument();
+    expect(rightBtn).toBeInTheDocument();
+
+    fireEvent.click(leftBtn);
+    expect(onMoveLeft).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(rightBtn);
+    expect(onMoveRight).toHaveBeenCalledTimes(1);
+  });
 });
+

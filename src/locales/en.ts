@@ -6,7 +6,18 @@ export const en = {
     archived: "Archived",
     labels: "Labels",
     newProject: "New Project",
+    profile: "Profile Settings",
     logout: "Log out",
+  },
+  profileModal: {
+    title: "Profile Settings",
+    nameLabel: "Full Name",
+    emailLabel: "Email Address",
+    currentPasswordLabel: "Current Password",
+    newPasswordLabel: "New Password (optional)",
+    updateProfile: "Update Profile",
+    updating: "Updating...",
+    success: "Profile updated successfully!",
   },
   dashboard: {
     tagline: "Private Workspace",
@@ -55,6 +66,8 @@ export const en = {
     assigneePlaceholder: "Assignee name...",
     pts: "pts",
     confirmDeleteColumn: 'Delete column "{name}" and all its cards?',
+    moveLeft: "Move column left",
+    moveRight: "Move column right",
   },
   views: {
     kanban: "Kanban",

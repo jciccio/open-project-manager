@@ -102,3 +102,90 @@ export async function logoutUser() {
 export async function getCurrentUser() {
   return await getSession();
 }
+
+export async function updateUserProfile(data: {
+  name?: string;
+  email?: string;
+  currentPassword?: string;
+  newPassword?: string;
+}) {
+  try {
+    const session = await getSession();
+    if (!session) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    const user = await db.user.findUnique({
+      where: { id: session.userId },
+    });
+
+    if (!user) {
+      return { success: false, error: "User not found." };
+    }
+
+    const updateData: { name?: string; email?: string; passwordHash?: string } = {};
+
+    if (data.name !== undefined) {
+      const trimmedName = data.name.trim();
+      if (!trimmedName) {
+        return { success: false, error: "Name cannot be empty." };
+      }
+      updateData.name = trimmedName;
+    }
+
+    if (data.email !== undefined) {
+      const trimmedEmail = data.email.toLowerCase().trim();
+      if (!trimmedEmail) {
+        return { success: false, error: "Email cannot be empty." };
+      }
+      if (trimmedEmail !== user.email) {
+        const existing = await db.user.findUnique({
+          where: { email: trimmedEmail },
+        });
+        if (existing) {
+          return { success: false, error: "An account with this email already exists." };
+        }
+        updateData.email = trimmedEmail;
+      }
+    }
+
+    if (data.newPassword) {
+      if (!data.currentPassword) {
+        return { success: false, error: "Current password is required to change password." };
+      }
+      const isValid = await bcrypt.compare(data.currentPassword, user.passwordHash);
+      if (!isValid) {
+        return { success: false, error: "Current password is incorrect." };
+      }
+      if (data.newPassword.length < 6) {
+        return { success: false, error: "New password must be at least 6 characters long." };
+      }
+      updateData.passwordHash = await bcrypt.hash(data.newPassword, 10);
+    }
+
+    const updatedUser = await db.user.update({
+      where: { id: session.userId },
+      data: updateData,
+    });
+
+    await createSession({
+      userId: updatedUser.id,
+      email: updatedUser.email,
+      name: updatedUser.name,
+    });
+
+    revalidatePath("/");
+    return {
+      success: true,
+      data: {
+        userId: updatedUser.id,
+        email: updatedUser.email,
+        name: updatedUser.name,
+      },
+    };
+  } catch (error) {
+    console.error("Update profile error:", error);
+    return { success: false, error: "Failed to update profile." };
+  }
+}
+
