@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { registerUser, loginUser, logoutUser, getCurrentUser, updateUserProfile } from "../auth";
+import { registerUser, loginUser, logoutUser, getCurrentUser, updateUserProfile, getOrGenerateApiToken } from "../auth";
 import { cleanupTestUser } from "@/test/helpers";
 
 describe("Auth Server Actions", () => {
@@ -111,6 +111,20 @@ describe("Auth Server Actions", () => {
 
     const current = await getCurrentUser();
     expect(current?.name).toBe("Updated Profile Name");
+  });
+
+  it("generates a valid API JWT token for active session", async () => {
+    const regRes = await registerUser({
+      name: "API Token User",
+      email: testEmail,
+      password: testPass,
+    });
+    if (regRes.data) createdUserId = regRes.data.userId;
+
+    const tokenRes = await getOrGenerateApiToken();
+    expect(tokenRes.success).toBe(true);
+    expect(typeof tokenRes.token).toBe("string");
+    expect(tokenRes.token?.length).toBeGreaterThan(20);
   });
 
   it("logs out user", async () => {

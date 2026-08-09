@@ -25,8 +25,8 @@ async function main() {
 
   const demoUser = await db.user.create({
     data: {
-      name: "Sarah Connor",
-      email: "sarah@example.com",
+      name: "Jose Ciccio",
+      email: "jose@example.com",
       passwordHash,
     },
   });
@@ -80,7 +80,7 @@ async function main() {
       description: "Implement drag-and-drop column layout with customizable cards, badges, and filters.",
       priority: "HIGH",
       points: 5,
-      owner: "Sarah Connor",
+      owner: "Jose Ciccio",
       order: 0,
       labels: {
         create: [
@@ -123,8 +123,8 @@ async function main() {
   const proj2 = await db.project.create({
     data: {
       userId: demoUser.id,
-      name: "Sarah's Autonomous Systems",
-      description: "Isolated workspace for Sarah Connor's internal projects.",
+      name: "Jose's Autonomous Systems",
+      description: "Isolated workspace for Jose Ciccio's internal projects.",
       color: "#ec4899",
       columns: {
         create: [
@@ -138,7 +138,7 @@ async function main() {
 
   console.log("Seeding complete!");
   console.log(`Admin User: admin@example.com / password123 (Project: ${proj1.name})`);
-  console.log(`Demo User: sarah@example.com / password123 (Project: ${proj2.name})`);
+  console.log(`Demo User: jose@example.com / password123 (Project: ${proj2.name})`);
 }
 
 main()

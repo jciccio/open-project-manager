@@ -15,12 +15,16 @@ export interface UserSession {
   name: string;
 }
 
-export async function createSession(sessionData: UserSession) {
-  const token = await new SignJWT({ ...sessionData })
+export async function signToken(sessionData: UserSession, durationSeconds = 30 * 24 * 60 * 60) {
+  return await new SignJWT({ ...sessionData })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
-    .setExpirationTime(`${SESSION_DURATION}s`)
+    .setExpirationTime(`${durationSeconds}s`)
     .sign(JWT_SECRET);
+}
+
+export async function createSession(sessionData: UserSession) {
+  const token = await signToken(sessionData, SESSION_DURATION);
 
   const cookieStore = await cookies();
   cookieStore.set(SESSION_COOKIE_NAME, token, {

@@ -5,6 +5,8 @@ import LoginPage from "@/app/login/page";
 import { LanguageProvider } from "../LanguageProvider";
 import { ThemeProvider } from "../ThemeProvider";
 
+import UserProfileModal from "../UserProfileModal";
+
 // Helper wrapper for providers
 function renderWithProviders(ui: React.ReactNode) {
   return render(
@@ -49,6 +51,24 @@ describe("Authentication & Header UI Components", () => {
 
     expect(screen.getByDisplayValue("John Doe")).toBeInTheDocument();
     expect(screen.getByDisplayValue("john@example.com")).toBeInTheDocument();
+    expect(screen.getByText("Developer API Token")).toBeInTheDocument();
+    expect(screen.getByText("Generate API Token")).toBeInTheDocument();
+  });
+
+  it("renders UserProfileModal with API token section", () => {
+    renderWithProviders(
+      <UserProfileModal
+        user={{
+          userId: "u123",
+          email: "sarah@example.com",
+          name: "Sarah Conner",
+        }}
+        onClose={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText("Developer API Token")).toBeInTheDocument();
+    expect(screen.getByText("Generate API Token")).toBeInTheDocument();
   });
 
   it("toggles locale when language button is clicked", () => {
@@ -75,3 +95,4 @@ describe("Authentication & Header UI Components", () => {
     expect(submitButtons.length).toBeGreaterThan(0);
   });
 });
+

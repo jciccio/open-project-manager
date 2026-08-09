@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { X, User, Mail, Lock, CheckCircle2 } from "lucide-react";
-import { updateUserProfile } from "@/actions/auth";
+import { X, User, Mail, Lock, CheckCircle2, Key, Copy, Eye, EyeOff, Check } from "lucide-react";
+import { updateUserProfile, getOrGenerateApiToken } from "@/actions/auth";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "./LanguageProvider";
 
@@ -21,12 +21,41 @@ export default function UserProfileModal({ user, onClose }: Props) {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
 
+  const [apiToken, setApiToken] = useState("");
+  const [tokenLoading, setTokenLoading] = useState(false);
+  const [showToken, setShowToken] = useState(false);
+  const [copiedToken, setCopiedToken] = useState(false);
+  const [copiedHeader, setCopiedHeader] = useState(false);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
 
   const { t } = useTranslation();
   const router = useRouter();
+
+  async function handleGenerateToken() {
+    setTokenLoading(true);
+    const res = await getOrGenerateApiToken();
+    setTokenLoading(false);
+    if (res.success && res.token) {
+      setApiToken(res.token);
+    }
+  }
+
+  function handleCopyToken() {
+    if (!apiToken) return;
+    navigator.clipboard.writeText(apiToken);
+    setCopiedToken(true);
+    setTimeout(() => setCopiedToken(false), 2000);
+  }
+
+  function handleCopyHeader() {
+    if (!apiToken) return;
+    navigator.clipboard.writeText(`Authorization: Bearer ${apiToken}`);
+    setCopiedHeader(true);
+    setTimeout(() => setCopiedHeader(false), 2000);
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -63,7 +92,7 @@ export default function UserProfileModal({ user, onClose }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
-      <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-5 relative">
+      <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-5 relative max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400">
@@ -159,6 +188,76 @@ export default function UserProfileModal({ user, onClose }: Props) {
                 />
               </div>
             </div>
+          </div>
+
+          {/* Developer API Token Section */}
+          <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-3">
+            <div className="flex items-center gap-2">
+              <Key className="h-4 w-4 text-indigo-500" />
+              <div>
+                <h4 className="text-xs font-bold text-slate-900 dark:text-white">
+                  {t("profileModal.apiTokensTitle")}
+                </h4>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  {t("profileModal.apiTokensSub")}
+                </p>
+              </div>
+            </div>
+
+            {!apiToken ? (
+              <button
+                type="button"
+                onClick={handleGenerateToken}
+                disabled={tokenLoading}
+                className="w-full rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 px-3.5 py-2 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all flex items-center justify-center gap-2"
+              >
+                <Key className="h-3.5 w-3.5" />
+                <span>{tokenLoading ? t("profileModal.generating") : t("profileModal.generateToken")}</span>
+              </button>
+            ) : (
+              <div className="space-y-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 p-3 border border-slate-200 dark:border-slate-800">
+                <div className="relative">
+                  <input
+                    type={showToken ? "text" : "password"}
+                    readOnly
+                    value={apiToken}
+                    className="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 pl-3 pr-10 py-1.5 text-[11px] font-mono text-slate-900 dark:text-white focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowToken(!showToken)}
+                    className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                    title={showToken ? "Hide Token" : "Reveal Token"}
+                  >
+                    {showToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleCopyToken}
+                    className="flex-1 rounded-lg bg-indigo-600 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-indigo-500 transition-colors flex items-center justify-center gap-1.5 shadow-xs"
+                  >
+                    {copiedToken ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                    <span>{copiedToken ? t("profileModal.copied") : t("profileModal.copyToken")}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleCopyHeader}
+                    className="flex-1 rounded-lg bg-slate-200 dark:bg-slate-700 px-2.5 py-1.5 text-[11px] font-semibold text-slate-800 dark:text-slate-200 hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    {copiedHeader ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                    <span>{copiedHeader ? t("profileModal.copied") : t("profileModal.copyHeader")}</span>
+                  </button>
+                </div>
+
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 italic">
+                  {t("profileModal.tokenSecurityNotice")}
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-200 dark:border-slate-800">

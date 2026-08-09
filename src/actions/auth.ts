@@ -1,7 +1,7 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { createSession, destroySession, getSession } from "@/lib/auth";
+import { createSession, destroySession, getSession, signToken } from "@/lib/auth";
 import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 
@@ -188,4 +188,28 @@ export async function updateUserProfile(data: {
     return { success: false, error: "Failed to update profile." };
   }
 }
+
+export async function getOrGenerateApiToken() {
+  try {
+    const session = await getSession();
+    if (!session) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    const token = await signToken(
+      {
+        userId: session.userId,
+        email: session.email,
+        name: session.name,
+      },
+      30 * 24 * 60 * 60
+    );
+
+    return { success: true, token };
+  } catch (error) {
+    console.error("Generate API token error:", error);
+    return { success: false, error: "Failed to generate API token." };
+  }
+}
+
 
