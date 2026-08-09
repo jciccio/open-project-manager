@@ -5,6 +5,15 @@ A lightweight, fast, and self-hosted project management web application inspired
 ![Stack](https://img.shields.io/badge/Stack-Next.js%20%7C%20TypeScript%20%7C%20SQLite%20%7C%20Prisma%207-indigo)
 
 ---
+<img width="1512" height="731" alt="Screenshot 2026-08-09 at 12 28 28 PM" src="https://github.com/user-attachments/assets/bbf583f6-7c34-419c-82c6-4e44a71c7361" />
+<img width="1512" height="657" alt="Screenshot 2026-08-09 at 12 32 36 PM" src="https://github.com/user-attachments/assets/ea71ba27-8c15-4263-bcad-0b8c46313f5c" />
+
+<img width="794" height="696" alt="Screenshot 2026-08-09 at 12 32 23 PM" src="https://github.com/user-attachments/assets/9c81cd08-8fe2-486b-8a17-da6df13bbc31" />
+<img width="1511" height="700" alt="Screenshot 2026-08-09 at 12 35 04 PM" src="https://github.com/user-attachments/assets/33e3e52b-d7b5-4c37-8066-a3c245ee2a2d" />
+<img width="1507" height="717" alt="Screenshot 2026-08-09 at 12 34 24 PM" src="https://github.com/user-attachments/assets/32dc835d-e0ee-427c-beff-f3735a12a733" />
+
+
+---
 
 ## ✨ Features
 
