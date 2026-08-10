@@ -38,14 +38,19 @@ export default function NewProjectModal({ onClose }: Props) {
     setLoading(true);
     setError("");
 
-    const res = await createProject({ name, description, color });
-    setLoading(false);
+    try {
+      const res = await createProject({ name, description, color });
+      setLoading(false);
 
-    if (res.success && res.data) {
-      onClose();
-      router.push(`/projects/${res.data.id}`);
-    } else {
-      setError(res.error || "Failed to create project");
+      if (res.success && res.data) {
+        onClose();
+        router.push(`/projects/${res.data.id}`);
+      } else {
+        setError(res.error || "Failed to create project");
+      }
+    } catch (err: any) {
+      setLoading(false);
+      setError(err?.message || "Failed to create project");
     }
   }
 

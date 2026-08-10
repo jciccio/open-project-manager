@@ -69,3 +69,43 @@ export async function deleteComment(commentId: string) {
     return { success: false, error: "Failed to delete comment" };
   }
 }
+
+export async function updateComment(
+  commentId: string,
+  content: string,
+  overrideUserId?: string
+) {
+  try {
+    const session = overrideUserId ? { userId: overrideUserId } : await getSession();
+    if (!session) return { success: false, error: "Unauthorized" };
+
+    if (!content.trim()) {
+      return { success: false, error: "Comment content cannot be empty" };
+    }
+
+    const comment = await db.comment.findUnique({
+      where: { id: commentId },
+      include: {
+        card: { include: { project: true } },
+      },
+    });
+
+    if (!comment || comment.card.project.userId !== session.userId) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    const updatedComment = await db.comment.update({
+      where: { id: commentId },
+      data: {
+        content: content.trim(),
+      },
+    });
+
+    revalidatePath(`/projects/${comment.card.projectId}`);
+    return { success: true, data: updatedComment };
+  } catch (error) {
+    console.error(`Error updating comment ${commentId}:`, error);
+    return { success: false, error: "Failed to update comment" };
+  }
+}
+

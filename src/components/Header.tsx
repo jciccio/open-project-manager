@@ -48,7 +48,7 @@ export default function Header({ user, archivedCount = 0 }: Props) {
           <Link href="/" className="flex items-center gap-3 group">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 via-indigo-600 to-purple-600 p-0.5 shadow-lg shadow-amber-500/20 group-hover:scale-105 transition-transform">
               <div className="flex h-full w-full items-center justify-center rounded-[10px] bg-slate-950 overflow-hidden">
-                <Image src="/icon.png" alt="Nanobanana Logo" width={32} height={32} className="h-8 w-8 object-cover rounded-lg" />
+                <Image src="/logo.png" alt="Nanobanana Logo" width={32} height={32} unoptimized className="h-8 w-8 object-cover rounded-lg" />
               </div>
             </div>
             <div>

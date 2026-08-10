@@ -12,9 +12,11 @@ import {
   MessageSquare,
   Sparkles,
   Layers,
+  Pencil,
+  Check,
 } from "lucide-react";
 import { updateCard, deleteCard } from "@/actions/cards";
-import { addComment, deleteComment } from "@/actions/comments";
+import { addComment, updateComment, deleteComment } from "@/actions/comments";
 import { getLabels } from "@/actions/labels";
 import { useTranslation } from "./LanguageProvider";
 
@@ -81,6 +83,10 @@ export default function CardDetailModal({
   const [commentAuthor, setCommentAuthor] = useState("");
   const [commentContent, setCommentContent] = useState("");
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
+
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editingCommentText, setEditingCommentText] = useState("");
+
   const [isSaving, setIsSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -142,6 +148,16 @@ export default function CardDetailModal({
 
     if (res.success) {
       setCommentContent("");
+      onRefresh();
+    }
+  }
+
+  async function handleSaveEditComment(commentId: string) {
+    if (!editingCommentText.trim()) return;
+    const res = await updateComment(commentId, editingCommentText.trim());
+    if (res.success) {
+      setEditingCommentId(null);
+      setEditingCommentText("");
       onRefresh();
     }
   }
@@ -237,10 +253,10 @@ export default function CardDetailModal({
                   onChange={(e) => setPriority(e.target.value)}
                   className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none cursor-pointer"
                 >
-                  <option value="LOW">Low</option>
-                  <option value="MEDIUM">Medium</option>
-                  <option value="HIGH">High</option>
-                  <option value="URGENT">Urgent</option>
+                  <option value="LOW">{t("cardModal.priorityLow")}</option>
+                  <option value="MEDIUM">{t("cardModal.priorityMedium")}</option>
+                  <option value="HIGH">{t("cardModal.priorityHigh")}</option>
+                  <option value="URGENT">{t("cardModal.priorityUrgent")}</option>
                 </select>
               </div>
 
@@ -256,7 +272,7 @@ export default function CardDetailModal({
                   max="100"
                   value={points}
                   onChange={(e) => setPoints(e.target.value)}
-                  placeholder="e.g. 3"
+                  placeholder={t("cardModal.pointsPlaceholder")}
                   className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
                 />
               </div>
@@ -271,7 +287,7 @@ export default function CardDetailModal({
                   type="text"
                   value={owner}
                   onChange={(e) => setOwner(e.target.value)}
-                  placeholder="e.g. Alex Rivera"
+                  placeholder={t("cardModal.assigneePlaceholder")}
                   className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
                 />
               </div>
@@ -288,25 +304,6 @@ export default function CardDetailModal({
                   onChange={(e) => setDueDate(e.target.value)}
                   className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
                 />
-              </div>
-
-              {/* Column Selection */}
-              <div>
-                <label className="flex items-center gap-1 text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                  <Layers className="h-3 w-3 text-indigo-500 dark:text-indigo-400" />
-                  <span>{t("cardModal.statusColumn")}</span>
-                </label>
-                <select
-                  value={columnId}
-                  onChange={(e) => setColumnId(e.target.value)}
-                  className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none font-medium"
-                >
-                  {columns.map((col) => (
-                    <option key={col.id} value={col.id}>
-                      {col.name}
-                    </option>
-                  ))}
-                </select>
               </div>
             </div>
           </div>
@@ -368,7 +365,7 @@ export default function CardDetailModal({
               <div className="flex items-center gap-2">
                 <input
                   type="text"
-                  placeholder="Your Name (Optional)"
+                  placeholder={t("cardModal.yourName")}
                   value={commentAuthor}
                   onChange={(e) => setCommentAuthor(e.target.value)}
                   className="w-1/3 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2.5 py-1 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
@@ -378,7 +375,7 @@ export default function CardDetailModal({
                 <input
                   type="text"
                   required
-                  placeholder="Write a comment..."
+                  placeholder={t("cardModal.writeComment")}
                   value={commentContent}
                   onChange={(e) => setCommentContent(e.target.value)}
                   className="flex-1 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
@@ -402,7 +399,7 @@ export default function CardDetailModal({
                     key={c.id}
                     className="group flex items-start justify-between gap-2 rounded-lg bg-slate-50 dark:bg-slate-800/50 p-2.5 border border-slate-200 dark:border-slate-800"
                   >
-                    <div className="space-y-0.5">
+                    <div className="space-y-1 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-bold text-slate-900 dark:text-slate-200">
                           {c.author}
@@ -416,18 +413,61 @@ export default function CardDetailModal({
                           })}
                         </span>
                       </div>
-                      <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
-                        {c.content}
-                      </p>
+                      {editingCommentId === c.id ? (
+                        <div className="flex items-center gap-2 mt-1">
+                          <input
+                            type="text"
+                            value={editingCommentText}
+                            onChange={(e) => setEditingCommentText(e.target.value)}
+                            className="flex-1 rounded-lg bg-white dark:bg-slate-900 border border-indigo-500 px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none"
+                            autoFocus
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleSaveEditComment(c.id)}
+                            className="p-1 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 rounded-md"
+                            title="Save comment"
+                          >
+                            <Check className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingCommentId(null)}
+                            className="p-1 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-md"
+                            title="Cancel edit"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
+                          {c.content}
+                        </p>
+                      )}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteComment(c.id)}
-                      className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-500 transition-opacity"
-                      title="Delete comment"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
+                    {editingCommentId !== c.id && (
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingCommentId(c.id);
+                            setEditingCommentText(c.content);
+                          }}
+                          className="p-1 text-slate-400 hover:text-indigo-500 transition-colors"
+                          title="Edit comment"
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteComment(c.id)}
+                          className="p-1 text-slate-400 hover:text-red-500 transition-colors"
+                          title="Delete comment"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))
               ) : (

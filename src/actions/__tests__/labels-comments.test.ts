@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { createLabel, getLabels, deleteLabel } from "../labels";
-import { addComment, deleteComment } from "../comments";
+import { addComment, updateComment, deleteComment } from "../comments";
 import { createProject, getProjectById } from "../projects";
 import { createCard } from "../cards";
 import { createTestUser, cleanupTestUser } from "@/test/helpers";
@@ -44,12 +44,18 @@ describe("Labels & Comments Server Actions", () => {
     expect(delRes.success).toBe(true);
   });
 
-  it("adds and deletes comments on a card", async () => {
+  it("adds, updates, and deletes comments on a card", async () => {
     const addRes = await addComment(cardId, "Tester", "This is a test comment");
     expect(addRes.success).toBe(true);
     expect(addRes.data?.content).toBe("This is a test comment");
 
-    const delRes = await deleteComment(addRes.data!.id);
+    const commentId = addRes.data!.id;
+    const updateRes = await updateComment(commentId, "This is an updated comment");
+    expect(updateRes.success).toBe(true);
+    expect(updateRes.data?.content).toBe("This is an updated comment");
+
+    const delRes = await deleteComment(commentId);
     expect(delRes.success).toBe(true);
   });
 });
+

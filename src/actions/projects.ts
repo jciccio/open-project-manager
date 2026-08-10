@@ -99,6 +99,14 @@ export async function generateProjectKey(name: string, requestedKey?: string): P
   return clean.slice(0, 4) || "PROJ";
 }
 
+function safeRevalidatePath(path: string) {
+  try {
+    revalidatePath(path);
+  } catch {
+    // Ignore cache revalidation errors outside request context
+  }
+}
+
 export async function createProject(
   data: { name: string; description?: string; color?: string; key?: string },
   overrideUserId?: string
@@ -133,7 +141,7 @@ export async function createProject(
       },
     });
 
-    revalidatePath("/");
+    safeRevalidatePath("/");
     return { success: true, data: project };
   } catch (error) {
     console.error("Error creating project:", error);
@@ -165,9 +173,9 @@ export async function updateProject(
       data,
     });
 
-    revalidatePath("/");
-    revalidatePath("/archived");
-    revalidatePath(`/projects/${id}`);
+    safeRevalidatePath("/");
+    safeRevalidatePath("/archived");
+    safeRevalidatePath(`/projects/${id}`);
     return { success: true, data: project };
   } catch (error) {
     console.error(`Error updating project ${id}:`, error);
@@ -195,9 +203,9 @@ export async function archiveProject(id: string, overrideUserId?: string) {
       data: { isArchived: true },
     });
 
-    revalidatePath("/");
-    revalidatePath("/archived");
-    revalidatePath(`/projects/${id}`);
+    safeRevalidatePath("/");
+    safeRevalidatePath("/archived");
+    safeRevalidatePath(`/projects/${id}`);
     return { success: true, data: project };
   } catch (error) {
     console.error(`Error archiving project ${id}:`, error);
@@ -225,9 +233,9 @@ export async function unarchiveProject(id: string, overrideUserId?: string) {
       data: { isArchived: false },
     });
 
-    revalidatePath("/");
-    revalidatePath("/archived");
-    revalidatePath(`/projects/${id}`);
+    safeRevalidatePath("/");
+    safeRevalidatePath("/archived");
+    safeRevalidatePath(`/projects/${id}`);
     return { success: true, data: project };
   } catch (error) {
     console.error(`Error unarchiving project ${id}:`, error);
@@ -254,8 +262,8 @@ export async function deleteProject(id: string, overrideUserId?: string) {
       where: { id },
     });
 
-    revalidatePath("/");
-    revalidatePath("/archived");
+    safeRevalidatePath("/");
+    safeRevalidatePath("/archived");
     return { success: true };
   } catch (error) {
     console.error(`Error deleting project ${id}:`, error);

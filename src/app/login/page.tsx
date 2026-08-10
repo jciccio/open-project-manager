@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { FolderKanban, LogIn, Key, Mail } from "lucide-react";
+import { LogIn, Key, Mail } from "lucide-react";
 import Link from "next/link";
+import Image from "next/image";
 import { loginUser } from "@/actions/auth";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "@/components/LanguageProvider";
@@ -44,9 +45,9 @@ export default function LoginPage() {
       <div className="w-full max-w-md rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-8 shadow-2xl space-y-6">
         {/* Brand Logo */}
         <div className="flex flex-col items-center text-center space-y-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 p-0.5 shadow-lg shadow-indigo-500/20">
-            <div className="flex h-full w-full items-center justify-center rounded-[14px] bg-slate-950 dark:bg-slate-950 light:bg-white">
-              <FolderKanban className="h-6 w-6 text-indigo-400" />
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400 via-indigo-600 to-purple-600 p-0.5 shadow-lg shadow-amber-500/20">
+            <div className="flex h-full w-full items-center justify-center rounded-[14px] bg-slate-950 overflow-hidden">
+              <Image src="/logo.png" alt="Nanobanana Logo" width={40} height={40} unoptimized className="h-10 w-10 object-cover rounded-xl" />
             </div>
           </div>
           <div>

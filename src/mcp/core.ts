@@ -253,6 +253,18 @@ export const MCP_TOOLS = [
     },
   },
   {
+    name: "update_comment",
+    description: "Update the text content of an existing comment.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        commentId: { type: "string", description: "Target comment ID" },
+        content: { type: "string", description: "New comment body text" },
+      },
+      required: ["commentId", "content"],
+    },
+  },
+  {
     name: "list_labels",
     description: "List custom labels available in the workspace.",
     inputSchema: {
@@ -567,6 +579,14 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
         orderBy: { createdAt: "desc" },
       });
       return { success: true, comments };
+    }
+
+    case "update_comment": {
+      const comment = await db.comment.update({
+        where: { id: args.commentId },
+        data: { content: args.content.trim() },
+      });
+      return { success: true, comment };
     }
 
     case "list_labels": {
