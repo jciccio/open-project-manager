@@ -111,6 +111,7 @@ export const en = {
     cardTitlePlaceholder: "Card Title...",
     column: "Column",
     priority: "Priority",
+    priorityNone: "None",
     priorityLow: "Low",
     priorityMedium: "Medium",
     priorityHigh: "High",

@@ -50,6 +50,7 @@ describe("Cards Server Actions", () => {
     });
     expect(res2.success).toBe(true);
     expect(res2.data?.number).toBe(2);
+    expect(res2.data?.priority).toBe("NONE");
   });
 
   it("resolves card by human-readable identifier", async () => {

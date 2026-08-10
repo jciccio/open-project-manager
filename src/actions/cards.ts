@@ -59,7 +59,7 @@ export async function createCard(
         title: data.title.trim(),
         description: data.description,
         number: nextNumber,
-        priority: data.priority || "MEDIUM",
+        priority: data.priority || "NONE",
         points: data.points ?? null,
         owner: data.owner || null,
         dueDate: data.dueDate ? new Date(data.dueDate) : null,

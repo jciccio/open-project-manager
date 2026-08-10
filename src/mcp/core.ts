@@ -141,7 +141,7 @@ export const MCP_TOOLS = [
       properties: {
         projectId: { type: "string", description: "Filter by project ID" },
         columnId: { type: "string", description: "Filter by column ID" },
-        priority: { type: "string", description: "Filter by priority (LOW, MEDIUM, HIGH, URGENT)" },
+        priority: { type: "string", description: "Filter by priority (NONE, LOW, MEDIUM, HIGH, URGENT)" },
         owner: { type: "string", description: "Filter by assignee owner name" },
       },
     },
@@ -552,7 +552,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
           title: args.title.trim(),
           description: args.description || null,
           number: nextNumber,
-          priority: args.priority || "MEDIUM",
+          priority: args.priority || "NONE",
           points: typeof args.points === "number" ? args.points : null,
           owner: args.owner || null,
           dueDate: args.dueDate ? new Date(args.dueDate) : null,

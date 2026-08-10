@@ -36,6 +36,7 @@ interface Props {
 }
 
 const PRIORITY_COLORS: Record<string, { bg: string; text: string; border: string }> = {
+  NONE: { bg: "bg-slate-100 dark:bg-slate-800", text: "text-slate-500 dark:text-slate-400", border: "border-slate-300 dark:border-slate-700" },
   LOW: { bg: "bg-slate-100 dark:bg-slate-500/10", text: "text-slate-600 dark:text-slate-400", border: "border-slate-300 dark:border-slate-500/20" },
   MEDIUM: { bg: "bg-blue-50 dark:bg-blue-500/10", text: "text-blue-600 dark:text-blue-400", border: "border-blue-200 dark:border-blue-500/20" },
   HIGH: { bg: "bg-amber-50 dark:bg-amber-500/10", text: "text-amber-700 dark:text-amber-400", border: "border-amber-200 dark:border-amber-500/20" },

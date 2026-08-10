@@ -39,7 +39,7 @@ export default function KanbanColumn({
 }: Props) {
   const [isAdding, setIsAdding] = useState(false);
   const [newTitle, setNewTitle] = useState("");
-  const [newPriority, setNewPriority] = useState("MEDIUM");
+  const [newPriority, setNewPriority] = useState("NONE");
   const [newPoints, setNewPoints] = useState<number | "">("");
   const [newOwner, setNewOwner] = useState("");
   const [isHoveredOver, setIsHoveredOver] = useState(false);
@@ -194,6 +194,7 @@ export default function KanbanColumn({
               onChange={(e) => setNewPriority(e.target.value)}
               className="flex-1 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2 py-1 text-[11px] text-slate-900 dark:text-white focus:outline-none"
             >
+              <option value="NONE">None</option>
               <option value="LOW">Low</option>
               <option value="MEDIUM">Medium</option>
               <option value="HIGH">High</option>

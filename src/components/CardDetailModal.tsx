@@ -344,6 +344,7 @@ export default function CardDetailModal({
                   onChange={(e) => setPriority(e.target.value)}
                   className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none cursor-pointer"
                 >
+                  <option value="NONE">{t("cardModal.priorityNone")}</option>
                   <option value="LOW">{t("cardModal.priorityLow")}</option>
                   <option value="MEDIUM">{t("cardModal.priorityMedium")}</option>
                   <option value="HIGH">{t("cardModal.priorityHigh")}</option>

@@ -113,6 +113,7 @@ export const es: TranslationKeys = {
     cardTitlePlaceholder: "Título de la tarjeta...",
     column: "Columna",
     priority: "Prioridad",
+    priorityNone: "Ninguna",
     priorityLow: "Baja",
     priorityMedium: "Media",
     priorityHigh: "Alta",

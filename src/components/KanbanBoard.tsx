@@ -254,6 +254,7 @@ export default function KanbanBoard({ project }: Props) {
                     className="bg-transparent text-slate-900 dark:text-white focus:outline-none cursor-pointer"
                   >
                     <option value="ALL">{t("kanban.allPriorities")}</option>
+                    <option value="NONE">None</option>
                     <option value="LOW">Low</option>
                     <option value="MEDIUM">Medium</option>
                     <option value="HIGH">High</option>

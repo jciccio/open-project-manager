@@ -69,7 +69,7 @@ model Card {
   title       String
   description String?
   number      Int       @default(1)
-  priority    String    @default("MEDIUM")
+  priority    String    @default("NONE")
   points      Int?
   owner       String?
   dueDate     DateTime?
