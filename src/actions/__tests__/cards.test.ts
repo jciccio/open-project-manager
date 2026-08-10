@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { createCard, updateCard, moveCard, deleteCard, getCardByIdentifier } from "../cards";
+import { createCard, updateCard, moveCard, deleteCard, getCardByIdentifier, archiveCard, unarchiveCard, getArchivedCards } from "../cards";
 import { createProject, getProjectById } from "../projects";
 import { createTestUser, cleanupTestUser } from "@/test/helpers";
 import { createSession, destroySession } from "@/lib/auth";
@@ -112,6 +112,23 @@ describe("Cards Server Actions", () => {
     const moveBackRes = await moveCard(cardId, columnId, 0);
     expect(moveBackRes.success).toBe(true);
     expect(moveBackRes.data?.completedAt).toBeNull();
+  });
+
+  it("archives and unarchives a card", async () => {
+    const cardRes = await createCard({ projectId, columnId, title: "Card To Archive" });
+    const cardId = cardRes.data!.id;
+
+    const archRes = await archiveCard(cardId);
+    expect(archRes.success).toBe(true);
+    expect(archRes.data?.isArchived).toBe(true);
+
+    const getArchivedRes = await getArchivedCards();
+    expect(getArchivedRes.success).toBe(true);
+    expect(getArchivedRes.data?.some((c) => c.id === cardId)).toBe(true);
+
+    const unarchRes = await unarchiveCard(cardId);
+    expect(unarchRes.success).toBe(true);
+    expect(unarchRes.data?.isArchived).toBe(false);
   });
 
   it("deletes a card", async () => {

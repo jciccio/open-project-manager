@@ -284,3 +284,88 @@ export async function getCardByIdentifier(identifier: string, overrideUserId?: s
   }
 }
 
+export async function archiveCard(id: string) {
+  try {
+    const session = await getSession();
+    if (!session) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    const card = await db.card.findFirst({
+      where: { id, project: { userId: session.userId } },
+    });
+
+    if (!card) {
+      return { success: false, error: "Card not found or access denied" };
+    }
+
+    const updated = await db.card.update({
+      where: { id },
+      data: { isArchived: true },
+    });
+
+    revalidatePath(`/projects/${card.projectId}`);
+    revalidatePath("/archived");
+    return { success: true, data: updated };
+  } catch (error) {
+    console.error(`Error archiving card ${id}:`, error);
+    return { success: false, error: "Failed to archive card" };
+  }
+}
+
+export async function unarchiveCard(id: string) {
+  try {
+    const session = await getSession();
+    if (!session) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    const card = await db.card.findFirst({
+      where: { id, project: { userId: session.userId } },
+    });
+
+    if (!card) {
+      return { success: false, error: "Card not found or access denied" };
+    }
+
+    const updated = await db.card.update({
+      where: { id },
+      data: { isArchived: false },
+    });
+
+    revalidatePath(`/projects/${card.projectId}`);
+    revalidatePath("/archived");
+    return { success: true, data: updated };
+  } catch (error) {
+    console.error(`Error unarchiving card ${id}:`, error);
+    return { success: false, error: "Failed to unarchive card" };
+  }
+}
+
+export async function getArchivedCards() {
+  try {
+    const session = await getSession();
+    if (!session) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    const cards = await db.card.findMany({
+      where: {
+        isArchived: true,
+        project: { userId: session.userId },
+      },
+      include: {
+        project: true,
+        column: true,
+        labels: { include: { label: true } },
+      },
+      orderBy: { updatedAt: "desc" },
+    });
+
+    return { success: true, data: cards };
+  } catch (error) {
+    console.error("Error fetching archived cards:", error);
+    return { success: false, error: "Failed to fetch archived cards" };
+  }
+}
+
