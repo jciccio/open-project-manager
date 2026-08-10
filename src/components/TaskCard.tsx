@@ -1,6 +1,7 @@
 "use client";
 
 import { MessageSquare, Calendar, Zap, Link2, ShieldAlert } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 import { useTranslation } from "./LanguageProvider";
 
 interface Props {
@@ -98,9 +99,26 @@ export default function TaskCard({ card, onClick }: Props) {
 
       {/* Description Snippet */}
       {card.description && (
-        <p className="mt-1.5 text-xs text-slate-600 dark:text-slate-400 line-clamp-2 leading-relaxed">
-          {card.description}
-        </p>
+        <div className="mt-1.5 text-xs text-slate-600 dark:text-slate-400 line-clamp-2 leading-relaxed prose dark:prose-invert max-w-none">
+          <ReactMarkdown
+            components={{
+              code({ className, children, ...props }) {
+                return (
+                  <code
+                    className={`rounded-md bg-slate-100 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 px-1.5 py-0.5 font-mono text-[11px] text-indigo-600 dark:text-indigo-300 ${
+                      className || ""
+                    }`}
+                    {...props}
+                  >
+                    {children}
+                  </code>
+                );
+              },
+            }}
+          >
+            {card.description}
+          </ReactMarkdown>
+        </div>
       )}
 
       {/* Badges Footer */}

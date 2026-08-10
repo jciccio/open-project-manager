@@ -18,13 +18,15 @@ import {
   Link2,
   ShieldAlert,
   Plus,
+  Archive,
 } from "lucide-react";
-import { updateCard, deleteCard, getCardByIdentifier } from "@/actions/cards";
+import { updateCard, deleteCard, archiveCard, getCardByIdentifier } from "@/actions/cards";
 import { getProjectById } from "@/actions/projects";
 import { addComment, updateComment, deleteComment } from "@/actions/comments";
 import { getLabels } from "@/actions/labels";
 import { addCardRelation, removeCardRelation, getCardRelations } from "@/actions/relations";
 import { useTranslation } from "./LanguageProvider";
+import MarkdownEditor from "./MarkdownEditor";
 
 interface Props {
   card: {
@@ -165,11 +167,25 @@ export default function CardDetailModal({
     }
   }
 
+  const [archiving, setArchiving] = useState(false);
+
   async function handleDelete() {
     if (!confirm(t("cardModal.deleteConfirm"))) return;
     setDeleting(true);
     const res = await deleteCard(card.id);
     setDeleting(false);
+
+    if (res.success) {
+      onRefresh();
+      onClose();
+    }
+  }
+
+  async function handleArchive() {
+    if (!confirm("Are you sure you want to archive this card?")) return;
+    setArchiving(true);
+    const res = await archiveCard(card.id);
+    setArchiving(false);
 
     if (res.success) {
       onRefresh();
@@ -284,6 +300,14 @@ export default function CardDetailModal({
             )}
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={handleArchive}
+              disabled={archiving}
+              className="rounded-lg p-2 text-slate-500 hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-400 transition-colors"
+              title="Archive task card"
+            >
+              <Archive className="h-4 w-4" />
+            </button>
             <button
               onClick={handleDelete}
               disabled={deleting}
@@ -405,12 +429,11 @@ export default function CardDetailModal({
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
               {t("cardModal.description")}
             </label>
-            <textarea
-              rows={3}
+            <MarkdownEditor
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={setDescription}
               placeholder={t("cardModal.descriptionPlaceholder")}
-              className="w-full rounded-lg bg-slate-100 dark:bg-slate-800/60 border border-slate-300 dark:border-slate-700 px-3.5 py-2.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-indigo-500 focus:outline-none"
+              rows={4}
             />
           </div>
 

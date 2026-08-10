@@ -58,6 +58,7 @@ export async function getProjectById(id: string, overrideUserId?: string) {
           orderBy: { order: "asc" },
           include: {
             cards: {
+              where: { isArchived: false },
               orderBy: { order: "asc" },
               include: {
                 labels: {

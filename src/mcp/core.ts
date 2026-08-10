@@ -143,6 +143,7 @@ export const MCP_TOOLS = [
         columnId: { type: "string", description: "Filter by column ID" },
         priority: { type: "string", description: "Filter by priority (NONE, LOW, MEDIUM, HIGH, URGENT)" },
         owner: { type: "string", description: "Filter by assignee owner name" },
+        isArchived: { type: "boolean", description: "Filter by archived status (default: false)" },
       },
     },
   },
@@ -224,6 +225,28 @@ export const MCP_TOOLS = [
       type: "object",
       properties: {
         id: { type: "string", description: "Card ID to delete" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "archive_card",
+    description: "Archive a task card so it is hidden from active project board views.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Card ID to archive" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "unarchive_card",
+    description: "Unarchive a task card so it is restored to active project board views.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Card ID to unarchive" },
       },
       required: ["id"],
     },
@@ -454,7 +477,9 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "list_cards": {
-      const where: any = {};
+      const where: any = {
+        isArchived: typeof args.isArchived === "boolean" ? args.isArchived : false,
+      };
       if (args.projectId) where.projectId = args.projectId;
       if (args.columnId) where.columnId = args.columnId;
       if (args.priority) where.priority = args.priority;
@@ -606,6 +631,22 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     case "delete_card": {
       await db.card.delete({ where: { id: args.id } });
       return { success: true, deletedId: args.id };
+    }
+
+    case "archive_card": {
+      const card = await db.card.update({
+        where: { id: args.id },
+        data: { isArchived: true },
+      });
+      return { success: true, card };
+    }
+
+    case "unarchive_card": {
+      const card = await db.card.update({
+        where: { id: args.id },
+        data: { isArchived: false },
+      });
+      return { success: true, card };
     }
 
     case "add_comment": {

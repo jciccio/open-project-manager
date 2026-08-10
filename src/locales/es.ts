@@ -137,6 +137,17 @@ export const es: TranslationKeys = {
     deleteConfirm: "¿Estás seguro de que deseas eliminar esta tarjeta?",
     confirmDeleteCard: "¿Estás seguro de que deseas eliminar esta tarjeta?",
   },
+  markdownEditor: {
+    write: "Escribir",
+    preview: "Vista Previa",
+    bold: "Negrita (**texto**)",
+    italic: "Cursiva (*texto*)",
+    heading: "Encabezado (### Encabezado)",
+    code: "Código en línea (`código`)",
+    list: "Lista con viñetas (- elemento)",
+    link: "Enlace ([título](url))",
+    nothingToPreview: "Nada para previsualizar",
+  },
   newProjectModal: {
     title: "Crear Nuevo Proyecto",
     nameLabel: "Nombre del Proyecto",

@@ -135,6 +135,17 @@ export const en = {
     deleteConfirm: "Are you sure you want to delete this card?",
     confirmDeleteCard: "Are you sure you want to delete this card?",
   },
+  markdownEditor: {
+    write: "Write",
+    preview: "Preview",
+    bold: "Bold (**text**)",
+    italic: "Italic (*text*)",
+    heading: "Heading (### Heading)",
+    code: "Inline Code (`code`)",
+    list: "Bulleted List (- item)",
+    link: "Link ([title](url))",
+    nothingToPreview: "Nothing to preview",
+  },
   newProjectModal: {
     title: "Create New Project",
     nameLabel: "Project Name",

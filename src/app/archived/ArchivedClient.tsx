@@ -1,16 +1,32 @@
 "use client";
 
-import { Archive, ArrowLeft } from "lucide-react";
+import { useState } from "react";
+import { Archive, ArrowLeft, RotateCcw, Layout, Layers } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import ProjectCard from "@/components/ProjectCard";
+import { unarchiveCard } from "@/actions/cards";
 import { useTranslation } from "@/components/LanguageProvider";
 
 interface Props {
   archivedProjects: any[];
+  archivedCards: any[];
 }
 
-export default function ArchivedClient({ archivedProjects }: Props) {
+export default function ArchivedClient({ archivedProjects, archivedCards }: Props) {
+  const [activeTab, setActiveTab] = useState<"projects" | "cards">("projects");
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+  const router = useRouter();
   const { t } = useTranslation();
+
+  async function handleRestoreCard(id: string) {
+    setRestoringId(id);
+    const res = await unarchiveCard(id);
+    setRestoringId(null);
+    if (res.success) {
+      router.refresh();
+    }
+  }
 
   return (
     <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-8">
@@ -38,32 +54,111 @@ export default function ArchivedClient({ archivedProjects }: Props) {
               {t("archived.subheading")}
             </p>
           </div>
+
+          {/* Tab Filter buttons */}
+          <div className="flex items-center gap-2 bg-white/80 dark:bg-slate-950/60 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-800">
+            <button
+              onClick={() => setActiveTab("projects")}
+              className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all ${
+                activeTab === "projects"
+                  ? "bg-amber-500 text-white shadow-md"
+                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+              }`}
+            >
+              <Layout className="h-4 w-4" />
+              <span>Projects ({archivedProjects.length})</span>
+            </button>
+            <button
+              onClick={() => setActiveTab("cards")}
+              className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all ${
+                activeTab === "cards"
+                  ? "bg-amber-500 text-white shadow-md"
+                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+              }`}
+            >
+              <Layers className="h-4 w-4" />
+              <span>Cards ({archivedCards.length})</span>
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Projects Grid */}
-      {archivedProjects.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {archivedProjects.map((project) => (
-            <ProjectCard key={project.id} project={project as any} />
-          ))}
-        </div>
-      ) : (
-        <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-300 dark:border-slate-800 bg-white/50 dark:bg-slate-900/30 py-16 text-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 mb-4">
-            <Archive className="h-6 w-6" />
+      {/* Projects Tab */}
+      {activeTab === "projects" && (
+        archivedProjects.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {archivedProjects.map((project) => (
+              <ProjectCard key={project.id} project={project as any} />
+            ))}
           </div>
-          <h3 className="text-lg font-bold text-slate-900 dark:text-white">{t("archived.noArchived")}</h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm">
-            {t("archived.noArchivedSub")}
-          </p>
-          <Link
-            href="/"
-            className="mt-4 rounded-xl bg-slate-200 dark:bg-slate-800 px-4 py-2 text-xs font-semibold text-slate-800 dark:text-white hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors"
-          >
-            {t("archived.backToDashboard")}
-          </Link>
-        </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-300 dark:border-slate-800 bg-white/50 dark:bg-slate-900/30 py-16 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 mb-4">
+              <Archive className="h-6 w-6" />
+            </div>
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white">{t("archived.noArchived")}</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm">
+              {t("archived.noArchivedSub")}
+            </p>
+          </div>
+        )
+      )}
+
+      {/* Cards Tab */}
+      {activeTab === "cards" && (
+        archivedCards.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {archivedCards.map((card) => {
+              const identifier = card.project?.key ? `${card.project.key}-${card.number}` : `#${card.number}`;
+              return (
+                <div
+                  key={card.id}
+                  className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-xs flex flex-col justify-between"
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <span className="rounded-md bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/20 px-2 py-0.5 text-xs font-mono font-bold text-indigo-700 dark:text-indigo-300">
+                        {identifier}
+                      </span>
+                      <span className="text-xs text-slate-500 dark:text-slate-400">
+                        {card.project?.name} ({card.column?.name})
+                      </span>
+                    </div>
+                    <h4 className="font-bold text-base text-slate-900 dark:text-white mb-1">
+                      {card.title}
+                    </h4>
+                    {card.description && (
+                      <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2">
+                        {card.description}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end">
+                    <button
+                      onClick={() => handleRestoreCard(card.id)}
+                      disabled={restoringId === card.id}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/30 px-3 py-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition-colors"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                      <span>{restoringId === card.id ? "Restoring..." : "Restore Card"}</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-300 dark:border-slate-800 bg-white/50 dark:bg-slate-900/30 py-16 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 mb-4">
+              <Archive className="h-6 w-6" />
+            </div>
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white">No Archived Cards</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm">
+              Cards you archive will appear here where you can restore them anytime.
+            </p>
+          </div>
+        )
       )}
     </main>
   );
