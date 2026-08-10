@@ -68,6 +68,26 @@ export async function getProjectById(id: string, overrideUserId?: string) {
                 comments: {
                   orderBy: { createdAt: "desc" },
                 },
+                incomingRelations: {
+                  include: {
+                    sourceCard: {
+                      include: {
+                        column: true,
+                        project: true,
+                      },
+                    },
+                  },
+                },
+                outgoingRelations: {
+                  include: {
+                    targetCard: {
+                      include: {
+                        column: true,
+                        project: true,
+                      },
+                    },
+                  },
+                },
               },
             },
           },

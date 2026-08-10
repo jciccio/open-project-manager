@@ -15,10 +15,15 @@ import {
   Pencil,
   Check,
   CheckCircle,
+  Link2,
+  ShieldAlert,
+  Plus,
 } from "lucide-react";
-import { updateCard, deleteCard } from "@/actions/cards";
+import { updateCard, deleteCard, getCardByIdentifier } from "@/actions/cards";
+import { getProjectById } from "@/actions/projects";
 import { addComment, updateComment, deleteComment } from "@/actions/comments";
 import { getLabels } from "@/actions/labels";
+import { addCardRelation, removeCardRelation, getCardRelations } from "@/actions/relations";
 import { useTranslation } from "./LanguageProvider";
 
 interface Props {
@@ -83,6 +88,16 @@ export default function CardDetailModal({
     Array<{ id: string; name: string; color: string }>
   >([]);
 
+  const [relations, setRelations] = useState<Array<any>>([]);
+  const [projectCards, setProjectCards] = useState<
+    Array<{ id: string; identifier: string; title: string }>
+  >([]);
+  const [selectedProjectCardId, setSelectedProjectCardId] = useState("");
+  const [targetIdentifierInput, setTargetIdentifierInput] = useState("");
+  const [relationTypeInput, setRelationTypeInput] = useState("BLOCKS");
+  const [relationError, setRelationError] = useState("");
+  const [isAddingRelation, setIsAddingRelation] = useState(false);
+
   const [commentAuthor, setCommentAuthor] = useState("");
   const [commentContent, setCommentContent] = useState("");
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
@@ -95,6 +110,13 @@ export default function CardDetailModal({
 
   const { t } = useTranslation();
 
+  async function loadRelations() {
+    const res = await getCardRelations(card.id);
+    if (res.success && res.data) {
+      setRelations(res.data);
+    }
+  }
+
   useEffect(() => {
     async function loadLabels() {
       const res = await getLabels();
@@ -102,8 +124,26 @@ export default function CardDetailModal({
         setAvailableLabels(res.data);
       }
     }
+    async function loadProjectCards() {
+      const pRes = await getProjectById(card.projectId);
+      if (pRes.success && pRes.data && pRes.data.columns) {
+        const key = pRes.data.key;
+        const allCards = pRes.data.columns.flatMap((col: any) => col.cards || []);
+        const otherCards = allCards
+          .filter((c: any) => c.id !== card.id)
+          .map((c: any) => ({
+            id: c.id,
+            identifier: `${key}-${c.number}`,
+            title: c.title,
+          }));
+        setProjectCards(otherCards);
+      }
+    }
+
     loadLabels();
-  }, []);
+    loadRelations();
+    loadProjectCards();
+  }, [card.id, card.projectId]);
 
   async function handleSave() {
     setIsSaving(true);
@@ -180,6 +220,48 @@ export default function CardDetailModal({
     }
   }
 
+  async function handleAddRelation(e: React.FormEvent) {
+    e.preventDefault();
+    setRelationError("");
+
+    let targetCardId = selectedProjectCardId;
+
+    if (!targetCardId && targetIdentifierInput.trim()) {
+      const targetLookup = await getCardByIdentifier(targetIdentifierInput.trim());
+      if (targetLookup.success && targetLookup.data) {
+        targetCardId = targetLookup.data.id;
+      } else {
+        setRelationError(`Card '${targetIdentifierInput.trim()}' not found`);
+        return;
+      }
+    }
+
+    if (!targetCardId) {
+      setRelationError("Please select a card from the dropdown or enter an identifier");
+      return;
+    }
+
+    const res = await addCardRelation(card.id, targetCardId, relationTypeInput);
+    if (!res.success) {
+      setRelationError(res.error || "Failed to add card relation");
+      return;
+    }
+
+    setTargetIdentifierInput("");
+    setSelectedProjectCardId("");
+    setIsAddingRelation(false);
+    loadRelations();
+    onRefresh();
+  }
+
+  async function handleRemoveRelation(relationId: string) {
+    const res = await removeCardRelation(relationId);
+    if (res.success) {
+      loadRelations();
+      onRefresh();
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
       <div className="w-full max-w-2xl max-h-[90vh] flex flex-col rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
@@ -219,10 +301,10 @@ export default function CardDetailModal({
           </div>
         </div>
 
-        {/* Modal Body Scrollable */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          {/* Card Title & Column Status */}
-          <div className="space-y-3">
+        {/* Content Body */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-5">
+          {/* Title */}
+          <div>
             <input
               type="text"
               value={title}
@@ -231,7 +313,7 @@ export default function CardDetailModal({
               placeholder={t("cardModal.cardTitlePlaceholder")}
             />
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
               {/* Column Selector */}
               <div>
                 <label className="flex items-center gap-1 text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
@@ -357,6 +439,131 @@ export default function CardDetailModal({
                   </button>
                 );
               })}
+            </div>
+          </div>
+
+          {/* Card Relations Dependencies Section */}
+          <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Link2 className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+                  Card Dependencies & Relations ({relations.length})
+                </h4>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddingRelation(!isAddingRelation)}
+                className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>Link Card</span>
+              </button>
+            </div>
+
+            {/* Relation Form */}
+            {isAddingRelation && (
+              <form onSubmit={handleAddRelation} className="p-3.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 space-y-2.5">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                  <select
+                    value={relationTypeInput}
+                    onChange={(e) => setRelationTypeInput(e.target.value)}
+                    className="rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-semibold focus:outline-none shrink-0"
+                  >
+                    <option value="BLOCKS">Blocks</option>
+                    <option value="BLOCKED_BY">Is Blocked By</option>
+                    <option value="RELATES_TO">Relates To</option>
+                  </select>
+
+                  {/* Same-project Cards Dropdown */}
+                  <select
+                    value={selectedProjectCardId}
+                    onChange={(e) => {
+                      setSelectedProjectCardId(e.target.value);
+                      if (e.target.value) setTargetIdentifierInput("");
+                    }}
+                    className="flex-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none"
+                  >
+                    <option value="">-- Select card from this project --</option>
+                    {projectCards.map((pc) => (
+                      <option key={pc.id} value={pc.id}>
+                        [{pc.identifier}] {pc.title}
+                      </option>
+                    ))}
+                  </select>
+
+                  <button
+                    type="submit"
+                    className="rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 transition-colors shrink-0"
+                  >
+                    Add
+                  </button>
+                </div>
+
+                {/* Free Text Identifier Input */}
+                <div className="flex items-center gap-2 pt-1 border-t border-slate-200 dark:border-slate-700/50">
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium shrink-0">Or type identifier / ID:</span>
+                  <input
+                    type="text"
+                    placeholder="e.g. OPMR-2 or card ID..."
+                    value={targetIdentifierInput}
+                    onChange={(e) => {
+                      setTargetIdentifierInput(e.target.value);
+                      if (e.target.value) setSelectedProjectCardId("");
+                    }}
+                    className="flex-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-2.5 py-1 text-xs text-slate-900 dark:text-white focus:outline-none"
+                  />
+                </div>
+
+                {relationError && (
+                  <p className="text-[11px] text-red-500 font-semibold">{relationError}</p>
+                )}
+              </form>
+            )}
+
+            {/* Relations List */}
+            <div className="flex flex-wrap gap-2">
+              {relations.length > 0 ? (
+                relations.map((rel) => {
+                  const isBlocked = rel.relationType === "BLOCKED_BY" && !rel.isDone;
+                  return (
+                    <div
+                      key={rel.id}
+                      className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold ${
+                        isBlocked
+                          ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-400"
+                          : "bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300"
+                      }`}
+                    >
+                      {isBlocked ? (
+                        <ShieldAlert className="h-3.5 w-3.5 text-rose-500 animate-pulse" />
+                      ) : (
+                        <Link2 className="h-3.5 w-3.5 text-indigo-500" />
+                      )}
+                      <span className="uppercase text-[10px] font-bold tracking-wider opacity-75">
+                        {rel.relationType.replace("_", " ")}
+                      </span>
+                      <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                        {rel.identifier}
+                      </span>
+                      <span className="max-w-[140px] truncate text-slate-600 dark:text-slate-400">
+                        ({rel.cardTitle})
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveRelation(rel.id)}
+                        className="ml-1 rounded text-slate-400 hover:text-red-500"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="text-xs text-slate-500 dark:text-slate-400 italic">
+                  No linked cards or dependencies.
+                </p>
+              )}
             </div>
           </div>
 

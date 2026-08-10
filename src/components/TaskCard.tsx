@@ -1,6 +1,6 @@
 "use client";
 
-import { MessageSquare, Calendar, Zap } from "lucide-react";
+import { MessageSquare, Calendar, Zap, Link2, ShieldAlert } from "lucide-react";
 import { useTranslation } from "./LanguageProvider";
 
 interface Props {
@@ -22,6 +22,15 @@ interface Props {
       };
     }>;
     comments: Array<any>;
+    incomingRelations?: Array<{
+      type: string;
+      sourceCard?: {
+        number?: number;
+        title?: string;
+        project?: { key: string };
+        column?: { isDone: boolean };
+      };
+    }>;
   };
   onClick: () => void;
 }
@@ -36,6 +45,25 @@ const PRIORITY_COLORS: Record<string, { bg: string; text: string; border: string
 export default function TaskCard({ card, onClick }: Props) {
   const priorityStyle = PRIORITY_COLORS[card.priority] || PRIORITY_COLORS.MEDIUM;
   const { t } = useTranslation();
+
+  const activeBlockers = card.incomingRelations
+    ? card.incomingRelations.filter(
+        (r) => r.type === "BLOCKS" && (!r.sourceCard?.column || !r.sourceCard.column.isDone)
+      )
+    : [];
+
+  const blockerLabel = activeBlockers
+    .map((r) =>
+      r.sourceCard?.project?.key && r.sourceCard?.number
+        ? `${r.sourceCard.project.key}-${r.sourceCard.number}`
+        : `#${r.sourceCard?.number || ""}`
+    )
+    .filter(Boolean)
+    .join(", ");
+
+  const blockerTooltip = activeBlockers
+    .map((r) => `${r.sourceCard?.project?.key || ""}-${r.sourceCard?.number || ""}: ${r.sourceCard?.title || ""}`)
+    .join("\n");
 
   return (
     <div
@@ -76,13 +104,24 @@ export default function TaskCard({ card, onClick }: Props) {
 
       {/* Badges Footer */}
       <div className="mt-3.5 pt-3 border-t border-slate-200 dark:border-slate-800/80 flex items-center justify-between gap-2 text-xs">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           {/* Priority Badge */}
           <span
             className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider border ${priorityStyle.bg} ${priorityStyle.text} ${priorityStyle.border}`}
           >
             {card.priority}
           </span>
+
+          {/* Blocked Indicator Badge */}
+          {activeBlockers.length > 0 && (
+            <span
+              className="inline-flex items-center gap-1 rounded-md bg-rose-50 dark:bg-rose-500/10 px-2 py-0.5 text-[10px] font-bold text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20"
+              title={`Blocked by:\n${blockerTooltip}`}
+            >
+              <ShieldAlert className="h-2.5 w-2.5 text-rose-500 animate-pulse" />
+              <span>Blocked {blockerLabel ? `(${blockerLabel})` : ""}</span>
+            </span>
+          )}
 
           {/* Points Badge */}
           {card.points !== null && card.points !== undefined && (

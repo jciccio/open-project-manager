@@ -242,6 +242,41 @@ export const MCP_TOOLS = [
     },
   },
   {
+    name: "add_card_relation",
+    description: "Add a dependency or relationship between two cards (BLOCKS, BLOCKED_BY, RELATES_TO).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sourceCardId: { type: "string", description: "Source card ID" },
+        targetCardId: { type: "string", description: "Target card ID" },
+        type: { type: "string", description: "Relation type: BLOCKS, BLOCKED_BY, or RELATES_TO" },
+      },
+      required: ["sourceCardId", "targetCardId"],
+    },
+  },
+  {
+    name: "remove_card_relation",
+    description: "Delete an existing card relation by ID.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        relationId: { type: "string", description: "CardRelation ID to remove" },
+      },
+      required: ["relationId"],
+    },
+  },
+  {
+    name: "get_card_relations",
+    description: "List all relations (blocking, blocked by, relates to) for a specific card.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cardId: { type: "string", description: "Card ID to query relations for" },
+      },
+      required: ["cardId"],
+    },
+  },
+  {
     name: "list_comments",
     description: "List all comments for a specific task card.",
     inputSchema: {
@@ -598,6 +633,59 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
         data: { content: args.content.trim() },
       });
       return { success: true, comment };
+    }
+
+    case "add_card_relation": {
+      const type = args.type ? args.type.toUpperCase().trim() : "BLOCKS";
+      const relation = await db.cardRelation.create({
+        data: {
+          sourceCardId: args.sourceCardId,
+          targetCardId: args.targetCardId,
+          type,
+        },
+      });
+      return { success: true, relation };
+    }
+
+    case "remove_card_relation": {
+      await db.cardRelation.delete({ where: { id: args.relationId } });
+      return { success: true, deletedId: args.relationId };
+    }
+
+    case "get_card_relations": {
+      const outgoing = await db.cardRelation.findMany({
+        where: { sourceCardId: args.cardId },
+        include: { targetCard: { include: { project: true, column: true } } },
+      });
+      const incoming = await db.cardRelation.findMany({
+        where: { targetCardId: args.cardId },
+        include: { sourceCard: { include: { project: true, column: true } } },
+      });
+
+      const relations = [
+        ...outgoing.map((r) => ({
+          id: r.id,
+          relationType: r.type,
+          cardId: r.targetCardId,
+          cardTitle: r.targetCard.title,
+          identifier: `${r.targetCard.project.key}-${r.targetCard.number}`,
+          columnName: r.targetCard.column.name,
+          isDone: r.targetCard.column.isDone,
+          direction: "outgoing",
+        })),
+        ...incoming.map((r) => ({
+          id: r.id,
+          relationType: r.type === "BLOCKS" ? "BLOCKED_BY" : r.type === "BLOCKED_BY" ? "BLOCKS" : r.type,
+          cardId: r.sourceCardId,
+          cardTitle: r.sourceCard.title,
+          identifier: `${r.sourceCard.project.key}-${r.sourceCard.number}`,
+          columnName: r.sourceCard.column.name,
+          isDone: r.sourceCard.column.isDone,
+          direction: "incoming",
+        })),
+      ];
+
+      return { success: true, relations };
     }
 
     case "list_labels": {

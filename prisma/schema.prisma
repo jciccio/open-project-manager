@@ -65,10 +65,24 @@ model Card {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  labels   CardLabel[]
-  comments Comment[]
+  labels            CardLabel[]
+  comments          Comment[]
+  outgoingRelations CardRelation[] @relation("SourceCardRelations")
+  incomingRelations CardRelation[] @relation("TargetCardRelations")
 
   @@unique([projectId, number])
+}
+
+model CardRelation {
+  id           String   @id @default(cuid())
+  sourceCardId String
+  sourceCard   Card     @relation("SourceCardRelations", fields: [sourceCardId], references: [id], onDelete: Cascade)
+  targetCardId String
+  targetCard   Card     @relation("TargetCardRelations", fields: [targetCardId], references: [id], onDelete: Cascade)
+  type         String   // BLOCKS | BLOCKED_BY | RELATES_TO
+  createdAt    DateTime @default(now())
+
+  @@unique([sourceCardId, targetCardId, type])
 }
 
 model Label {
