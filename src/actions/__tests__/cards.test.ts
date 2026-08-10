@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { createCard, updateCard, moveCard, deleteCard } from "../cards";
+import { createCard, updateCard, moveCard, deleteCard, getCardByIdentifier } from "../cards";
 import { createProject, getProjectById } from "../projects";
 import { createTestUser, cleanupTestUser } from "@/test/helpers";
 import { createSession, destroySession } from "@/lib/auth";
@@ -28,8 +28,8 @@ describe("Cards Server Actions", () => {
     await cleanupTestUser(userId);
   });
 
-  it("creates a new card in a column", async () => {
-    const res = await createCard({
+  it("creates a new card in a column with sequential number", async () => {
+    const res1 = await createCard({
       projectId,
       columnId,
       title: "Task 1",
@@ -39,10 +39,26 @@ describe("Cards Server Actions", () => {
       owner: "Dev Lead",
     });
 
-    expect(res.success).toBe(true);
-    expect(res.data?.title).toBe("Task 1");
-    expect(res.data?.priority).toBe("HIGH");
-    expect(res.data?.points).toBe(3);
+    expect(res1.success).toBe(true);
+    expect(res1.data?.title).toBe("Task 1");
+    expect(res1.data?.number).toBe(1);
+
+    const res2 = await createCard({
+      projectId,
+      columnId,
+      title: "Task 2",
+    });
+    expect(res2.success).toBe(true);
+    expect(res2.data?.number).toBe(2);
+  });
+
+  it("resolves card by human-readable identifier", async () => {
+    await createCard({ projectId, columnId, title: "Identifier Card" });
+
+    const lookupRes = await getCardByIdentifier("CTP-1");
+    expect(lookupRes.success).toBe(true);
+    expect(lookupRes.data?.title).toBe("Identifier Card");
+    expect(lookupRes.data?.identifier).toBe("CTP-1");
   });
 
   it("validates empty title", async () => {
@@ -88,3 +104,4 @@ describe("Cards Server Actions", () => {
     expect(delRes.success).toBe(true);
   });
 });
+

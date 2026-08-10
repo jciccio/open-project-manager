@@ -25,14 +25,17 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
 
-    const res = await loginUser({ email, password });
-    setLoading(false);
-
-    if (res.success) {
-      router.push("/");
-      router.refresh();
-    } else {
-      setError(res.error || "Invalid credentials");
+    try {
+      const res = await loginUser({ email, password });
+      if (res.success) {
+        window.location.href = "/";
+      } else {
+        setLoading(false);
+        setError(res.error || "Invalid credentials");
+      }
+    } catch (err: any) {
+      setLoading(false);
+      setError(err?.message || "An unexpected login error occurred. Please try again.");
     }
   }
 

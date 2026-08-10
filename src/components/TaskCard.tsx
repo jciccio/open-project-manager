@@ -8,6 +8,8 @@ interface Props {
     id: string;
     title: string;
     description: string | null;
+    number?: number;
+    project?: { key: string };
     priority: string;
     points: number | null;
     owner: string | null;
@@ -40,10 +42,16 @@ export default function TaskCard({ card, onClick }: Props) {
       onClick={onClick}
       className="group cursor-pointer rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 shadow-xs hover:border-indigo-500/50 dark:hover:border-indigo-500/40 hover:shadow-md hover:shadow-indigo-500/10 transition-all select-none"
     >
-      {/* Label Chips */}
-      {card.labels && card.labels.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mb-2.5">
-          {card.labels.map(({ label }) => (
+      {/* Identifier & Label Chips */}
+      <div className="flex flex-wrap items-center gap-1.5 mb-2.5">
+        {card.number && (
+          <span className="inline-block rounded-md bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/20 px-1.5 py-0.5 text-[10px] font-mono font-bold text-indigo-700 dark:text-indigo-300">
+            {card.project?.key ? `${card.project.key}-${card.number}` : `#${card.number}`}
+          </span>
+        )}
+        {card.labels &&
+          card.labels.length > 0 &&
+          card.labels.map(({ label }) => (
             <span
               key={label.id}
               className="inline-block rounded-md px-2 py-0.5 text-[10px] font-bold tracking-wide text-white shadow-2xs"
@@ -52,8 +60,7 @@ export default function TaskCard({ card, onClick }: Props) {
               {label.name}
             </span>
           ))}
-        </div>
-      )}
+      </div>
 
       {/* Card Title */}
       <h4 className="font-bold text-sm text-slate-900 dark:text-slate-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition-colors leading-snug">

@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { FolderKanban, Plus, Tag, LogOut, Archive, Sun, Moon, Globe, User as UserIcon } from "lucide-react";
+import Image from "next/image";
+import { Plus, Tag, LogOut, Archive, Sun, Moon, Globe, User as UserIcon } from "lucide-react";
 import { useState } from "react";
 import NewProjectModal from "./NewProjectModal";
 import LabelManagerModal from "./LabelManagerModal";
@@ -32,8 +33,7 @@ export default function Header({ user, archivedCount = 0 }: Props) {
   async function handleLogout() {
     setLoggingOut(true);
     await logoutUser();
-    router.push("/login");
-    router.refresh();
+    window.location.href = "/login";
   }
 
   function toggleLanguage() {
@@ -46,9 +46,9 @@ export default function Header({ user, archivedCount = 0 }: Props) {
         <div className="mx-auto flex max-w-7xl items-center justify-between">
           {/* Logo & Brand */}
           <Link href="/" className="flex items-center gap-3 group">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 p-0.5 shadow-lg shadow-indigo-500/20 group-hover:scale-105 transition-transform">
-              <div className="flex h-full w-full items-center justify-center rounded-[10px] bg-white dark:bg-slate-950">
-                <FolderKanban className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 via-indigo-600 to-purple-600 p-0.5 shadow-lg shadow-amber-500/20 group-hover:scale-105 transition-transform">
+              <div className="flex h-full w-full items-center justify-center rounded-[10px] bg-slate-950 overflow-hidden">
+                <Image src="/icon.png" alt="Nanobanana Logo" width={32} height={32} className="h-8 w-8 object-cover rounded-lg" />
               </div>
             </div>
             <div>

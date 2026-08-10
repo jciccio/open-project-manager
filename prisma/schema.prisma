@@ -23,6 +23,7 @@ model Project {
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   name        String
+  key         String   @default("OPM")
   description String?
   color       String   @default("#6366f1")
   isArchived  Boolean  @default(false)
@@ -53,6 +54,7 @@ model Card {
   column      Column    @relation(fields: [columnId], references: [id], onDelete: Cascade)
   title       String
   description String?
+  number      Int       @default(1)
   priority    String    @default("MEDIUM")
   points      Int?
   owner       String?
@@ -63,6 +65,8 @@ model Card {
 
   labels   CardLabel[]
   comments Comment[]
+
+  @@unique([projectId, number])
 }
 
 model Label {

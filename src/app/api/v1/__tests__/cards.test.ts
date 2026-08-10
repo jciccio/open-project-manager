@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { GET as getCardsRoute, POST as createCardRoute } from "../cards/route";
 import { GET as getCardByIdRoute, PUT as updateCardRoute, DELETE as deleteCardRoute } from "../cards/[id]/route";
+import { GET as getByIdentifierRoute } from "../cards/by-identifier/[identifier]/route";
 import { NextRequest } from "next/server";
 import { createTestUser, createTestProject, cleanupTestUser } from "@/test/helpers";
 import { getProjectById } from "@/actions/projects";
@@ -71,7 +72,19 @@ describe("REST API: Cards", () => {
     const getSingleRes = await getCardByIdRoute(getSingleReq, { params: Promise.resolve({ id: cardId }) });
     expect(getSingleRes.status).toBe(200);
 
-    // 4. Update Card
+    // 4. Get Card By Identifier (ACP-1)
+    const getByIdentifierReq = new NextRequest(`http://localhost/api/v1/cards/by-identifier/ACP-1`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const getByIdentifierRes = await getByIdentifierRoute(getByIdentifierReq, {
+      params: Promise.resolve({ identifier: "ACP-1" }),
+    });
+    expect(getByIdentifierRes.status).toBe(200);
+    const byIdentifierBody = await getByIdentifierRes.json();
+    expect(byIdentifierBody.data.identifier).toBe("ACP-1");
+    expect(byIdentifierBody.data.title).toBe("REST Card Test");
+
+    // 5. Update Card
     const updateReq = new NextRequest(`http://localhost/api/v1/cards/${cardId}`, {
       method: "PUT",
       headers: {
@@ -83,7 +96,7 @@ describe("REST API: Cards", () => {
     const updateRes = await updateCardRoute(updateReq, { params: Promise.resolve({ id: cardId }) });
     expect(updateRes.status).toBe(200);
 
-    // 5. Delete Card
+    // 6. Delete Card
     const delReq = new NextRequest(`http://localhost/api/v1/cards/${cardId}`, {
       method: "DELETE",
       headers: { authorization: `Bearer ${token}` },
@@ -92,3 +105,4 @@ describe("REST API: Cards", () => {
     expect(delRes.status).toBe(200);
   });
 });
+

@@ -25,6 +25,8 @@ interface Props {
     columnId: string;
     title: string;
     description: string | null;
+    number?: number;
+    project?: { key: string };
     priority: string;
     points: number | null;
     owner: string | null;
@@ -59,58 +61,63 @@ export default function CardDetailModal({
 }: Props) {
   const [title, setTitle] = useState(card.title);
   const [description, setDescription] = useState(card.description || "");
-  const [priority, setPriority] = useState(card.priority);
-  const [points, setPoints] = useState<number | "">(card.points ?? "");
-  const [owner, setOwner] = useState(card.owner || "");
   const [columnId, setColumnId] = useState(card.columnId);
+  const [priority, setPriority] = useState(card.priority);
+  const [points, setPoints] = useState<string>(
+    card.points !== null && card.points !== undefined ? String(card.points) : ""
+  );
+  const [owner, setOwner] = useState(card.owner || "");
   const [dueDate, setDueDate] = useState<string>(
-    card.dueDate
-      ? new Date(card.dueDate).toISOString().substring(0, 10)
-      : ""
+    card.dueDate ? new Date(card.dueDate).toISOString().split("T")[0] : ""
+  );
+  const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>(
+    card.labels ? card.labels.map((l) => l.label.id) : []
   );
 
-  const [availableLabels, setAvailableLabels] = useState<any[]>([]);
-  const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>(
-    card.labels.map((l) => l.label.id)
-  );
+  const [availableLabels, setAvailableLabels] = useState<
+    Array<{ id: string; name: string; color: string }>
+  >([]);
 
   const [commentAuthor, setCommentAuthor] = useState("");
   const [commentContent, setCommentContent] = useState("");
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
   const { t } = useTranslation();
 
   useEffect(() => {
-    getLabels().then((res) => {
+    async function loadLabels() {
+      const res = await getLabels();
       if (res.success && res.data) {
         setAvailableLabels(res.data);
       }
-    });
+    }
+    loadLabels();
   }, []);
 
   async function handleSave() {
-    setSaving(true);
+    setIsSaving(true);
+    const parsedPoints = points.trim() === "" ? null : parseInt(points, 10);
     const res = await updateCard(card.id, {
-      title,
-      description,
-      priority,
-      points: points === "" ? null : Number(points),
-      owner: owner || null,
+      title: title.trim(),
+      description: description.trim() || undefined,
       columnId,
-      dueDate: dueDate || null,
+      priority,
+      points: isNaN(parsedPoints as number) ? null : parsedPoints,
+      owner: owner.trim() || undefined,
+      dueDate: dueDate || undefined,
       labelIds: selectedLabelIds,
     });
-    setSaving(false);
+    setIsSaving(false);
 
     if (res.success) {
       onRefresh();
-      onClose();
     }
   }
 
   async function handleDelete() {
-    if (!confirm(t("cardModal.confirmDeleteCard"))) return;
+    if (!confirm(t("cardModal.deleteConfirm"))) return;
     setDeleting(true);
     const res = await deleteCard(card.id);
     setDeleting(false);
@@ -163,6 +170,11 @@ export default function CardDetailModal({
             <span className="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
               {t("cardModal.title")}
             </span>
+            {card.number && (
+              <span className="rounded-md bg-indigo-100 dark:bg-indigo-500/20 border border-indigo-200 dark:border-indigo-500/30 px-2 py-0.5 text-xs font-mono font-bold text-indigo-700 dark:text-indigo-300">
+                {card.project?.key ? `${card.project.key}-${card.number}` : `#${card.number}`}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -243,7 +255,7 @@ export default function CardDetailModal({
                   min="0"
                   max="100"
                   value={points}
-                  onChange={(e) => setPoints(e.target.value === "" ? "" : Number(e.target.value))}
+                  onChange={(e) => setPoints(e.target.value)}
                   placeholder="e.g. 3"
                   className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
                 />
@@ -259,9 +271,42 @@ export default function CardDetailModal({
                   type="text"
                   value={owner}
                   onChange={(e) => setOwner(e.target.value)}
-                  placeholder={t("cardModal.assigneePlaceholder")}
+                  placeholder="e.g. Alex Rivera"
                   className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
                 />
+              </div>
+
+              {/* Due Date */}
+              <div>
+                <label className="flex items-center gap-1 text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                  <Calendar className="h-3 w-3 text-emerald-500 dark:text-emerald-400" />
+                  <span>{t("cardModal.dueDate")}</span>
+                </label>
+                <input
+                  type="date"
+                  value={dueDate}
+                  onChange={(e) => setDueDate(e.target.value)}
+                  className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
+                />
+              </div>
+
+              {/* Column Selection */}
+              <div>
+                <label className="flex items-center gap-1 text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                  <Layers className="h-3 w-3 text-indigo-500 dark:text-indigo-400" />
+                  <span>{t("cardModal.statusColumn")}</span>
+                </label>
+                <select
+                  value={columnId}
+                  onChange={(e) => setColumnId(e.target.value)}
+                  className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none font-medium"
+                >
+                  {columns.map((col) => (
+                    <option key={col.id} value={col.id}>
+                      {col.name}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
           </div>
@@ -280,126 +325,122 @@ export default function CardDetailModal({
             />
           </div>
 
-          {/* Due Date & Labels */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="flex items-center gap-1 text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                <Calendar className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
-                <span>{t("cardModal.dueDate")}</span>
-              </label>
-              <input
-                type="date"
-                value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
-                className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-2 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
-              />
-            </div>
+          {/* Labels Manager Section */}
+          <div>
+            <label className="flex items-center gap-1 text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-2">
+              <Tag className="h-3 w-3 text-amber-500 dark:text-amber-400" />
+              <span>{t("cardModal.labels")}</span>
+            </label>
 
-            <div>
-              <label className="flex items-center gap-1 text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                <Tag className="h-3.5 w-3.5 text-purple-500 dark:text-purple-400" />
-                <span>{t("cardModal.labels")}</span>
-              </label>
-              <div className="flex flex-wrap gap-1.5">
-                {availableLabels.map((lbl) => {
-                  const isSelected = selectedLabelIds.includes(lbl.id);
-                  return (
-                    <button
-                      type="button"
-                      key={lbl.id}
-                      onClick={() => toggleLabel(lbl.id)}
-                      className={`rounded-md px-2.5 py-1 text-[11px] font-bold transition-all border ${
-                        isSelected
-                          ? "ring-2 ring-indigo-500 border-transparent text-white"
-                          : "opacity-60 hover:opacity-100 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300"
-                      }`}
-                      style={{ backgroundColor: isSelected ? lbl.color : `${lbl.color}20` }}
-                    >
-                      {lbl.name}
-                    </button>
-                  );
-                })}
-              </div>
+            <div className="flex flex-wrap gap-1.5">
+              {availableLabels.map((lbl) => {
+                const isSelected = selectedLabelIds.includes(lbl.id);
+                return (
+                  <button
+                    key={lbl.id}
+                    type="button"
+                    onClick={() => toggleLabel(lbl.id)}
+                    className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold transition-all ${
+                      isSelected
+                        ? "ring-2 ring-indigo-500 shadow-xs text-white"
+                        : "opacity-60 hover:opacity-100 text-white"
+                    }`}
+                    style={{ backgroundColor: lbl.color }}
+                  >
+                    {lbl.name}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
-          {/* Comments Feed */}
-          <div className="pt-4 border-t border-slate-200 dark:border-slate-800">
-            <div className="flex items-center gap-2 mb-3">
-              <MessageSquare className="h-4 w-4 text-indigo-500 dark:text-indigo-400" />
-              <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                {t("cardModal.comments")} ({card.comments?.length || 0})
+          {/* Comments Feed Section */}
+          <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
+            <div className="flex items-center gap-2">
+              <MessageSquare className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+              <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+                {t("cardModal.activityComments")} ({card.comments ? card.comments.length : 0})
               </h4>
             </div>
 
-            {/* Comment Input */}
-            <form onSubmit={handleAddComment} className="space-y-2 mb-4">
-              <div className="flex gap-2">
+            {/* Add Comment Form */}
+            <form onSubmit={handleAddComment} className="space-y-2">
+              <div className="flex items-center gap-2">
                 <input
                   type="text"
-                  placeholder={t("cardModal.yourName")}
+                  placeholder="Your Name (Optional)"
                   value={commentAuthor}
                   onChange={(e) => setCommentAuthor(e.target.value)}
-                  className="w-1/3 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-indigo-500 focus:outline-none"
+                  className="w-1/3 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2.5 py-1 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
                 />
+              </div>
+              <div className="flex items-center gap-2">
                 <input
                   type="text"
-                  placeholder={t("cardModal.writeComment")}
+                  required
+                  placeholder="Write a comment..."
                   value={commentContent}
                   onChange={(e) => setCommentContent(e.target.value)}
-                  className="flex-1 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-indigo-500 focus:outline-none"
+                  className="flex-1 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
                 />
                 <button
                   type="submit"
                   disabled={isSubmittingComment}
-                  className="rounded-lg bg-indigo-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 transition-colors"
+                  className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 transition-colors flex items-center gap-1"
                 >
-                  <Send className="h-3.5 w-3.5" />
+                  <Send className="h-3 w-3" />
+                  <span>{t("cardModal.post")}</span>
                 </button>
               </div>
             </form>
 
-            {/* Comment List */}
-            <div className="space-y-2.5 max-h-40 overflow-y-auto pr-1">
+            {/* Comments List */}
+            <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
               {card.comments && card.comments.length > 0 ? (
-                card.comments.map((cm) => (
+                card.comments.map((c) => (
                   <div
-                    key={cm.id}
-                    className="flex items-start justify-between rounded-lg bg-slate-100/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 p-3 text-xs"
+                    key={c.id}
+                    className="group flex items-start justify-between gap-2 rounded-lg bg-slate-50 dark:bg-slate-800/50 p-2.5 border border-slate-200 dark:border-slate-800"
                   >
-                    <div>
+                    <div className="space-y-0.5">
                       <div className="flex items-center gap-2">
-                        <span className="font-bold text-indigo-600 dark:text-indigo-300">
-                          {cm.author}
+                        <span className="text-xs font-bold text-slate-900 dark:text-slate-200">
+                          {c.author}
                         </span>
-                        <span className="text-[10px] text-slate-500">
-                          {new Date(cm.createdAt).toLocaleTimeString([], {
+                        <span className="text-[10px] text-slate-400">
+                          {new Date(c.createdAt).toLocaleDateString(undefined, {
+                            month: "short",
+                            day: "numeric",
                             hour: "2-digit",
                             minute: "2-digit",
                           })}
                         </span>
                       </div>
-                      <p className="mt-1 text-slate-700 dark:text-slate-300 leading-relaxed">
-                        {cm.content}
+                      <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
+                        {c.content}
                       </p>
                     </div>
                     <button
-                      onClick={() => handleDeleteComment(cm.id)}
-                      className="text-slate-400 hover:text-red-500 p-1"
+                      type="button"
+                      onClick={() => handleDeleteComment(c.id)}
+                      className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-500 transition-opacity"
+                      title="Delete comment"
                     >
-                      <X className="h-3.5 w-3.5" />
+                      <Trash2 className="h-3 w-3" />
                     </button>
                   </div>
                 ))
               ) : (
-                <p className="text-xs text-slate-400 italic">{t("cardModal.noComments")}</p>
+                <p className="text-xs text-slate-400 italic text-center py-2">
+                  {t("cardModal.noComments")}
+                </p>
               )}
             </div>
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50">
+        {/* Modal Footer Actions */}
+        <div className="flex items-center justify-end gap-2 px-6 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50">
           <button
             type="button"
             onClick={onClose}
@@ -410,10 +451,10 @@ export default function CardDetailModal({
           <button
             type="button"
             onClick={handleSave}
-            disabled={saving}
+            disabled={isSaving}
             className="rounded-lg bg-indigo-600 px-5 py-2 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 transition-all shadow-md shadow-indigo-600/20"
           >
-            {saving ? t("cardModal.saving") : t("cardModal.saveChanges")}
+            {isSaving ? t("cardModal.saving") : t("cardModal.saveChanges")}
           </button>
         </div>
       </div>

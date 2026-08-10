@@ -31,11 +31,15 @@ export async function createTestUser(suffix = Date.now().toString()) {
   return { user, token };
 }
 
-export async function createTestProject(userId: string, name = "Test Project") {
+import { generateProjectKey } from "../actions/projects";
+
+export async function createTestProject(userId: string, name = "Test Project", key?: string) {
+  const projectKey = await generateProjectKey(name, key);
   return await db.project.create({
     data: {
       userId,
       name,
+      key: projectKey,
       description: "A project created during automated testing",
       color: "#6366f1",
     },

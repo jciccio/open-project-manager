@@ -32,14 +32,17 @@ export default function RegisterPage() {
     setLoading(true);
     setError("");
 
-    const res = await registerUser({ name, email, password });
-    setLoading(false);
-
-    if (res.success) {
-      router.push("/");
-      router.refresh();
-    } else {
-      setError(res.error || "Registration failed");
+    try {
+      const res = await registerUser({ name, email, password });
+      if (res.success) {
+        window.location.href = "/";
+      } else {
+        setLoading(false);
+        setError(res.error || "Registration failed");
+      }
+    } catch (err: any) {
+      setLoading(false);
+      setError(err?.message || "An unexpected registration error occurred. Please try again.");
     }
   }
 

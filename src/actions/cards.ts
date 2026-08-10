@@ -42,12 +42,20 @@ export async function createCard(
 
     const newOrder = lastCard ? lastCard.order + 1 : 0;
 
+    const maxCard = await db.card.findFirst({
+      where: { projectId: data.projectId },
+      orderBy: { number: "desc" },
+      select: { number: true },
+    });
+    const nextNumber = maxCard ? maxCard.number + 1 : 1;
+
     const card = await db.card.create({
       data: {
         projectId: data.projectId,
         columnId: data.columnId,
         title: data.title.trim(),
         description: data.description,
+        number: nextNumber,
         priority: data.priority || "MEDIUM",
         points: data.points ?? null,
         owner: data.owner || null,
@@ -205,3 +213,59 @@ export async function deleteCard(id: string, overrideUserId?: string) {
     return { success: false, error: "Failed to delete card" };
   }
 }
+
+export async function getCardByIdentifier(identifier: string, overrideUserId?: string) {
+  try {
+    const session = overrideUserId ? { userId: overrideUserId } : await getSession();
+    if (!session) return { success: false, error: "Unauthorized" };
+
+    const clean = identifier.trim();
+    const lastDash = clean.lastIndexOf("-");
+    if (lastDash === -1) {
+      return { success: false, error: "Invalid identifier format. Expected KEY-NUMBER (e.g. OPM-42)" };
+    }
+
+    const key = clean.slice(0, lastDash).toUpperCase();
+    const num = parseInt(clean.slice(lastDash + 1), 10);
+
+    if (isNaN(num)) {
+      return { success: false, error: "Invalid card number in identifier" };
+    }
+
+    const card = await db.card.findFirst({
+      where: {
+        number: num,
+        project: {
+          key,
+          userId: session.userId,
+        },
+      },
+      include: {
+        project: true,
+        column: true,
+        labels: {
+          include: { label: true },
+        },
+        comments: {
+          orderBy: { createdAt: "desc" },
+        },
+      },
+    });
+
+    if (!card) {
+      return { success: false, error: `Card '${identifier}' not found` };
+    }
+
+    return {
+      success: true,
+      data: {
+        ...card,
+        identifier: `${card.project.key}-${card.number}`,
+      },
+    };
+  } catch (error) {
+    console.error(`Error looking up card by identifier '${identifier}':`, error);
+    return { success: false, error: "Failed to fetch card by identifier" };
+  }
+}
+

@@ -86,8 +86,21 @@ export async function getProjectById(id: string, overrideUserId?: string) {
   }
 }
 
+export async function generateProjectKey(name: string, requestedKey?: string): Promise<string> {
+  if (requestedKey && requestedKey.trim()) {
+    return requestedKey.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+  }
+  const words = name.replace(/[^a-zA-Z0-9\s]/g, "").split(/\s+/).filter(Boolean);
+  if (words.length >= 2) {
+    const initials = words.map((w) => w[0].toUpperCase()).join("");
+    return initials.slice(0, 6);
+  }
+  const clean = name.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+  return clean.slice(0, 4) || "PROJ";
+}
+
 export async function createProject(
-  data: { name: string; description?: string; color?: string },
+  data: { name: string; description?: string; color?: string; key?: string },
   overrideUserId?: string
 ) {
   try {
@@ -100,10 +113,13 @@ export async function createProject(
       return { success: false, error: "Project name is required" };
     }
 
+    const projectKey = await generateProjectKey(data.name, data.key);
+
     const project = await db.project.create({
       data: {
         userId: session.userId,
         name: data.name.trim(),
+        key: projectKey,
         description: data.description,
         color: data.color || "#6366f1",
         columns: {

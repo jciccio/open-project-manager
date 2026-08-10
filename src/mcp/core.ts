@@ -158,6 +158,17 @@ export const MCP_TOOLS = [
     },
   },
   {
+    name: "get_card_by_identifier",
+    description: "Retrieve complete task card details using human-readable identifier (e.g. OPM-42 or PROJ-1).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        identifier: { type: "string", description: "Human-readable identifier like OPM-42" },
+      },
+      required: ["identifier"],
+    },
+  },
+  {
     name: "create_card",
     description: "Create a new task card in a project column.",
     inputSchema: {
@@ -306,10 +317,15 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
 
     case "create_project": {
       const userId = requireUserId(args.userId);
+      const nameStr = args.name.trim();
+      const words = nameStr.replace(/[^a-zA-Z0-9\s]/g, "").split(/\s+/).filter(Boolean);
+      const generatedKey = words.length >= 2 ? words.map((w: string) => w[0].toUpperCase()).join("").slice(0, 6) : (nameStr.replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 4) || "PROJ");
+      const projectKey = args.key ? args.key.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6) : generatedKey;
       const project = await db.project.create({
         data: {
           userId,
-          name: args.name.trim(),
+          name: nameStr,
+          key: projectKey,
           description: args.description || null,
           color: args.color || "#6366f1",
           columns: {
@@ -420,7 +436,48 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
         },
       });
       if (!card) throw new Error(`Card with ID ${args.id} not found.`);
-      return { success: true, card };
+      return {
+        success: true,
+        card: {
+          ...card,
+          identifier: `${card.project.key}-${card.number}`,
+        },
+      };
+    }
+
+    case "get_card_by_identifier": {
+      const clean = (args.identifier || "").trim();
+      const lastDash = clean.lastIndexOf("-");
+      if (lastDash === -1) {
+        throw new Error(`Invalid identifier format '${clean}'. Expected KEY-NUMBER (e.g. OPM-42).`);
+      }
+      const key = clean.slice(0, lastDash).toUpperCase();
+      const num = parseInt(clean.slice(lastDash + 1), 10);
+      if (isNaN(num)) {
+        throw new Error(`Invalid sequence number in identifier '${clean}'.`);
+      }
+
+      const card = await db.card.findFirst({
+        where: {
+          number: num,
+          project: { key },
+        },
+        include: {
+          column: true,
+          project: true,
+          labels: { include: { label: true } },
+          comments: { orderBy: { createdAt: "desc" } },
+        },
+      });
+
+      if (!card) throw new Error(`Card with identifier '${clean}' not found.`);
+      return {
+        success: true,
+        card: {
+          ...card,
+          identifier: `${card.project.key}-${card.number}`,
+        },
+      };
     }
 
     case "create_card": {
@@ -431,12 +488,20 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       });
       if (lastCard) order = lastCard.order + 1;
 
+      const maxCard = await db.card.findFirst({
+        where: { projectId: args.projectId },
+        orderBy: { number: "desc" },
+        select: { number: true },
+      });
+      const nextNumber = maxCard ? maxCard.number + 1 : 1;
+
       const card = await db.card.create({
         data: {
           projectId: args.projectId,
           columnId: args.columnId,
           title: args.title.trim(),
           description: args.description || null,
+          number: nextNumber,
           priority: args.priority || "MEDIUM",
           points: typeof args.points === "number" ? args.points : null,
           owner: args.owner || null,
