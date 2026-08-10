@@ -96,6 +96,23 @@ describe("Cards Server Actions", () => {
     expect(moveRes.data?.columnId).toBe(targetColumnId);
   });
 
+  it("sets completedAt when moving card to a Done column and clears it when moved out", async () => {
+    const projectDetails = await getProjectById(projectId);
+    const doneColumnId = projectDetails.data!.columns.find((c) => c.isDone)!.id;
+
+    const cardRes = await createCard({ projectId, columnId, title: "Timestamp Card" });
+    const cardId = cardRes.data!.id;
+    expect(cardRes.data?.completedAt).toBeNull();
+
+    const moveDoneRes = await moveCard(cardId, doneColumnId, 0);
+    expect(moveDoneRes.success).toBe(true);
+    expect(moveDoneRes.data?.completedAt).not.toBeNull();
+
+    const moveBackRes = await moveCard(cardId, columnId, 0);
+    expect(moveBackRes.success).toBe(true);
+    expect(moveBackRes.data?.completedAt).toBeNull();
+  });
+
   it("deletes a card", async () => {
     const cardRes = await createCard({ projectId, columnId, title: "Card To Delete" });
     const cardId = cardRes.data!.id;
@@ -104,4 +121,5 @@ describe("Cards Server Actions", () => {
     expect(delRes.success).toBe(true);
   });
 });
+
 

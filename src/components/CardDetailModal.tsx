@@ -14,6 +14,7 @@ import {
   Layers,
   Pencil,
   Check,
+  CheckCircle,
 } from "lucide-react";
 import { updateCard, deleteCard } from "@/actions/cards";
 import { addComment, updateComment, deleteComment } from "@/actions/comments";
@@ -33,6 +34,7 @@ interface Props {
     points: number | null;
     owner: string | null;
     dueDate: Date | string | null;
+    completedAt?: Date | string | null;
     labels: Array<{
       label: {
         id: string;
@@ -50,6 +52,7 @@ interface Props {
   columns: Array<{
     id: string;
     name: string;
+    isDone?: boolean;
   }>;
   onClose: () => void;
   onRefresh: () => void;
@@ -189,6 +192,12 @@ export default function CardDetailModal({
             {card.number && (
               <span className="rounded-md bg-indigo-100 dark:bg-indigo-500/20 border border-indigo-200 dark:border-indigo-500/30 px-2 py-0.5 text-xs font-mono font-bold text-indigo-700 dark:text-indigo-300">
                 {card.project?.key ? `${card.project.key}-${card.number}` : `#${card.number}`}
+              </span>
+            )}
+            {card.completedAt && (
+              <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 px-2 py-0.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                <CheckCircle className="h-3.5 w-3.5" />
+                <span>Done ({new Date(card.completedAt).toLocaleDateString()})</span>
               </span>
             )}
           </div>

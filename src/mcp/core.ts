@@ -507,6 +507,9 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       });
       const nextNumber = maxCard ? maxCard.number + 1 : 1;
 
+      const targetCol = await db.column.findUnique({ where: { id: args.columnId } });
+      const completedAt = targetCol?.isDone ? new Date() : null;
+
       const card = await db.card.create({
         data: {
           projectId: args.projectId,
@@ -518,6 +521,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
           points: typeof args.points === "number" ? args.points : null,
           owner: args.owner || null,
           dueDate: args.dueDate ? new Date(args.dueDate) : null,
+          completedAt,
           order,
         },
       });
@@ -531,7 +535,11 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       if (args.priority !== undefined) data.priority = args.priority;
       if (args.points !== undefined) data.points = args.points;
       if (args.owner !== undefined) data.owner = args.owner;
-      if (args.columnId !== undefined) data.columnId = args.columnId;
+      if (args.columnId !== undefined) {
+        data.columnId = args.columnId;
+        const targetCol = await db.column.findUnique({ where: { id: args.columnId } });
+        data.completedAt = targetCol?.isDone ? new Date() : null;
+      }
       if (args.dueDate !== undefined) {
         data.dueDate = args.dueDate ? new Date(args.dueDate) : null;
       }
@@ -546,12 +554,15 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     case "move_card": {
       const targetColumnId = args.targetColumnId;
       const newOrder = typeof args.newOrder === "number" ? args.newOrder : 0;
+      const targetCol = await db.column.findUnique({ where: { id: targetColumnId } });
+      const completedAt = targetCol?.isDone ? new Date() : null;
 
       const card = await db.card.update({
         where: { id: args.id },
         data: {
           columnId: targetColumnId,
           order: newOrder,
+          completedAt,
         },
       });
       return { success: true, card };

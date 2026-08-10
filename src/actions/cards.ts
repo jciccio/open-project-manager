@@ -49,6 +49,9 @@ export async function createCard(
     });
     const nextNumber = maxCard ? maxCard.number + 1 : 1;
 
+    const targetColumn = await db.column.findUnique({ where: { id: data.columnId } });
+    const completedAt = targetColumn?.isDone ? new Date() : null;
+
     const card = await db.card.create({
       data: {
         projectId: data.projectId,
@@ -60,6 +63,7 @@ export async function createCard(
         points: data.points ?? null,
         owner: data.owner || null,
         dueDate: data.dueDate ? new Date(data.dueDate) : null,
+        completedAt,
         order: newOrder,
         labels:
           data.labelIds && data.labelIds.length > 0
@@ -112,6 +116,12 @@ export async function updateCard(
       return { success: false, error: "Unauthorized" };
     }
 
+    let completedAtUpdate: Date | null | undefined = undefined;
+    if (data.columnId !== undefined && data.columnId !== existingCard.columnId) {
+      const targetColumn = await db.column.findUnique({ where: { id: data.columnId } });
+      completedAtUpdate = targetColumn?.isDone ? (existingCard.completedAt || new Date()) : null;
+    }
+
     const updatePayload: any = {
       title: data.title !== undefined ? data.title : undefined,
       description: data.description !== undefined ? data.description : undefined,
@@ -121,6 +131,7 @@ export async function updateCard(
       dueDate: data.dueDate !== undefined ? (data.dueDate ? new Date(data.dueDate) : null) : undefined,
       order: data.order !== undefined ? data.order : undefined,
       columnId: data.columnId !== undefined ? data.columnId : undefined,
+      completedAt: completedAtUpdate,
     };
 
     if (data.labelIds !== undefined) {
@@ -172,11 +183,15 @@ export async function moveCard(
       return { success: false, error: "Unauthorized" };
     }
 
+    const targetColumn = await db.column.findUnique({ where: { id: targetColumnId } });
+    const completedAt = targetColumn?.isDone ? (existingCard.completedAt || new Date()) : null;
+
     const card = await db.card.update({
       where: { id: cardId },
       data: {
         columnId: targetColumnId,
         order: newOrder,
+        completedAt,
       },
     });
 

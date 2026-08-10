@@ -19,7 +19,7 @@ export async function POST(request: NextRequest, { params }: Props) {
       return NextResponse.json({ error: "Column name is required" }, { status: 400 });
     }
 
-    const res = await createColumn(projectId, body.name, session.userId);
+    const res = await createColumn(projectId, body.name, body.isDone, session.userId);
     if (!res.success) {
       return NextResponse.json({ error: res.error }, { status: 400 });
     }

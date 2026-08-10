@@ -132,10 +132,10 @@ export async function createProject(
         color: data.color || "#6366f1",
         columns: {
           create: [
-            { name: "Backlog", order: 0 },
-            { name: "To Do", order: 1 },
-            { name: "In Progress", order: 2 },
-            { name: "Done", order: 3 },
+            { name: "Backlog", order: 0, isDone: false },
+            { name: "To Do", order: 1, isDone: false },
+            { name: "In Progress", order: 2, isDone: false },
+            { name: "Done", order: 3, isDone: true },
           ],
         },
       },

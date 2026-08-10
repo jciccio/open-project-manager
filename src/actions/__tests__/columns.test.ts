@@ -54,6 +54,16 @@ describe("Columns Server Actions", () => {
     expect(reorderedProject.data!.columns[0].id).toBe(reversedIds[0]);
   });
 
+  it("creates column with isDone flag and updates isDone status", async () => {
+    const colRes = await createColumn(projectId, "Shipped", true);
+    expect(colRes.success).toBe(true);
+    expect(colRes.data?.isDone).toBe(true);
+
+    const updateRes = await updateColumn(colRes.data!.id, { isDone: false });
+    expect(updateRes.success).toBe(true);
+    expect(updateRes.data?.isDone).toBe(false);
+  });
+
   it("deletes a column", async () => {
     const colRes = await createColumn(projectId, "To Delete");
     const colId = colRes.data!.id;
@@ -65,3 +75,4 @@ describe("Columns Server Actions", () => {
     expect(projectDetails.data!.columns.some((c) => c.id === colId)).toBe(false);
   });
 });
+
