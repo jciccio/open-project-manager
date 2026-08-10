@@ -4,18 +4,17 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 
-export async function getLabels() {
+export async function getLabels(projectId?: string) {
   try {
     const session = await getSession();
     if (!session) return { success: false, error: "Unauthorized" };
 
+    const where: any = projectId
+      ? { OR: [{ projectId }, { userId: session.userId }, { userId: null, projectId: null }] }
+      : { OR: [{ userId: session.userId }, { userId: null }] };
+
     const labels = await db.label.findMany({
-      where: {
-        OR: [
-          { userId: session.userId },
-          { userId: null },
-        ],
-      },
+      where,
       orderBy: { name: "asc" },
     });
     return { success: true, data: labels };
@@ -25,7 +24,7 @@ export async function getLabels() {
   }
 }
 
-export async function createLabel(name: string, color?: string) {
+export async function createLabel(name: string, color?: string, projectId?: string) {
   try {
     const session = await getSession();
     if (!session) return { success: false, error: "Unauthorized" };
@@ -36,7 +35,8 @@ export async function createLabel(name: string, color?: string) {
 
     const label = await db.label.create({
       data: {
-        userId: session.userId,
+        projectId: projectId || null,
+        userId: projectId ? null : session.userId,
         name: name.trim(),
         color: color || "#3b82f6",
       },

@@ -45,6 +45,7 @@ model Project {
 
   columns Column[]
   cards   Card[]
+  labels  Label[]
 }
 
 model Column {
@@ -100,14 +101,16 @@ model CardRelation {
 }
 
 model Label {
-  id     String      @id @default(cuid())
-  userId String?
-  user   User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name   String
-  color  String      @default("#3b82f6")
-  cards  CardLabel[]
+  id        String      @id @default(cuid())
+  projectId String?
+  project   Project?    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId    String?
+  user      User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  color     String      @default("#3b82f6")
+  cards     CardLabel[]
 
-  @@unique([name, userId])
+  @@unique([name, projectId, userId])
 }
 
 model CardLabel {

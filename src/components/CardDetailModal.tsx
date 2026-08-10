@@ -121,7 +121,7 @@ export default function CardDetailModal({
 
   useEffect(() => {
     async function loadLabels() {
-      const res = await getLabels();
+      const res = await getLabels(card.projectId);
       if (res.success && res.data) {
         setAvailableLabels(res.data);
       }

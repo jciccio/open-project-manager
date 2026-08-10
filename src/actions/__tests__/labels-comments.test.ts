@@ -44,6 +44,17 @@ describe("Labels & Comments Server Actions", () => {
     expect(delRes.success).toBe(true);
   });
 
+  it("creates and fetches project-scoped labels", async () => {
+    const createRes = await createLabel("Feature", "#10b981", projectId);
+    expect(createRes.success).toBe(true);
+    expect(createRes.data?.name).toBe("Feature");
+    expect(createRes.data?.projectId).toBe(projectId);
+
+    const getRes = await getLabels(projectId);
+    expect(getRes.success).toBe(true);
+    expect(getRes.data?.some((l) => l.name === "Feature")).toBe(true);
+  });
+
   it("adds, updates, and deletes comments on a card", async () => {
     const addRes = await addComment(cardId, "Tester", "This is a test comment");
     expect(addRes.success).toBe(true);

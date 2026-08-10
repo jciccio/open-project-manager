@@ -324,11 +324,12 @@ export const MCP_TOOLS = [
   },
   {
     name: "list_labels",
-    description: "List custom labels available in the workspace.",
+    description: "List custom labels available in the workspace or specific project.",
     inputSchema: {
       type: "object",
       properties: {
-        userId: { type: "string", description: "Optional user ID" },
+        projectId: { type: "string", description: "Optional project ID scope" },
+        userId: { type: "string", description: "Optional user ID scope" },
       },
     },
   },
@@ -340,6 +341,7 @@ export const MCP_TOOLS = [
       properties: {
         name: { type: "string", description: "Label name" },
         color: { type: "string", description: "Color hex code (default: #3b82f6)" },
+        projectId: { type: "string", description: "Optional project ID scope" },
         userId: { type: "string", description: "Optional user ID scope" },
       },
       required: ["name"],
@@ -730,7 +732,12 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "list_labels": {
+      const where: any = {};
+      if (args.projectId) where.OR = [{ projectId: args.projectId }, { userId: null, projectId: null }];
+      else if (args.userId) where.userId = args.userId;
+
       const labels = await db.label.findMany({
+        where,
         orderBy: { name: "asc" },
       });
       return { success: true, labels };
@@ -741,7 +748,8 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
         data: {
           name: args.name.trim(),
           color: args.color || "#3b82f6",
-          userId: args.userId || null,
+          projectId: args.projectId || null,
+          userId: args.projectId ? null : (args.userId || null),
         },
       });
       return { success: true, label };
