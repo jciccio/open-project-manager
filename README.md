@@ -172,6 +172,8 @@ yarn mcp
 }
 ```
 
+Stdio connections have no authenticated session, so tools that create data scoped to a user (e.g. `create_project`) require an explicit `userId` argument from the calling client — there is no fallback identity.
+
 ### 2. Remote REST API for LLM Models (`/api/v1/mcp/*`)
 
 Remote LLMs and HTTP clients can call MCP tools over REST API endpoints:

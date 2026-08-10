@@ -9,16 +9,11 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { db } from "@/lib/db";
 
-// Utility to helper find or default user
-async function getDefaultUserId(providedUserId?: string): Promise<string> {
+function requireUserId(providedUserId?: string): string {
   if (providedUserId) return providedUserId;
-  const adminUser = await db.user.findFirst({
-    where: { email: "admin@example.com" },
-  });
-  if (adminUser) return adminUser.id;
-  const anyUser = await db.user.findFirst();
-  if (anyUser) return anyUser.id;
-  throw new Error("No user found in database. Please register or seed the database.");
+  throw new Error(
+    "userId is required — MCP tool calls must include an authenticated userId."
+  );
 }
 
 export const MCP_TOOLS = [
@@ -310,7 +305,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "create_project": {
-      const userId = await getDefaultUserId(args.userId);
+      const userId = requireUserId(args.userId);
       const project = await db.project.create({
         data: {
           userId,

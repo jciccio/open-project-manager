@@ -1,4 +1,5 @@
 import { MCP_TOOLS, executeMcpTool, createMcpServer } from "../src/mcp/core";
+import { db } from "../src/lib/db";
 
 async function runMcpTests() {
   console.log("🧪 Starting Automated MCP Integration Test Suite...\n");
@@ -33,7 +34,12 @@ async function runMcpTests() {
     assert(listRes.success && Array.isArray(listRes.projects), "list_projects tool execution");
 
     // Test 4: Create Project via MCP
+    const testUser = await db.user.findFirst({ where: { email: "admin@example.com" } });
+    if (!testUser) {
+      throw new Error("No seeded admin@example.com user found — run `npx prisma db seed` first.");
+    }
     const projRes = await executeMcpTool("create_project", {
+      userId: testUser.id,
       name: `MCP Integration Test ${Date.now()}`,
       description: "Automated project created via MCP",
       color: "#10b981",
