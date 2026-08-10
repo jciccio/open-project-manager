@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { X, User, Mail, Lock, CheckCircle2, Key, Copy, Eye, EyeOff, Check } from "lucide-react";
-import { updateUserProfile, getOrGenerateApiToken } from "@/actions/auth";
+import { useEffect, useState } from "react";
+import { X, User, Mail, Lock, CheckCircle2, Key, Copy, Eye, EyeOff, Check, Trash2 } from "lucide-react";
+import { updateUserProfile, listApiTokens, createApiToken, revokeApiToken } from "@/actions/auth";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "./LanguageProvider";
 
@@ -15,12 +15,22 @@ interface Props {
   onClose: () => void;
 }
 
+interface ApiTokenSummary {
+  id: string;
+  name: string;
+  createdAt: Date;
+  lastUsedAt: Date | null;
+  expiresAt: Date | null;
+}
+
 export default function UserProfileModal({ user, onClose }: Props) {
   const [name, setName] = useState(user.name);
   const [email, setEmail] = useState(user.email);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
 
+  const [tokens, setTokens] = useState<ApiTokenSummary[]>([]);
+  const [newTokenName, setNewTokenName] = useState("");
   const [apiToken, setApiToken] = useState("");
   const [tokenLoading, setTokenLoading] = useState(false);
   const [showToken, setShowToken] = useState(false);
@@ -34,12 +44,31 @@ export default function UserProfileModal({ user, onClose }: Props) {
   const { t } = useTranslation();
   const router = useRouter();
 
+  useEffect(() => {
+    listApiTokens().then((res) => {
+      if (res.success && res.tokens) setTokens(res.tokens);
+    });
+  }, []);
+
   async function handleGenerateToken() {
+    if (!newTokenName.trim()) return;
     setTokenLoading(true);
-    const res = await getOrGenerateApiToken();
+    const res = await createApiToken(newTokenName.trim());
     setTokenLoading(false);
     if (res.success && res.token) {
-      setApiToken(res.token);
+      setApiToken(res.token.secret);
+      setNewTokenName("");
+      setShowToken(false);
+      const listRes = await listApiTokens();
+      if (listRes.success && listRes.tokens) setTokens(listRes.tokens);
+    }
+  }
+
+  async function handleRevokeToken(token: ApiTokenSummary) {
+    if (!confirm(t("profileModal.confirmRevokeToken", { name: token.name }))) return;
+    const res = await revokeApiToken(token.id);
+    if (res.success) {
+      setTokens((prev) => prev.filter((t) => t.id !== token.id));
     }
   }
 
@@ -204,17 +233,26 @@ export default function UserProfileModal({ user, onClose }: Props) {
               </div>
             </div>
 
-            {!apiToken ? (
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={newTokenName}
+                onChange={(e) => setNewTokenName(e.target.value)}
+                placeholder={t("profileModal.tokenNamePlaceholder")}
+                className="flex-1 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
+              />
               <button
                 type="button"
                 onClick={handleGenerateToken}
-                disabled={tokenLoading}
-                className="w-full rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 px-3.5 py-2 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all flex items-center justify-center gap-2"
+                disabled={tokenLoading || !newTokenName.trim()}
+                className="rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 px-3.5 py-2 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2 whitespace-nowrap"
               >
                 <Key className="h-3.5 w-3.5" />
                 <span>{tokenLoading ? t("profileModal.generating") : t("profileModal.generateToken")}</span>
               </button>
-            ) : (
+            </div>
+
+            {apiToken && (
               <div className="space-y-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 p-3 border border-slate-200 dark:border-slate-800">
                 <div className="relative">
                   <input
@@ -258,6 +296,48 @@ export default function UserProfileModal({ user, onClose }: Props) {
                 </p>
               </div>
             )}
+
+            <div className="space-y-1.5">
+              <h5 className="text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                {t("profileModal.activeTokens")}
+              </h5>
+              {tokens.length === 0 ? (
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 italic">
+                  {t("profileModal.noTokensYet")}
+                </p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {tokens.map((token) => (
+                    <li
+                      key={token.id}
+                      className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 px-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-semibold text-slate-900 dark:text-white">
+                          {token.name}
+                        </p>
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                          {t("profileModal.createdLabel")} {new Date(token.createdAt).toLocaleDateString()}
+                          {" · "}
+                          {t("profileModal.lastUsedLabel")}{" "}
+                          {token.lastUsedAt
+                            ? new Date(token.lastUsedAt).toLocaleDateString()
+                            : t("profileModal.neverUsed")}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRevokeToken(token)}
+                        title={t("profileModal.revoke")}
+                        className="shrink-0 rounded-lg p-1.5 text-red-500 hover:bg-red-500/10 transition-colors"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-200 dark:border-slate-800">

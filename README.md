@@ -228,9 +228,12 @@ curl -X POST http://localhost:3000/api/v1/mcp/jsonrpc \
 Open Project Manager provides an official multi-stage `Dockerfile` and `docker-compose.yml` for containerized deployments with standalone Next.js builds and SQLite data persistence.
 
 ### 1. Using Docker Compose (Recommended)
-Run the application in the background with persistent SQLite storage:
+Run the application in the background with persistent SQLite storage. `docker-compose.yml` requires a `JWT_SECRET` in a `.env` file next to it — Compose refuses to start without one:
 
 ```bash
+# Create a .env with a real secret
+echo "JWT_SECRET=$(openssl rand -base64 32)" > .env
+
 # Build and launch container
 docker compose up -d
 
@@ -253,7 +256,7 @@ docker run -d \
   --name open-project-manager \
   -p 3000:3000 \
   -v opm_data:/app/dev.db \
-  -e JWT_SECRET="your-production-secret-key" \
+  -e JWT_SECRET="$(openssl rand -base64 32)" \
   open-project-manager
 ```
 
@@ -273,19 +276,25 @@ This project uses **Yarn** for dependency management:
 yarn install
 ```
 
-### 3. Initialize the SQLite Database
+### 3. Configure Environment Variables
+Create a `.env.local` with a signing secret for auth tokens (the app refuses to start without one):
+```bash
+echo "JWT_SECRET=$(openssl rand -base64 32)" > .env.local
+```
+
+### 4. Initialize the SQLite Database
 Synchronize the Prisma v7 schema with your local SQLite database:
 ```bash
 npx prisma db push
 ```
 
-### 4. Seed Sample Projects & Users (Optional)
+### 5. Seed Sample Projects & Users (Optional)
 Populate the database with sample user accounts, project boards, cards, labels, and comments:
 ```bash
 npx tsx prisma/seed.ts
 ```
 
-### 5. Start the Development Server
+### 6. Start the Development Server
 Run the Next.js local development server:
 ```bash
 yarn dev
