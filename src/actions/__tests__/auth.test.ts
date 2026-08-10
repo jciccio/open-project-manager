@@ -1,5 +1,14 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { registerUser, loginUser, logoutUser, getCurrentUser, updateUserProfile, getOrGenerateApiToken } from "../auth";
+import {
+  registerUser,
+  loginUser,
+  logoutUser,
+  getCurrentUser,
+  updateUserProfile,
+  createApiToken,
+  listApiTokens,
+  revokeApiToken,
+} from "../auth";
 import { cleanupTestUser } from "@/test/helpers";
 
 describe("Auth Server Actions", () => {
@@ -113,7 +122,7 @@ describe("Auth Server Actions", () => {
     expect(current?.name).toBe("Updated Profile Name");
   });
 
-  it("generates a valid API JWT token for active session", async () => {
+  it("creates, lists, and revokes a named API token", async () => {
     const regRes = await registerUser({
       name: "API Token User",
       email: testEmail,
@@ -121,10 +130,36 @@ describe("Auth Server Actions", () => {
     });
     if (regRes.data) createdUserId = regRes.data.userId;
 
-    const tokenRes = await getOrGenerateApiToken();
-    expect(tokenRes.success).toBe(true);
-    expect(typeof tokenRes.token).toBe("string");
-    expect(tokenRes.token?.length).toBeGreaterThan(20);
+    const createRes = await createApiToken("Test Client");
+    expect(createRes.success).toBe(true);
+    expect(createRes.token?.name).toBe("Test Client");
+    expect(typeof createRes.token?.secret).toBe("string");
+    expect(createRes.token!.secret.length).toBeGreaterThan(20);
+
+    const listRes = await listApiTokens();
+    expect(listRes.success).toBe(true);
+    expect(listRes.tokens).toHaveLength(1);
+    expect(listRes.tokens?.[0].id).toBe(createRes.token!.id);
+    expect(listRes.tokens?.[0].name).toBe("Test Client");
+
+    const revokeRes = await revokeApiToken(createRes.token!.id);
+    expect(revokeRes.success).toBe(true);
+
+    const listAfterRevoke = await listApiTokens();
+    expect(listAfterRevoke.tokens).toHaveLength(0);
+  });
+
+  it("rejects creating an API token with an empty name", async () => {
+    const regRes = await registerUser({
+      name: "Empty Token Name User",
+      email: testEmail,
+      password: testPass,
+    });
+    if (regRes.data) createdUserId = regRes.data.userId;
+
+    const res = await createApiToken("   ");
+    expect(res.success).toBe(false);
+    expect(res.error).toBe("Token name is required.");
   });
 
   it("logs out user", async () => {

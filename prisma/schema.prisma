@@ -14,8 +14,21 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  projects Project[]
-  labels   Label[]
+  projects  Project[]
+  labels    Label[]
+  apiTokens ApiToken[]
+}
+
+model ApiToken {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+
+  @@index([userId])
 }
 
 model Project {

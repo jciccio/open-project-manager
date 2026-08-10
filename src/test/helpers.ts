@@ -2,9 +2,10 @@ import { db } from "../lib/db";
 import bcrypt from "bcryptjs";
 import { SignJWT } from "jose";
 
-const JWT_SECRET = Uint8Array.from(
-  Buffer.from(process.env.JWT_SECRET || "opm-open-project-manager-secret-key-2026")
-);
+if (!process.env.JWT_SECRET) {
+  throw new Error("JWT_SECRET environment variable is required to run tests.");
+}
+const JWT_SECRET = Uint8Array.from(Buffer.from(process.env.JWT_SECRET));
 
 export async function createTestUser(suffix = Date.now().toString()) {
   const email = `test-${suffix}@example.com`;

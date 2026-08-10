@@ -1,7 +1,7 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { createSession, destroySession, getSession, signToken } from "@/lib/auth";
+import { createSession, destroySession, getSession, signApiToken } from "@/lib/auth";
 import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 
@@ -189,26 +189,77 @@ export async function updateUserProfile(data: {
   }
 }
 
-export async function getOrGenerateApiToken() {
+export async function listApiTokens() {
   try {
     const session = await getSession();
     if (!session) {
       return { success: false, error: "Unauthorized" };
     }
 
-    const token = await signToken(
-      {
-        userId: session.userId,
-        email: session.email,
-        name: session.name,
-      },
-      30 * 24 * 60 * 60
-    );
+    const tokens = await db.apiToken.findMany({
+      where: { userId: session.userId },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, name: true, createdAt: true, lastUsedAt: true, expiresAt: true },
+    });
 
-    return { success: true, token };
+    return { success: true, tokens };
   } catch (error) {
-    console.error("Generate API token error:", error);
-    return { success: false, error: "Failed to generate API token." };
+    console.error("List API tokens error:", error);
+    return { success: false, error: "Failed to list API tokens." };
+  }
+}
+
+export async function createApiToken(name: string) {
+  try {
+    const session = await getSession();
+    if (!session) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      return { success: false, error: "Token name is required." };
+    }
+
+    const record = await db.apiToken.create({
+      data: { userId: session.userId, name: trimmedName },
+    });
+
+    const secret = await signApiToken(session, record.id);
+
+    return {
+      success: true,
+      token: {
+        id: record.id,
+        name: record.name,
+        createdAt: record.createdAt,
+        secret,
+      },
+    };
+  } catch (error) {
+    console.error("Create API token error:", error);
+    return { success: false, error: "Failed to create API token." };
+  }
+}
+
+export async function revokeApiToken(id: string) {
+  try {
+    const session = await getSession();
+    if (!session) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    const record = await db.apiToken.findUnique({ where: { id } });
+    if (!record || record.userId !== session.userId) {
+      return { success: false, error: "Token not found." };
+    }
+
+    await db.apiToken.delete({ where: { id } });
+
+    return { success: true };
+  } catch (error) {
+    console.error("Revoke API token error:", error);
+    return { success: false, error: "Failed to revoke API token." };
   }
 }
 

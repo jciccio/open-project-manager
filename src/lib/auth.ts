@@ -1,13 +1,18 @@
 import { cookies } from "next/headers";
 import { NextRequest } from "next/server";
 import { SignJWT, jwtVerify } from "jose";
+import { db } from "@/lib/db";
 
-const JWT_SECRET = Uint8Array.from(
-  Buffer.from(process.env.JWT_SECRET || "opm-open-project-manager-secret-key-2026")
-);
+if (!process.env.JWT_SECRET) {
+  throw new Error(
+    "JWT_SECRET environment variable is required — refusing to start with a guessable signing key."
+  );
+}
+const JWT_SECRET = Uint8Array.from(Buffer.from(process.env.JWT_SECRET));
 
 const SESSION_COOKIE_NAME = "opm_session";
 const SESSION_DURATION = 7 * 24 * 60 * 60; // 7 days in seconds
+const API_TOKEN_DURATION = 365 * 24 * 60 * 60; // 1 year in seconds
 
 export interface UserSession {
   userId: string;
@@ -20,6 +25,18 @@ export async function signToken(sessionData: UserSession, durationSeconds = 30 *
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime(`${durationSeconds}s`)
+    .sign(JWT_SECRET);
+}
+
+// API tokens are JWTs carrying a `jti` that maps to an ApiToken row: the
+// signature (unforgeable without JWT_SECRET) proves authenticity, and the DB
+// row is revocation metadata only — deleting the row invalidates the token
+// even though the JWT itself remains cryptographically valid until expiry.
+export async function signApiToken(sessionData: UserSession, tokenId: string) {
+  return await new SignJWT({ ...sessionData, jti: tokenId, type: "api_token" })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime(`${API_TOKEN_DURATION}s`)
     .sign(JWT_SECRET);
 }
 
@@ -51,6 +68,44 @@ export async function verifyToken(token: string): Promise<UserSession | null> {
   }
 }
 
+// Verifies a Bearer token that may be either a plain session JWT or an API
+// token JWT (carries `jti`). API tokens are additionally checked against the
+// ApiToken table so a deleted (revoked) row invalidates an otherwise
+// still-valid signature.
+async function verifyBearerToken(token: string): Promise<UserSession | null> {
+  let payload;
+  try {
+    ({ payload } = await jwtVerify(token, JWT_SECRET));
+  } catch {
+    return null;
+  }
+
+  const jti = payload.jti as string | undefined;
+  if (!jti) {
+    return {
+      userId: payload.userId as string,
+      email: payload.email as string,
+      name: payload.name as string,
+    };
+  }
+
+  const apiToken = await db.apiToken.findUnique({ where: { id: jti } });
+  if (!apiToken || (apiToken.expiresAt && apiToken.expiresAt < new Date())) {
+    return null;
+  }
+
+  await db.apiToken.update({
+    where: { id: jti },
+    data: { lastUsedAt: new Date() },
+  });
+
+  return {
+    userId: payload.userId as string,
+    email: payload.email as string,
+    name: payload.name as string,
+  };
+}
+
 export async function getSession(): Promise<UserSession | null> {
   try {
     const cookieStore = await cookies();
@@ -69,7 +124,7 @@ export async function getApiSession(request: NextRequest): Promise<UserSession |
   const authHeader = request.headers.get("authorization");
   if (authHeader && authHeader.startsWith("Bearer ")) {
     const bearerToken = authHeader.substring(7).trim();
-    const user = await verifyToken(bearerToken);
+    const user = await verifyBearerToken(bearerToken);
     if (user) return user;
   }
 
