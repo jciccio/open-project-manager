@@ -87,6 +87,35 @@ describe("MCP Server Core Tools", () => {
     await executeMcpTool("delete_project", { id: projectId });
   });
 
+  it("supports limit and cursor pagination in list_cards tool", async () => {
+    const projRes = await executeMcpTool("create_project", {
+      name: "Pagination Test Project",
+      userId,
+    });
+    const projectId = projRes.project!.id;
+    const colId = (projRes.project as any).columns[0].id;
+
+    const card1 = await executeMcpTool("create_card", { projectId, columnId: colId, title: "Card 1" });
+    const card2 = await executeMcpTool("create_card", { projectId, columnId: colId, title: "Card 2" });
+    const card3 = await executeMcpTool("create_card", { projectId, columnId: colId, title: "Card 3" });
+
+    // Fetch page 1 (limit: 2)
+    const page1 = await executeMcpTool("list_cards", { projectId, limit: 2 });
+    expect(page1.success).toBe(true);
+    expect(page1.cards.length).toBe(2);
+    expect(page1.nextCursor).toBeDefined();
+    expect(page1.nextCursor).not.toBeNull();
+
+    // Fetch page 2 (using cursor from page 1)
+    const page2 = await executeMcpTool("list_cards", { projectId, limit: 2, cursor: page1.nextCursor });
+    expect(page2.success).toBe(true);
+    expect(page2.cards.length).toBe(1);
+    expect(page2.cards[0].title).toBe("Card 3");
+    expect(page2.nextCursor).toBeNull();
+
+    await executeMcpTool("delete_project", { id: projectId });
+  });
+
   it("throws an error for unknown tool names", async () => {
     await expect(executeMcpTool("non_existent_tool")).rejects.toThrow("Unknown MCP tool: non_existent_tool");
   });

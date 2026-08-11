@@ -82,10 +82,26 @@ model Card {
 
   labels            CardLabel[]
   comments          Comment[]
+  attachments       Attachment[]
   outgoingRelations CardRelation[] @relation("SourceCardRelations")
   incomingRelations CardRelation[] @relation("TargetCardRelations")
 
   @@unique([projectId, number])
+}
+
+model Attachment {
+  id         String   @id @default(cuid())
+  cardId     String
+  card       Card     @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  filename   String
+  storageKey String
+  url        String
+  size       Int
+  mimeType   String?
+  uploadedBy String?
+  createdAt  DateTime @default(now())
+
+  @@index([cardId])
 }
 
 model CardRelation {

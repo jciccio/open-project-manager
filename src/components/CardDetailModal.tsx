@@ -19,10 +19,12 @@ import {
   ShieldAlert,
   Plus,
   Archive,
+  Paperclip,
 } from "lucide-react";
 import { updateCard, deleteCard, archiveCard, getCardByIdentifier } from "@/actions/cards";
 import { getProjectById } from "@/actions/projects";
 import { addComment, updateComment, deleteComment } from "@/actions/comments";
+import { uploadAttachment, listAttachments, deleteAttachment } from "@/actions/attachments";
 import { getLabels } from "@/actions/labels";
 import { addCardRelation, removeCardRelation, getCardRelations } from "@/actions/relations";
 import { useTranslation } from "./LanguageProvider";
@@ -110,6 +112,9 @@ export default function CardDetailModal({
   const [isSaving, setIsSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  const [attachments, setAttachments] = useState<Array<any>>((card as any).attachments || []);
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
+
   const { t } = useTranslation();
 
   async function loadRelations() {
@@ -118,6 +123,51 @@ export default function CardDetailModal({
       setRelations(res.data);
     }
   }
+
+  useEffect(() => {
+    async function fetchAttachments() {
+      const res = await listAttachments(card.id);
+      if (res.success && res.data) {
+        setAttachments(res.data);
+      }
+    }
+    fetchAttachments();
+  }, [card.id]);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingAttachment(true);
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      const res = await uploadAttachment({
+        cardId: card.id,
+        filename: file.name,
+        contentBuffer: buffer,
+        mimeType: file.type || undefined,
+      });
+
+      if (res.success && res.data) {
+        setAttachments((prev) => [res.data, ...prev]);
+        onRefresh();
+      }
+    } catch (err) {
+      console.error("Failed to upload attachment:", err);
+    } finally {
+      setIsUploadingAttachment(false);
+      e.target.value = "";
+    }
+  };
+
+  const handleDeleteAttachment = async (attachmentId: string) => {
+    const res = await deleteAttachment(attachmentId);
+    if (res.success) {
+      setAttachments((prev) => prev.filter((a) => a.id !== attachmentId));
+      onRefresh();
+    }
+  };
 
   useEffect(() => {
     async function loadLabels() {
@@ -586,6 +636,64 @@ export default function CardDetailModal({
               ) : (
                 <p className="text-xs text-slate-500 dark:text-slate-400 italic">
                   No linked cards or dependencies.
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* File Attachments Section */}
+          <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Paperclip className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+                  Attachments ({attachments.length})
+                </h4>
+              </div>
+              <label className="cursor-pointer inline-flex items-center gap-1 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline">
+                <Plus className="h-3 w-3" />
+                <span>Upload File</span>
+                <input
+                  type="file"
+                  onChange={handleFileUpload}
+                  disabled={isUploadingAttachment}
+                  className="hidden"
+                />
+              </label>
+            </div>
+
+            <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+              {attachments && attachments.length > 0 ? (
+                attachments.map((att) => (
+                  <div
+                    key={att.id}
+                    className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 dark:bg-slate-800/50 px-2.5 py-1.5 border border-slate-200 dark:border-slate-800 text-xs"
+                  >
+                    <a
+                      href={att.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 text-slate-800 dark:text-slate-200 hover:text-indigo-600 dark:hover:text-indigo-400 truncate max-w-[80%]"
+                    >
+                      <Paperclip className="h-3 w-3 shrink-0 text-slate-400" />
+                      <span className="truncate font-medium">{att.filename}</span>
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        ({Math.round(att.size / 1024)} KB)
+                      </span>
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteAttachment(att.id)}
+                      className="text-slate-400 hover:text-rose-500 transition-colors p-1"
+                      title="Delete attachment"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <p className="text-xs text-slate-500 dark:text-slate-400 italic">
+                  No file attachments yet.
                 </p>
               )}
             </div>

@@ -12,9 +12,21 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const projectId = searchParams.get("projectId");
   const columnId = searchParams.get("columnId");
+  const limitParam = searchParams.get("limit");
+  const cursor = searchParams.get("cursor");
+
+  let limit: number | undefined = undefined;
+  if (limitParam) {
+    const parsed = parseInt(limitParam, 10);
+    if (!isNaN(parsed)) {
+      limit = Math.min(Math.max(1, parsed), 100);
+    }
+  } else if (cursor) {
+    limit = 50;
+  }
 
   try {
-    const cards = await db.card.findMany({
+    const queryOptions: any = {
       where: {
         ...(columnId
           ? { columnId }
@@ -26,10 +38,22 @@ export async function GET(request: NextRequest) {
         labels: { include: { label: true } },
         comments: { orderBy: { createdAt: "asc" } },
       },
-      orderBy: { order: "asc" },
-    });
+      orderBy: [{ order: "asc" }, { id: "asc" }],
+    };
 
-    return NextResponse.json({ success: true, data: cards });
+    if (limit !== undefined) {
+      queryOptions.take = limit;
+    }
+
+    if (cursor) {
+      queryOptions.cursor = { id: cursor };
+      queryOptions.skip = 1;
+    }
+
+    const cards = await db.card.findMany(queryOptions);
+    const nextCursor = limit !== undefined && cards.length === limit ? cards[cards.length - 1].id : null;
+
+    return NextResponse.json({ success: true, data: cards, nextCursor });
   } catch (err) {
     return NextResponse.json({ error: "Failed to fetch cards" }, { status: 500 });
   }

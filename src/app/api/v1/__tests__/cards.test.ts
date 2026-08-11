@@ -104,5 +104,47 @@ describe("REST API: Cards", () => {
     const delRes = await deleteCardRoute(delReq, { params: Promise.resolve({ id: cardId }) });
     expect(delRes.status).toBe(200);
   });
+
+  it("supports limit and cursor pagination on GET /api/v1/cards", async () => {
+    // Create 3 cards
+    for (let i = 1; i <= 3; i++) {
+      const createReq = new NextRequest("http://localhost/api/v1/cards", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          projectId,
+          columnId,
+          title: `Paginated Card ${i}`,
+        }),
+      });
+      await createCardRoute(createReq);
+    }
+
+    // Page 1: limit=2
+    const page1Req = new NextRequest(`http://localhost/api/v1/cards?projectId=${projectId}&limit=2`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const page1Res = await getCardsRoute(page1Req);
+    expect(page1Res.status).toBe(200);
+    const page1Body = await page1Res.json();
+    expect(page1Body.data.length).toBe(2);
+    expect(page1Body.nextCursor).toBeDefined();
+    expect(page1Body.nextCursor).not.toBeNull();
+
+    // Page 2: limit=2 & cursor=page1Body.nextCursor
+    const page2Req = new NextRequest(
+      `http://localhost/api/v1/cards?projectId=${projectId}&limit=2&cursor=${page1Body.nextCursor}`,
+      { headers: { authorization: `Bearer ${token}` } }
+    );
+    const page2Res = await getCardsRoute(page2Req);
+    expect(page2Res.status).toBe(200);
+    const page2Body = await page2Res.json();
+    expect(page2Body.data.length).toBe(1);
+    expect(page2Body.data[0].title).toBe("Paginated Card 3");
+    expect(page2Body.nextCursor).toBeNull();
+  });
 });
 

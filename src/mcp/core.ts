@@ -144,6 +144,8 @@ export const MCP_TOOLS = [
         priority: { type: "string", description: "Filter by priority (NONE, LOW, MEDIUM, HIGH, URGENT)" },
         owner: { type: "string", description: "Filter by assignee owner name" },
         isArchived: { type: "boolean", description: "Filter by archived status (default: false)" },
+        limit: { type: "number", description: "Maximum number of cards to return (1-100)" },
+        cursor: { type: "string", description: "Cursor card ID for pagination (returns items after this card ID)" },
       },
     },
   },
@@ -347,6 +349,45 @@ export const MCP_TOOLS = [
       required: ["name"],
     },
   },
+  {
+    name: "add_attachment",
+    description: "Upload a file attachment to a task card using a base64-encoded string.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cardId: { type: "string", description: "Target task card ID" },
+        filename: { type: "string", description: "Original filename" },
+        contentBase64: { type: "string", description: "Base64-encoded file contents" },
+        mimeType: { type: "string", description: "Optional MIME type (e.g. image/png, text/plain)" },
+        uploadedBy: { type: "string", description: "Optional uploader identifier" },
+        userId: { type: "string", description: "Optional user ID scope" },
+      },
+      required: ["cardId", "filename", "contentBase64"],
+    },
+  },
+  {
+    name: "list_attachments",
+    description: "List all file attachments associated with a specific task card.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cardId: { type: "string", description: "Target task card ID" },
+      },
+      required: ["cardId"],
+    },
+  },
+  {
+    name: "delete_attachment",
+    description: "Delete a task card attachment permanently by ID.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Attachment ID to delete" },
+        userId: { type: "string", description: "Optional user ID scope" },
+      },
+      required: ["id"],
+    },
+  },
 ];
 
 export async function executeMcpTool(name: string, args: Record<string, any> = {}) {
@@ -487,16 +528,40 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       if (args.priority) where.priority = args.priority;
       if (args.owner) where.owner = { contains: args.owner };
 
-      const cards = await db.card.findMany({
+      let limit: number | undefined = undefined;
+      if (typeof args.limit === "number") {
+        limit = Math.min(Math.max(1, Math.floor(args.limit)), 100);
+      } else if (args.limit) {
+        const parsed = parseInt(String(args.limit), 10);
+        if (!isNaN(parsed)) {
+          limit = Math.min(Math.max(1, parsed), 100);
+        }
+      } else if (args.cursor) {
+        limit = 50;
+      }
+
+      const queryOptions: any = {
         where,
-        orderBy: { order: "asc" },
+        orderBy: [{ order: "asc" }, { id: "asc" }],
         include: {
           column: { select: { name: true } },
           labels: { include: { label: true } },
           _count: { select: { comments: true } },
         },
-      });
-      return { success: true, cards };
+      };
+
+      if (limit !== undefined) {
+        queryOptions.take = limit;
+      }
+
+      if (args.cursor) {
+        queryOptions.cursor = { id: args.cursor };
+        queryOptions.skip = 1;
+      }
+
+      const cards = await db.card.findMany(queryOptions);
+      const nextCursor = limit !== undefined && cards.length === limit ? cards[cards.length - 1].id : null;
+      return { success: true, cards, nextCursor };
     }
 
     case "get_card": {
@@ -753,6 +818,42 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
         },
       });
       return { success: true, label };
+    }
+
+    case "add_attachment": {
+      const buffer = Buffer.from(args.contentBase64, "base64");
+      const { uploadAttachment } = await import("@/actions/attachments");
+      const res = await uploadAttachment(
+        {
+          cardId: args.cardId,
+          filename: args.filename,
+          contentBuffer: buffer,
+          mimeType: args.mimeType,
+          uploadedBy: args.uploadedBy,
+        },
+        args.userId
+      );
+      if (!res.success) {
+        throw new Error(res.error || "Failed to upload attachment");
+      }
+      return { success: true, attachment: res.data };
+    }
+
+    case "list_attachments": {
+      const attachments = await db.attachment.findMany({
+        where: { cardId: args.cardId },
+        orderBy: { createdAt: "desc" },
+      });
+      return { success: true, attachments };
+    }
+
+    case "delete_attachment": {
+      const { deleteAttachment } = await import("@/actions/attachments");
+      const res = await deleteAttachment(args.id, args.userId);
+      if (!res.success) {
+        throw new Error(res.error || "Failed to delete attachment");
+      }
+      return { success: true, deletedId: args.id };
     }
 
     default:

@@ -2,7 +2,12 @@
 
 A lightweight, fast, and self-hosted project management web application inspired by Vikunja. Built with **Next.js 15+ (App Router)**, **TypeScript**, **Tailwind CSS**, and **SQLite + Prisma ORM (v7)**.
 
-![Stack](https://img.shields.io/badge/Stack-Next.js%20%7C%20TypeScript%20%7C%20SQLite%20%7C%20Prisma%207-indigo)
+[![CircleCI](https://img.shields.io/circleci/build/github/jciccio/open-project-manager/main?logo=circleci)](https://circleci.com/gh/jciccio/open-project-manager)
+[![Tests](https://img.shields.io/badge/tests-55%20passed-emerald?logo=vitest)](https://github.com/jciccio/open-project-manager)
+[![Downloads](https://img.shields.io/github/downloads/jciccio/open-project-manager/total?logo=github&label=downloads)](https://github.com/jciccio/open-project-manager/releases)
+[![Docker](https://img.shields.io/badge/docker-ready-2496ED?logo=docker&logoColor=white)](https://github.com/jciccio/open-project-manager)
+[![MCP Native](https://img.shields.io/badge/MCP-native-7C3AED)](https://github.com/jciccio/open-project-manager)
+[![Stack](https://img.shields.io/badge/Stack-Next.js%2015%20%7C%20TypeScript%20%7C%20SQLite%20%7C%20Prisma%207-indigo)](https://github.com/jciccio/open-project-manager)
 
 ---
 <img width="1512" height="731" alt="Screenshot 2026-08-09 at 12 28 28 PM" src="https://github.com/user-attachments/assets/bbf583f6-7c34-419c-82c6-4e44a71c7361" />
@@ -17,22 +22,27 @@ A lightweight, fast, and self-hosted project management web application inspired
 
 ## ✨ Features
 
-- 🔒 **User Authentication & Profile Management**: Registration, login, logout, profile settings modal (display name, email, and password update), and privacy-focused header user badge.
+- 🔒 **User Authentication & API Token Management**: Password login, profile settings, and revocable machine/API tokens for external scripts and LLMs.
 - 🌐 **Multi-Language Support (i18n)**: Switch between English (`EN`) and Spanish (`ES`) locales with persistent preference.
-- 🔌 **Programmatic REST API (`/api/v1/*`)**: Complete REST API with Bearer token support for workflow automation, script integrations, and external tools.
+- 🔌 **Programmatic REST API (`/api/v1/*`)**: Comprehensive REST API with Bearer token authentication for full card, project, column, comment, and attachment automation.
+- 🤖 **Model Context Protocol (MCP)**: Built-in stdio transport and REST JSON-RPC endpoint for AI agents (Claude, Cursor, Antigravity) to query and manage cards.
 - 🎨 **Dark & Light Mode Switcher**: Seamless theme switcher with persistent user preference.
 - 📊 **Multiple Project Views**: Switch between Kanban Board, Structured List View, Analytics & Graphs (Recharts), and Monthly Calendar View.
-- 📁 **Project Archiving**: Archive completed or inactive projects to clean up your active dashboard.
-- 📋 **Customizable & Reorganizable Kanban Boards**: Create custom columns and easily reorder columns left or right with instant SQLite persistence.
+- 🏷️ **Human-Friendly Card Identifiers**: Stable per-project human keys (`PROJ-123`) with instant lookup API (`GET /api/v1/cards/by-identifier/:id`).
+- 📁 **Project & Card Archiving**: Archive completed projects or individual cards (`isArchived: true`) to maintain clean active views.
+- 📋 **Customizable & Reorganizable Board Columns**: Create custom columns and reorder columns left/right with instant SQLite persistence.
 - 🎯 **Rich Task Card Metadata**:
   - **Story Points**: Track task estimation points.
-  - **Priority Levels**: Assign Low, Medium, High, or Urgent badges.
+  - **Priority Levels**: Explicit `NONE`, `LOW`, `MEDIUM`, `HIGH`, or `URGENT` priorities.
   - **Assignees & Owners**: Assign team members to cards.
-  - **Labels**: Tag cards with custom color-coded labels (e.g. Frontend, Backend, UI/UX, Bug).
-  - **Due Dates**: Track deadlines per task.
-- 💬 **Comment Feeds**: Discuss tasks and post comments directly on task cards.
-- 🐳 **Official Docker Image & Compose**: Multi-stage `Dockerfile` standalone production build and single-command `docker-compose.yml` orchestration with volume persistence.
-- 🪶 **Lightweight & Portable**: Single `.sqlite` file database stored locally (`dev.db`).
+  - **Labels**: Tag cards with project-scoped or global color-coded labels (e.g. Frontend, Backend, Bug).
+  - **Due Dates & Completion Timestamps**: Set deadlines and automatically track completion timestamps when cards reach done columns.
+- 🔗 **Card Dependencies & Relations**: Connect cards with `BLOCKS`, `BLOCKED_BY`, and `RELATES_TO` relationship links.
+- 📎 **File Attachments**: Upload, stream, list, and delete card attachments (documents, images, logs) via UI, REST API, and base64 MCP tools.
+- 📄 **Card Cursoring & Pagination**: Cursor-based pagination (`limit` & `cursor`) for large project card listings.
+- 💬 **In-Place Comment Editing & Feeds**: Discuss tasks and edit comments in-place across UI, REST API (`PATCH /api/v1/comments/:id`), and MCP tools.
+- 🐳 **Official Docker Image & Compose**: Multi-stage `Dockerfile` standalone build and single-command `docker-compose.yml` orchestration with volume persistence.
+- 🪶 **Lightweight & Portable**: Single `.sqlite` file database stored locally (`dev.db`) using Prisma v7.
 
 ---
 
@@ -144,6 +154,31 @@ curl -X POST http://localhost:3000/api/v1/cards/CARD_ID/move \
     "targetColumnId": "DONE_COLUMN_ID",
     "newOrder": 0
   }'
+```
+
+### 6. Query Card by Human Identifier (e.g. OPM-1)
+```bash
+curl -X GET http://localhost:3000/api/v1/cards/by-identifier/OPM-1 \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+### 7. Paginated Card Listing
+```bash
+curl -X GET "http://localhost:3000/api/v1/cards?projectId=PROJECT_ID&limit=10&cursor=CURSOR_CARD_ID" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+### 8. Upload & List File Attachments
+```bash
+# Upload attachment via JSON base64
+curl -X POST http://localhost:3000/api/v1/cards/CARD_ID/attachments \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"filename": "log.txt", "contentBase64": "SGVsbG8gV29ybGQ=", "mimeType": "text/plain"}'
+
+# List card attachments
+curl -X GET http://localhost:3000/api/v1/cards/CARD_ID/attachments \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
 ```
 
 ---
