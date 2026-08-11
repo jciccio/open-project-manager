@@ -102,15 +102,15 @@ describe("MCP Server Core Tools", () => {
     // Fetch page 1 (limit: 2)
     const page1 = await executeMcpTool("list_cards", { projectId, limit: 2 });
     expect(page1.success).toBe(true);
-    expect(page1.cards.length).toBe(2);
+    expect(page1.cards!.length).toBe(2);
     expect(page1.nextCursor).toBeDefined();
     expect(page1.nextCursor).not.toBeNull();
 
     // Fetch page 2 (using cursor from page 1)
     const page2 = await executeMcpTool("list_cards", { projectId, limit: 2, cursor: page1.nextCursor });
     expect(page2.success).toBe(true);
-    expect(page2.cards.length).toBe(1);
-    expect(page2.cards[0].title).toBe("Card 3");
+    expect(page2.cards!.length).toBe(1);
+    expect(page2.cards![0].title).toBe("Card 3");
     expect(page2.nextCursor).toBeNull();
 
     await executeMcpTool("delete_project", { id: projectId });
