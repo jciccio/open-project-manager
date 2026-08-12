@@ -23,6 +23,26 @@ describe("MCP Server Core Tools", () => {
     expect(toolNames).toContain("add_comment");
   });
 
+  it("every tool declares annotations (readOnlyHint/destructiveHint/idempotentHint)", () => {
+    for (const tool of MCP_TOOLS) {
+      const annotations = tool.annotations;
+      expect(annotations, `${tool.name} is missing an annotations object`).toBeDefined();
+      expect(typeof annotations.readOnlyHint, `${tool.name}.annotations.readOnlyHint`).toBe("boolean");
+      expect(typeof annotations.destructiveHint, `${tool.name}.annotations.destructiveHint`).toBe("boolean");
+      expect(typeof annotations.idempotentHint, `${tool.name}.annotations.idempotentHint`).toBe("boolean");
+
+      // Naming-convention guardrails so a future tool can't drift from its own name.
+      if (/^(list|get)_/.test(tool.name)) {
+        expect(annotations.readOnlyHint, `${tool.name} starts with list_/get_ but readOnlyHint is not true`).toBe(true);
+        expect(annotations.destructiveHint, `${tool.name} starts with list_/get_ but destructiveHint is not false`).toBe(false);
+      }
+      if (/^(delete|remove)_/.test(tool.name)) {
+        expect(annotations.destructiveHint, `${tool.name} starts with delete_/remove_ but destructiveHint is not true`).toBe(true);
+        expect(annotations.readOnlyHint, `${tool.name} starts with delete_/remove_ but readOnlyHint is not false`).toBe(false);
+      }
+    }
+  });
+
   it("executes project, column, card, comment, and label tools correctly", async () => {
     // 1. Create Project via MCP tool
     const projRes = await executeMcpTool("create_project", {

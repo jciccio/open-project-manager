@@ -20,6 +20,7 @@ export const MCP_TOOLS = [
   {
     name: "list_projects",
     description: "List all projects in the workspace, optionally filtering by archived status.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -37,6 +38,7 @@ export const MCP_TOOLS = [
   {
     name: "get_project",
     description: "Retrieve full details for a specific project, including columns, task cards, labels, and comments.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -48,6 +50,7 @@ export const MCP_TOOLS = [
   {
     name: "create_project",
     description: "Create a new project with default Kanban columns (Backlog, To Do, In Progress, Done).",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     inputSchema: {
       type: "object",
       properties: {
@@ -62,6 +65,7 @@ export const MCP_TOOLS = [
   {
     name: "update_project",
     description: "Update project metadata or archive/unarchive status.",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -77,6 +81,7 @@ export const MCP_TOOLS = [
   {
     name: "delete_project",
     description: "Permanently delete a project and all associated columns, cards, and comments.",
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -88,6 +93,7 @@ export const MCP_TOOLS = [
   {
     name: "list_columns",
     description: "List columns for a given project.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -99,6 +105,7 @@ export const MCP_TOOLS = [
   {
     name: "create_column",
     description: "Add a new column to a project board.",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     inputSchema: {
       type: "object",
       properties: {
@@ -112,6 +119,7 @@ export const MCP_TOOLS = [
   {
     name: "update_column",
     description: "Update column title or position order.",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -125,6 +133,7 @@ export const MCP_TOOLS = [
   {
     name: "delete_column",
     description: "Delete a column from a project.",
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -136,6 +145,7 @@ export const MCP_TOOLS = [
   {
     name: "list_cards",
     description: "Query and filter task cards by project, column, priority, or assignee owner.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -152,6 +162,7 @@ export const MCP_TOOLS = [
   {
     name: "get_card",
     description: "Retrieve complete details for a specific task card including comments and labels.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -163,6 +174,7 @@ export const MCP_TOOLS = [
   {
     name: "get_card_by_identifier",
     description: "Retrieve complete task card details using human-readable identifier (e.g. OPM-42 or PROJ-1).",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -174,6 +186,7 @@ export const MCP_TOOLS = [
   {
     name: "create_card",
     description: "Create a new task card in a project column.",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     inputSchema: {
       type: "object",
       properties: {
@@ -192,6 +205,7 @@ export const MCP_TOOLS = [
   {
     name: "update_card",
     description: "Update task card fields (title, description, priority, story points, owner, due date, columnId).",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -210,6 +224,7 @@ export const MCP_TOOLS = [
   {
     name: "move_card",
     description: "Move a task card to another column or update its order position index.",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -223,6 +238,7 @@ export const MCP_TOOLS = [
   {
     name: "delete_card",
     description: "Delete a task card permanently.",
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -234,6 +250,7 @@ export const MCP_TOOLS = [
   {
     name: "archive_card",
     description: "Archive a task card so it is hidden from active project board views.",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -245,6 +262,7 @@ export const MCP_TOOLS = [
   {
     name: "unarchive_card",
     description: "Unarchive a task card so it is restored to active project board views.",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -256,6 +274,7 @@ export const MCP_TOOLS = [
   {
     name: "add_comment",
     description: "Add a comment feed entry to a task card.",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     inputSchema: {
       type: "object",
       properties: {
@@ -269,6 +288,7 @@ export const MCP_TOOLS = [
   {
     name: "add_card_relation",
     description: "Add a dependency or relationship between two cards (BLOCKS, BLOCKED_BY, RELATES_TO).",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     inputSchema: {
       type: "object",
       properties: {
@@ -282,6 +302,7 @@ export const MCP_TOOLS = [
   {
     name: "remove_card_relation",
     description: "Delete an existing card relation by ID.",
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -293,6 +314,7 @@ export const MCP_TOOLS = [
   {
     name: "get_card_relations",
     description: "List all relations (blocking, blocked by, relates to) for a specific card.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -304,6 +326,7 @@ export const MCP_TOOLS = [
   {
     name: "list_comments",
     description: "List all comments for a specific task card.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -315,6 +338,7 @@ export const MCP_TOOLS = [
   {
     name: "update_comment",
     description: "Update the text content of an existing comment.",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -327,6 +351,7 @@ export const MCP_TOOLS = [
   {
     name: "list_labels",
     description: "List custom labels available in the workspace or specific project.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -338,6 +363,7 @@ export const MCP_TOOLS = [
   {
     name: "create_label",
     description: "Create a new custom color-coded label.",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     inputSchema: {
       type: "object",
       properties: {
@@ -352,6 +378,7 @@ export const MCP_TOOLS = [
   {
     name: "add_attachment",
     description: "Upload a file attachment to a task card using a base64-encoded string.",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     inputSchema: {
       type: "object",
       properties: {
@@ -368,6 +395,7 @@ export const MCP_TOOLS = [
   {
     name: "list_attachments",
     description: "List all file attachments associated with a specific task card.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -379,6 +407,7 @@ export const MCP_TOOLS = [
   {
     name: "delete_attachment",
     description: "Delete a task card attachment permanently by ID.",
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
