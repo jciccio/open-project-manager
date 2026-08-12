@@ -183,4 +183,27 @@ describe("MCP Server Core Tools", () => {
       destructiveHint: false,
     });
   });
+
+  it("supports reorder_cards MCP tool", async () => {
+    const projRes = await executeMcpTool("create_project", { name: "Reorder MCP Project", userId });
+    const projectId = projRes.project!.id;
+    const colId = (projRes.project as any).columns[0].id;
+
+    const c1 = await executeMcpTool("create_card", { projectId, columnId: colId, title: "Card 1" });
+    const c2 = await executeMcpTool("create_card", { projectId, columnId: colId, title: "Card 2" });
+
+    expect(c1.card!.order).toBe(10000);
+    expect(c2.card!.order).toBe(20000);
+
+    const reorderRes = await executeMcpTool("reorder_cards", {
+      items: [
+        { id: c1.card!.id, order: 25000 },
+        { id: c2.card!.id, order: 5000 },
+      ],
+    });
+    expect(reorderRes.success).toBe(true);
+    expect(reorderRes.count).toBe(2);
+
+    await executeMcpTool("delete_project", { id: projectId });
+  });
 });

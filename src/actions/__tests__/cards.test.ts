@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { createCard, updateCard, moveCard, deleteCard, getCardByIdentifier, archiveCard, unarchiveCard, getArchivedCards } from "../cards";
+import { createCard, updateCard, moveCard, deleteCard, getCardByIdentifier, archiveCard, unarchiveCard, getArchivedCards, reorderCards } from "../cards";
 import { createProject, getProjectById } from "../projects";
 import { createTestUser, cleanupTestUser } from "@/test/helpers";
 import { createSession, destroySession } from "@/lib/auth";
@@ -137,6 +137,20 @@ describe("Cards Server Actions", () => {
 
     const delRes = await deleteCard(cardId);
     expect(delRes.success).toBe(true);
+  });
+
+  it("reorders multiple cards atomically using reorderCards", async () => {
+    const c1 = await createCard({ projectId, columnId, title: "Card A" });
+    const c2 = await createCard({ projectId, columnId, title: "Card B" });
+
+    expect(c1.data?.order).toBe(10000);
+    expect(c2.data?.order).toBe(20000);
+
+    const reorderRes = await reorderCards([
+      { id: c1.data!.id, order: 25000 },
+      { id: c2.data!.id, order: 5000 },
+    ]);
+    expect(reorderRes.success).toBe(true);
   });
 });
 

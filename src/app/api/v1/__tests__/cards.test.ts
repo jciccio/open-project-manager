@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { GET as getCardsRoute, POST as createCardRoute } from "../cards/route";
+import { POST as reorderCardsRoute } from "../cards/reorder/route";
 import { GET as getCardByIdRoute, PUT as updateCardRoute, DELETE as deleteCardRoute } from "../cards/[id]/route";
 import { GET as getByIdentifierRoute } from "../cards/by-identifier/[identifier]/route";
 import { NextRequest } from "next/server";
@@ -193,5 +194,37 @@ describe("REST API: Cards", () => {
     const noneBody = await noneRes.json();
     expect(noneBody.data.length).toBe(0);
   });
-});
 
+  it("bulk reorders cards via POST /api/v1/cards/reorder", async () => {
+    const req1 = new NextRequest("http://localhost/api/v1/cards", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ projectId, columnId, title: "Card 1" }),
+    });
+    const res1 = await createCardRoute(req1);
+    const card1 = (await res1.json()).data;
+
+    const req2 = new NextRequest("http://localhost/api/v1/cards", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ projectId, columnId, title: "Card 2" }),
+    });
+    const res2 = await createCardRoute(req2);
+    const card2 = (await res2.json()).data;
+
+    const reorderReq = new NextRequest("http://localhost/api/v1/cards/reorder", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        items: [
+          { id: card1.id, order: 30000 },
+          { id: card2.id, order: 5000 },
+        ],
+      }),
+    });
+    const reorderRes = await reorderCardsRoute(reorderReq);
+    expect(reorderRes.status).toBe(200);
+    const reorderBody = await reorderRes.json();
+    expect(reorderBody.success).toBe(true);
+  });
+});

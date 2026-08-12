@@ -35,12 +35,13 @@ export async function createCard(
       return { success: false, error: "Card title is required" };
     }
 
+    const ORDER_GAP = 10000;
     const lastCard = await db.card.findFirst({
       where: { columnId: data.columnId },
       orderBy: { order: "desc" },
     });
 
-    const newOrder = lastCard ? lastCard.order + 1 : 0;
+    const newOrder = lastCard ? lastCard.order + ORDER_GAP : ORDER_GAP;
 
     const maxCard = await db.card.findFirst({
       where: { projectId: data.projectId },
@@ -366,6 +367,55 @@ export async function getArchivedCards() {
   } catch (error) {
     console.error("Error fetching archived cards:", error);
     return { success: false, error: "Failed to fetch archived cards" };
+  }
+}
+
+export interface ReorderItem {
+  id: string;
+  order: number;
+  columnId?: string;
+}
+
+export async function reorderCards(items: ReorderItem[]) {
+  try {
+    const session = await getSession();
+    if (!session) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return { success: false, error: "Items array is required" };
+    }
+
+    const cardIds = items.map((i) => i.id);
+    const existingCards = await db.card.findMany({
+      where: {
+        id: { in: cardIds },
+        project: { userId: session.userId },
+      },
+      select: { id: true },
+    });
+
+    if (existingCards.length !== cardIds.length) {
+      return { success: false, error: "Unauthorized or card not found" };
+    }
+
+    const updates = items.map((item) =>
+      db.card.update({
+        where: { id: item.id },
+        data: {
+          order: item.order,
+          ...(item.columnId ? { columnId: item.columnId } : {}),
+        },
+      })
+    );
+
+    await db.$transaction(updates);
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) {
+    console.error("Error reordering cards:", error);
+    return { success: false, error: "Failed to reorder cards" };
   }
 }
 

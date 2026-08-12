@@ -280,6 +280,33 @@ export const MCP_TOOLS = [
     },
   },
   {
+    name: "reorder_cards",
+    description: "Reorder multiple task cards in bulk atomically.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        items: {
+          type: "array",
+          description: "List of items containing card ID, order, and optional columnId",
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "string", description: "Card ID" },
+              order: { type: "number", description: "New order position value" },
+              columnId: { type: "string", description: "Optional target column ID" },
+            },
+            required: ["id", "order"],
+          },
+        },
+      },
+      required: ["items"],
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
+  },
+  {
     name: "delete_card",
     description: "Delete a task card permanently.",
     inputSchema: {
@@ -738,12 +765,13 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "create_card": {
-      let order = 0;
+      const ORDER_GAP = 10000;
+      let order = ORDER_GAP;
       const lastCard = await db.card.findFirst({
         where: { columnId: args.columnId },
         orderBy: { order: "desc" },
       });
-      if (lastCard) order = lastCard.order + 1;
+      if (lastCard) order = lastCard.order + ORDER_GAP;
 
       const maxCard = await db.card.findFirst({
         where: { projectId: args.projectId },
@@ -811,6 +839,24 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
         },
       });
       return { success: true, card };
+    }
+
+    case "reorder_cards": {
+      const items = args.items || [];
+      if (!Array.isArray(items) || items.length === 0) {
+        return { success: false, error: "items array is required" };
+      }
+      const updates = items.map((item: any) =>
+        db.card.update({
+          where: { id: item.id },
+          data: {
+            order: item.order,
+            ...(item.columnId ? { columnId: item.columnId } : {}),
+          },
+        })
+      );
+      await db.$transaction(updates);
+      return { success: true, count: items.length };
     }
 
     case "delete_card": {
