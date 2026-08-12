@@ -169,7 +169,7 @@ export const MCP_TOOLS = [
   },
   {
     name: "list_cards",
-    description: "Query and filter task cards by project, column, priority, or assignee owner.",
+    description: "Query and filter task cards by project, column, priority, assignee owner, or a free-text search across title/description.",
     inputSchema: {
       type: "object",
       properties: {
@@ -177,6 +177,7 @@ export const MCP_TOOLS = [
         columnId: { type: "string", description: "Filter by column ID" },
         priority: { type: "string", description: "Filter by priority (NONE, LOW, MEDIUM, HIGH, URGENT)" },
         owner: { type: "string", description: "Filter by assignee owner name" },
+        query: { type: "string", description: "Free-text search across card title and description (case-insensitive substring match)" },
         isArchived: { type: "boolean", description: "Filter by archived status (default: false)" },
         limit: { type: "number", description: "Maximum number of cards to return (1-100)" },
         cursor: { type: "string", description: "Cursor card ID for pagination (returns items after this card ID)" },
@@ -638,6 +639,12 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       if (args.columnId) where.columnId = args.columnId;
       if (args.priority) where.priority = args.priority;
       if (args.owner) where.owner = { contains: args.owner };
+      if (args.query) {
+        where.OR = [
+          { title: { contains: args.query } },
+          { description: { contains: args.query } },
+        ];
+      }
 
       let limit: number | undefined = undefined;
       if (typeof args.limit === "number") {

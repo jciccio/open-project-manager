@@ -12,6 +12,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const projectId = searchParams.get("projectId");
   const columnId = searchParams.get("columnId");
+  const query = searchParams.get("query");
   const limitParam = searchParams.get("limit");
   const cursor = searchParams.get("cursor");
 
@@ -26,14 +27,22 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    const where: any = {
+      ...(columnId
+        ? { columnId }
+        : projectId
+        ? { project: { id: projectId, userId: session.userId } }
+        : { project: { userId: session.userId } }),
+    };
+    if (query) {
+      where.OR = [
+        { title: { contains: query } },
+        { description: { contains: query } },
+      ];
+    }
+
     const queryOptions: any = {
-      where: {
-        ...(columnId
-          ? { columnId }
-          : projectId
-          ? { project: { id: projectId, userId: session.userId } }
-          : { project: { userId: session.userId } }),
-      },
+      where,
       include: {
         labels: { include: { label: true } },
         comments: { orderBy: { createdAt: "asc" } },
