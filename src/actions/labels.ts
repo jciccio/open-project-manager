@@ -4,9 +4,9 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 
-export async function getLabels(projectId?: string) {
+export async function getLabels(projectId?: string, overrideUserId?: string) {
   try {
-    const session = await getSession();
+    const session = overrideUserId ? { userId: overrideUserId } : await getSession();
     if (!session) return { success: false, error: "Unauthorized" };
 
     const where: any = projectId
@@ -24,9 +24,9 @@ export async function getLabels(projectId?: string) {
   }
 }
 
-export async function createLabel(name: string, color?: string, projectId?: string) {
+export async function createLabel(name: string, color?: string, projectId?: string, overrideUserId?: string) {
   try {
-    const session = await getSession();
+    const session = overrideUserId ? { userId: overrideUserId } : await getSession();
     if (!session) return { success: false, error: "Unauthorized" };
 
     if (!name.trim()) {
@@ -50,9 +50,9 @@ export async function createLabel(name: string, color?: string, projectId?: stri
   }
 }
 
-export async function deleteLabel(id: string) {
+export async function deleteLabel(id: string, overrideUserId?: string) {
   try {
-    const session = await getSession();
+    const session = overrideUserId ? { userId: overrideUserId } : await getSession();
     if (!session) return { success: false, error: "Unauthorized" };
 
     const label = await db.label.findUnique({
