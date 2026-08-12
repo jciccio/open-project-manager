@@ -116,6 +116,46 @@ describe("MCP Server Core Tools", () => {
     await executeMcpTool("delete_project", { id: projectId });
   });
 
+  it("filters by query across title and description in list_cards tool", async () => {
+    const projRes = await executeMcpTool("create_project", {
+      name: "Search Test Project",
+      userId,
+    });
+    const projectId = projRes.project!.id;
+    const colId = (projRes.project as any).columns[0].id;
+
+    await executeMcpTool("create_card", {
+      projectId,
+      columnId: colId,
+      title: "Fix login bug",
+      description: "Users can't sign in with SSO",
+    });
+    await executeMcpTool("create_card", {
+      projectId,
+      columnId: colId,
+      title: "Update onboarding docs",
+    });
+    await executeMcpTool("create_card", {
+      projectId,
+      columnId: colId,
+      title: "Refactor sidebar",
+      description: "unrelated to login",
+    });
+
+    const titleMatch = await executeMcpTool("list_cards", { projectId, query: "LOGIN" });
+    expect(titleMatch.success).toBe(true);
+    expect(titleMatch.cards!.length).toBe(2);
+
+    const descMatch = await executeMcpTool("list_cards", { projectId, query: "onboarding" });
+    expect(descMatch.cards!.length).toBe(1);
+    expect(descMatch.cards![0].title).toBe("Update onboarding docs");
+
+    const noMatch = await executeMcpTool("list_cards", { projectId, query: "nonexistentterm" });
+    expect(noMatch.cards!.length).toBe(0);
+
+    await executeMcpTool("delete_project", { id: projectId });
+  });
+
   it("throws an error for unknown tool names", async () => {
     await expect(executeMcpTool("non_existent_tool")).rejects.toThrow("Unknown MCP tool: non_existent_tool");
   });

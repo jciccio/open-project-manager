@@ -146,5 +146,52 @@ describe("REST API: Cards", () => {
     expect(page2Body.data[0].title).toBe("Paginated Card 3");
     expect(page2Body.nextCursor).toBeNull();
   });
+
+  it("filters by query across title and description on GET /api/v1/cards", async () => {
+    const createOne = async (title: string, description?: string) => {
+      const req = new NextRequest("http://localhost/api/v1/cards", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ projectId, columnId, title, description }),
+      });
+      return createCardRoute(req);
+    };
+
+    await createOne("Fix login bug", "Users can't sign in with SSO");
+    await createOne("Update onboarding docs");
+    await createOne("Refactor sidebar", "unrelated to login");
+
+    // Matches by title substring, case-insensitive
+    const titleReq = new NextRequest(`http://localhost/api/v1/cards?projectId=${projectId}&query=LOGIN`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const titleRes = await getCardsRoute(titleReq);
+    expect(titleRes.status).toBe(200);
+    const titleBody = await titleRes.json();
+    expect(titleBody.data.length).toBe(2);
+    expect(titleBody.data.map((c: { title: string }) => c.title).sort()).toEqual(
+      ["Fix login bug", "Refactor sidebar"].sort()
+    );
+
+    // Matches by description substring
+    const descReq = new NextRequest(`http://localhost/api/v1/cards?projectId=${projectId}&query=onboarding`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const descRes = await getCardsRoute(descReq);
+    const descBody = await descRes.json();
+    expect(descBody.data.length).toBe(1);
+    expect(descBody.data[0].title).toBe("Update onboarding docs");
+
+    // No match
+    const noneReq = new NextRequest(`http://localhost/api/v1/cards?projectId=${projectId}&query=nonexistentterm`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const noneRes = await getCardsRoute(noneReq);
+    const noneBody = await noneRes.json();
+    expect(noneBody.data.length).toBe(0);
+  });
 });
 
