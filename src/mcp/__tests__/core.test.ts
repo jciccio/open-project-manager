@@ -124,4 +124,23 @@ describe("MCP Server Core Tools", () => {
     const server = createMcpServer();
     expect(server).toBeDefined();
   });
+
+  it("includes tool annotations (readOnlyHint, destructiveHint) on MCP tools", () => {
+    const listProjects = MCP_TOOLS.find((t) => t.name === "list_projects");
+    expect(listProjects?.annotations).toEqual({
+      readOnlyHint: true,
+      idempotentHint: true,
+    });
+
+    const deleteProject = MCP_TOOLS.find((t) => t.name === "delete_project");
+    expect(deleteProject?.annotations).toEqual({
+      destructiveHint: true,
+    });
+
+    const createProject = MCP_TOOLS.find((t) => t.name === "create_project");
+    expect(createProject?.annotations).toEqual({
+      readOnlyHint: false,
+      destructiveHint: false,
+    });
+  });
 });

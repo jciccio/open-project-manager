@@ -33,6 +33,10 @@ export const MCP_TOOLS = [
         },
       },
     },
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
+    },
   },
   {
     name: "get_project",
@@ -43,6 +47,10 @@ export const MCP_TOOLS = [
         id: { type: "string", description: "The ID of the project" },
       },
       required: ["id"],
+    },
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
     },
   },
   {
@@ -57,6 +65,10 @@ export const MCP_TOOLS = [
         userId: { type: "string", description: "Owner user ID (defaults to active session/admin)" },
       },
       required: ["name"],
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
     },
   },
   {
@@ -73,6 +85,10 @@ export const MCP_TOOLS = [
       },
       required: ["id"],
     },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
   },
   {
     name: "delete_project",
@@ -84,6 +100,9 @@ export const MCP_TOOLS = [
       },
       required: ["id"],
     },
+    annotations: {
+      destructiveHint: true,
+    },
   },
   {
     name: "list_columns",
@@ -94,6 +113,10 @@ export const MCP_TOOLS = [
         projectId: { type: "string", description: "Project ID" },
       },
       required: ["projectId"],
+    },
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
     },
   },
   {
@@ -108,6 +131,10 @@ export const MCP_TOOLS = [
       },
       required: ["projectId", "name"],
     },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
   },
   {
     name: "update_column",
@@ -121,6 +148,10 @@ export const MCP_TOOLS = [
       },
       required: ["id"],
     },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
   },
   {
     name: "delete_column",
@@ -131,6 +162,9 @@ export const MCP_TOOLS = [
         id: { type: "string", description: "Column ID to delete" },
       },
       required: ["id"],
+    },
+    annotations: {
+      destructiveHint: true,
     },
   },
   {
@@ -148,6 +182,10 @@ export const MCP_TOOLS = [
         cursor: { type: "string", description: "Cursor card ID for pagination (returns items after this card ID)" },
       },
     },
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
+    },
   },
   {
     name: "get_card",
@@ -159,6 +197,10 @@ export const MCP_TOOLS = [
       },
       required: ["id"],
     },
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
+    },
   },
   {
     name: "get_card_by_identifier",
@@ -169,6 +211,10 @@ export const MCP_TOOLS = [
         identifier: { type: "string", description: "Human-readable identifier like OPM-42" },
       },
       required: ["identifier"],
+    },
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
     },
   },
   {
@@ -188,6 +234,10 @@ export const MCP_TOOLS = [
       },
       required: ["projectId", "columnId", "title"],
     },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
   },
   {
     name: "update_card",
@@ -206,6 +256,10 @@ export const MCP_TOOLS = [
       },
       required: ["id"],
     },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
   },
   {
     name: "move_card",
@@ -219,6 +273,10 @@ export const MCP_TOOLS = [
       },
       required: ["id", "targetColumnId"],
     },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
   },
   {
     name: "delete_card",
@@ -229,6 +287,9 @@ export const MCP_TOOLS = [
         id: { type: "string", description: "Card ID to delete" },
       },
       required: ["id"],
+    },
+    annotations: {
+      destructiveHint: true,
     },
   },
   {
@@ -241,6 +302,10 @@ export const MCP_TOOLS = [
       },
       required: ["id"],
     },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
   },
   {
     name: "unarchive_card",
@@ -251,6 +316,10 @@ export const MCP_TOOLS = [
         id: { type: "string", description: "Card ID to unarchive" },
       },
       required: ["id"],
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
     },
   },
   {
@@ -265,6 +334,10 @@ export const MCP_TOOLS = [
       },
       required: ["cardId", "author", "content"],
     },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
   },
   {
     name: "add_card_relation",
@@ -278,6 +351,10 @@ export const MCP_TOOLS = [
       },
       required: ["sourceCardId", "targetCardId"],
     },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
   },
   {
     name: "remove_card_relation",
@@ -288,6 +365,9 @@ export const MCP_TOOLS = [
         relationId: { type: "string", description: "CardRelation ID to remove" },
       },
       required: ["relationId"],
+    },
+    annotations: {
+      destructiveHint: true,
     },
   },
   {
@@ -300,6 +380,10 @@ export const MCP_TOOLS = [
       },
       required: ["cardId"],
     },
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
+    },
   },
   {
     name: "list_comments",
@@ -310,6 +394,10 @@ export const MCP_TOOLS = [
         cardId: { type: "string", description: "Target card ID" },
       },
       required: ["cardId"],
+    },
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
     },
   },
   {
@@ -323,6 +411,10 @@ export const MCP_TOOLS = [
       },
       required: ["commentId", "content"],
     },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
   },
   {
     name: "list_labels",
@@ -333,6 +425,10 @@ export const MCP_TOOLS = [
         projectId: { type: "string", description: "Optional project ID scope" },
         userId: { type: "string", description: "Optional user ID scope" },
       },
+    },
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
     },
   },
   {
@@ -347,6 +443,10 @@ export const MCP_TOOLS = [
         userId: { type: "string", description: "Optional user ID scope" },
       },
       required: ["name"],
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
     },
   },
   {
@@ -364,6 +464,10 @@ export const MCP_TOOLS = [
       },
       required: ["cardId", "filename", "contentBase64"],
     },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
   },
   {
     name: "list_attachments",
@@ -374,6 +478,10 @@ export const MCP_TOOLS = [
         cardId: { type: "string", description: "Target task card ID" },
       },
       required: ["cardId"],
+    },
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
     },
   },
   {
@@ -386,6 +494,9 @@ export const MCP_TOOLS = [
         userId: { type: "string", description: "Optional user ID scope" },
       },
       required: ["id"],
+    },
+    annotations: {
+      destructiveHint: true,
     },
   },
 ];
