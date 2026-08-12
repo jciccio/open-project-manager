@@ -21,6 +21,7 @@ export async function createCard(
     points?: number | null;
     owner?: string | null;
     dueDate?: string | null;
+    parentId?: string | null;
     labelIds?: string[];
   },
   overrideUserId?: string
@@ -66,6 +67,7 @@ export async function createCard(
         dueDate: data.dueDate ? new Date(data.dueDate) : null,
         completedAt,
         order: newOrder,
+        parentId: data.parentId || null,
         labels:
           data.labelIds && data.labelIds.length > 0
             ? {
@@ -78,6 +80,8 @@ export async function createCard(
           include: { label: true },
         },
         comments: true,
+        parent: { select: { id: true, number: true, title: true } },
+        children: { select: { id: true, number: true, title: true, completedAt: true } },
       },
     });
 
@@ -100,6 +104,7 @@ export async function updateCard(
     owner?: string | null;
     dueDate?: string | null;
     order?: number;
+    parentId?: string | null;
     labelIds?: string[];
   },
   overrideUserId?: string
@@ -107,6 +112,10 @@ export async function updateCard(
   try {
     const session = overrideUserId ? { userId: overrideUserId } : await getSession();
     if (!session) return { success: false, error: "Unauthorized" };
+
+    if (data.parentId === id) {
+      return { success: false, error: "A card cannot be its own parent" };
+    }
 
     const existingCard = await db.card.findUnique({
       where: { id },
@@ -132,6 +141,7 @@ export async function updateCard(
       dueDate: data.dueDate !== undefined ? (data.dueDate ? new Date(data.dueDate) : null) : undefined,
       order: data.order !== undefined ? data.order : undefined,
       columnId: data.columnId !== undefined ? data.columnId : undefined,
+      parentId: data.parentId !== undefined ? (data.parentId || null) : undefined,
       completedAt: completedAtUpdate,
     };
 
@@ -154,6 +164,8 @@ export async function updateCard(
         comments: {
           orderBy: { createdAt: "desc" },
         },
+        parent: { select: { id: true, number: true, title: true } },
+        children: { select: { id: true, number: true, title: true, completedAt: true } },
       },
     });
 
@@ -265,6 +277,8 @@ export async function getCardByIdentifier(identifier: string, overrideUserId?: s
         comments: {
           orderBy: { createdAt: "desc" },
         },
+        parent: { select: { id: true, number: true, title: true } },
+        children: { select: { id: true, number: true, title: true, completedAt: true } },
       },
     });
 

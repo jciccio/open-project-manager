@@ -206,4 +206,28 @@ describe("MCP Server Core Tools", () => {
 
     await executeMcpTool("delete_project", { id: projectId });
   });
+
+  it("supports parent/sub-card nesting in MCP tools", async () => {
+    const projRes = await executeMcpTool("create_project", { name: "Nesting MCP Project", userId });
+    const projectId = projRes.project!.id;
+    const colId = (projRes.project as any).columns[0].id;
+
+    const parent = await executeMcpTool("create_card", { projectId, columnId: colId, title: "MCP Parent" });
+    const parentId = parent.card!.id;
+
+    const child = await executeMcpTool("create_card", {
+      projectId,
+      columnId: colId,
+      title: "MCP Child",
+      parentId,
+    });
+    expect(child.success).toBe(true);
+    expect(child.card!.parentId).toBe(parentId);
+
+    const getParentRes = await executeMcpTool("get_card", { id: parentId });
+    expect((getParentRes.card as any).children.length).toBe(1);
+    expect((getParentRes.card as any).children[0].title).toBe("MCP Child");
+
+    await executeMcpTool("delete_project", { id: projectId });
+  });
 });

@@ -80,6 +80,10 @@ model Card {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
+  parentId    String?
+  parent      Card?     @relation("CardParentChildren", fields: [parentId], references: [id], onDelete: SetNull)
+  children    Card[]    @relation("CardParentChildren")
+
   labels            CardLabel[]
   comments          Comment[]
   attachments       Attachment[]
@@ -87,6 +91,7 @@ model Card {
   incomingRelations CardRelation[] @relation("TargetCardRelations")
 
   @@unique([projectId, number])
+  @@index([parentId])
 }
 
 model Attachment {

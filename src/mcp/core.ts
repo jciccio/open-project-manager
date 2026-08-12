@@ -178,6 +178,7 @@ export const MCP_TOOLS = [
         priority: { type: "string", description: "Filter by priority (NONE, LOW, MEDIUM, HIGH, URGENT)" },
         owner: { type: "string", description: "Filter by assignee owner name" },
         query: { type: "string", description: "Free-text search across card title and description (case-insensitive substring match)" },
+        parentId: { type: "string", description: "Filter by parent card ID" },
         isArchived: { type: "boolean", description: "Filter by archived status (default: false)" },
         limit: { type: "number", description: "Maximum number of cards to return (1-100)" },
         cursor: { type: "string", description: "Cursor card ID for pagination (returns items after this card ID)" },
@@ -190,7 +191,7 @@ export const MCP_TOOLS = [
   },
   {
     name: "get_card",
-    description: "Retrieve complete details for a specific task card including comments and labels.",
+    description: "Retrieve complete details for a specific task card including comments, labels, parent, and child cards.",
     inputSchema: {
       type: "object",
       properties: {
@@ -232,6 +233,7 @@ export const MCP_TOOLS = [
         points: { type: "number", description: "Story points estimation" },
         owner: { type: "string", description: "Assignee or owner name" },
         dueDate: { type: "string", description: "ISO date string for deadline (e.g. 2026-09-01)" },
+        parentId: { type: "string", description: "Optional parent card ID" },
       },
       required: ["projectId", "columnId", "title"],
     },
@@ -242,7 +244,7 @@ export const MCP_TOOLS = [
   },
   {
     name: "update_card",
-    description: "Update task card fields (title, description, priority, story points, owner, due date, columnId).",
+    description: "Update task card fields (title, description, priority, story points, owner, due date, columnId, parentId).",
     inputSchema: {
       type: "object",
       properties: {
@@ -254,6 +256,7 @@ export const MCP_TOOLS = [
         owner: { type: "string", description: "Updated assignee owner name" },
         dueDate: { type: "string", description: "Updated ISO due date string or empty string to clear" },
         columnId: { type: "string", description: "Move to a different column ID" },
+        parentId: { type: "string", description: "Updated parent card ID or empty string to detach" },
       },
       required: ["id"],
     },
@@ -673,6 +676,10 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
         ];
       }
 
+      if (args.parentId !== undefined) {
+        where.parentId = args.parentId || null;
+      }
+
       let limit: number | undefined = undefined;
       if (typeof args.limit === "number") {
         limit = Math.min(Math.max(1, Math.floor(args.limit)), 100);
@@ -691,6 +698,8 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
         include: {
           column: { select: { name: true } },
           labels: { include: { label: true } },
+          parent: { select: { id: true, number: true, title: true } },
+          children: { select: { id: true, number: true, title: true, completedAt: true } },
           _count: { select: { comments: true } },
         },
       };
@@ -717,6 +726,8 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
           project: true,
           labels: { include: { label: true } },
           comments: { orderBy: { createdAt: "desc" } },
+          parent: { select: { id: true, number: true, title: true } },
+          children: { select: { id: true, number: true, title: true, completedAt: true } },
         },
       });
       if (!card) throw new Error(`Card with ID ${args.id} not found.`);
@@ -751,6 +762,8 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
           project: true,
           labels: { include: { label: true } },
           comments: { orderBy: { createdAt: "desc" } },
+          parent: { select: { id: true, number: true, title: true } },
+          children: { select: { id: true, number: true, title: true, completedAt: true } },
         },
       });
 
@@ -796,6 +809,11 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
           dueDate: args.dueDate ? new Date(args.dueDate) : null,
           completedAt,
           order,
+          parentId: args.parentId || null,
+        },
+        include: {
+          parent: { select: { id: true, number: true, title: true } },
+          children: { select: { id: true, number: true, title: true, completedAt: true } },
         },
       });
       return { success: true, card };
@@ -816,10 +834,17 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       if (args.dueDate !== undefined) {
         data.dueDate = args.dueDate ? new Date(args.dueDate) : null;
       }
+      if (args.parentId !== undefined) {
+        data.parentId = args.parentId || null;
+      }
 
       const card = await db.card.update({
         where: { id: args.id },
         data,
+        include: {
+          parent: { select: { id: true, number: true, title: true } },
+          children: { select: { id: true, number: true, title: true, completedAt: true } },
+        },
       });
       return { success: true, card };
     }

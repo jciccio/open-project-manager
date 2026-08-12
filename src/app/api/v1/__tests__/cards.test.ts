@@ -227,4 +227,31 @@ describe("REST API: Cards", () => {
     const reorderBody = await reorderRes.json();
     expect(reorderBody.success).toBe(true);
   });
+
+  it("supports parentId in REST API creation and filtering", async () => {
+    const parentReq = new NextRequest("http://localhost/api/v1/cards", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ projectId, columnId, title: "REST Parent" }),
+    });
+    const parentRes = await createCardRoute(parentReq);
+    const parentData = (await parentRes.json()).data;
+
+    const childReq = new NextRequest("http://localhost/api/v1/cards", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ projectId, columnId, title: "REST Child", parentId: parentData.id }),
+    });
+    const childRes = await createCardRoute(childReq);
+    const childData = (await childRes.json()).data;
+    expect(childData.parentId).toBe(parentData.id);
+
+    const filterReq = new NextRequest(`http://localhost/api/v1/cards?parentId=${parentData.id}`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const filterRes = await getCardsRoute(filterReq);
+    const filterBody = await filterRes.json();
+    expect(filterBody.data.length).toBe(1);
+    expect(filterBody.data[0].id).toBe(childData.id);
+  });
 });

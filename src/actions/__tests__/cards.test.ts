@@ -152,6 +152,25 @@ describe("Cards Server Actions", () => {
     ]);
     expect(reorderRes.success).toBe(true);
   });
+
+  it("supports parent and sub-card nesting and prevents self-parenting", async () => {
+    const parentCard = await createCard({ projectId, columnId, title: "Parent Epic" });
+    const parentId = parentCard.data!.id;
+
+    const childCard = await createCard({
+      projectId,
+      columnId,
+      title: "Sub-task 1",
+      parentId,
+    });
+    expect(childCard.success).toBe(true);
+    expect(childCard.data?.parentId).toBe(parentId);
+    expect(childCard.data?.parent?.title).toBe("Parent Epic");
+
+    const selfParentRes = await updateCard(parentId, { parentId });
+    expect(selfParentRes.success).toBe(false);
+    expect(selfParentRes.error).toBe("A card cannot be its own parent");
+  });
 });
 
 
