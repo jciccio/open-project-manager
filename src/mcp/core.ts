@@ -177,6 +177,7 @@ export const MCP_TOOLS = [
         columnId: { type: "string", description: "Filter by column ID" },
         priority: { type: "string", description: "Filter by priority (NONE, LOW, MEDIUM, HIGH, URGENT)" },
         owner: { type: "string", description: "Filter by assignee owner name" },
+        assignedTo: { type: "string", description: "Filter by assigned user ID" },
         query: { type: "string", description: "Free-text search across card title and description (case-insensitive substring match)" },
         parentId: { type: "string", description: "Filter by parent card ID" },
         isArchived: { type: "boolean", description: "Filter by archived status (default: false)" },
@@ -191,7 +192,7 @@ export const MCP_TOOLS = [
   },
   {
     name: "get_card",
-    description: "Retrieve complete details for a specific task card including comments, labels, parent, and child cards.",
+    description: "Retrieve complete details for a specific task card including comments, labels, assignees, parent, and child cards.",
     inputSchema: {
       type: "object",
       properties: {
@@ -234,6 +235,7 @@ export const MCP_TOOLS = [
         owner: { type: "string", description: "Assignee or owner name" },
         dueDate: { type: "string", description: "ISO date string for deadline (e.g. 2026-09-01)" },
         parentId: { type: "string", description: "Optional parent card ID" },
+        assigneeIds: { type: "array", items: { type: "string" }, description: "Optional list of assigned user IDs" },
       },
       required: ["projectId", "columnId", "title"],
     },
@@ -244,7 +246,7 @@ export const MCP_TOOLS = [
   },
   {
     name: "update_card",
-    description: "Update task card fields (title, description, priority, story points, owner, due date, columnId, parentId).",
+    description: "Update task card fields (title, description, priority, story points, owner, due date, columnId, parentId, assigneeIds).",
     inputSchema: {
       type: "object",
       properties: {
@@ -257,6 +259,7 @@ export const MCP_TOOLS = [
         dueDate: { type: "string", description: "Updated ISO due date string or empty string to clear" },
         columnId: { type: "string", description: "Move to a different column ID" },
         parentId: { type: "string", description: "Updated parent card ID or empty string to detach" },
+        assigneeIds: { type: "array", items: { type: "string" }, description: "Optional list of assigned user IDs" },
       },
       required: ["id"],
     },
@@ -669,6 +672,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       if (args.columnId) where.columnId = args.columnId;
       if (args.priority) where.priority = args.priority;
       if (args.owner) where.owner = { contains: args.owner };
+      if (args.assignedTo) where.assignees = { some: { userId: args.assignedTo } };
       if (args.query) {
         where.OR = [
           { title: { contains: args.query } },
@@ -698,6 +702,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
         include: {
           column: { select: { name: true } },
           labels: { include: { label: true } },
+          assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
           parent: { select: { id: true, number: true, title: true } },
           children: { select: { id: true, number: true, title: true, completedAt: true } },
           _count: { select: { comments: true } },
@@ -726,6 +731,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
           project: true,
           labels: { include: { label: true } },
           comments: { orderBy: { createdAt: "desc" } },
+          assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
           parent: { select: { id: true, number: true, title: true } },
           children: { select: { id: true, number: true, title: true, completedAt: true } },
         },
@@ -762,6 +768,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
           project: true,
           labels: { include: { label: true } },
           comments: { orderBy: { createdAt: "desc" } },
+          assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
           parent: { select: { id: true, number: true, title: true } },
           children: { select: { id: true, number: true, title: true, completedAt: true } },
         },
@@ -810,8 +817,15 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
           completedAt,
           order,
           parentId: args.parentId || null,
+          assignees:
+            args.assigneeIds && args.assigneeIds.length > 0
+              ? {
+                  create: args.assigneeIds.map((userId: string) => ({ userId })),
+                }
+              : undefined,
         },
         include: {
+          assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
           parent: { select: { id: true, number: true, title: true } },
           children: { select: { id: true, number: true, title: true, completedAt: true } },
         },
@@ -838,10 +852,20 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
         data.parentId = args.parentId || null;
       }
 
+      if (args.assigneeIds !== undefined) {
+        await db.cardAssignee.deleteMany({ where: { cardId: args.id } });
+        if (args.assigneeIds.length > 0) {
+          data.assignees = {
+            create: args.assigneeIds.map((userId: string) => ({ userId })),
+          };
+        }
+      }
+
       const card = await db.card.update({
         where: { id: args.id },
         data,
         include: {
+          assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
           parent: { select: { id: true, number: true, title: true } },
           children: { select: { id: true, number: true, title: true, completedAt: true } },
         },

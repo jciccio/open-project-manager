@@ -171,6 +171,22 @@ describe("Cards Server Actions", () => {
     expect(selfParentRes.success).toBe(false);
     expect(selfParentRes.error).toBe("A card cannot be its own parent");
   });
+
+  it("supports assigning structured users to a card", async () => {
+    const cardRes = await createCard({
+      projectId,
+      columnId,
+      title: "Card With Assignees",
+      assigneeIds: [userId],
+    });
+    expect(cardRes.success).toBe(true);
+    expect(cardRes.data?.assignees.length).toBe(1);
+    expect(cardRes.data?.assignees[0].user.id).toBe(userId);
+
+    const updateRes = await updateCard(cardRes.data!.id, { assigneeIds: [] });
+    expect(updateRes.success).toBe(true);
+    expect(updateRes.data?.assignees.length).toBe(0);
+  });
 });
 
 

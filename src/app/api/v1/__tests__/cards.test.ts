@@ -254,4 +254,23 @@ describe("REST API: Cards", () => {
     expect(filterBody.data.length).toBe(1);
     expect(filterBody.data[0].id).toBe(childData.id);
   });
+
+  it("supports assigneeIds and assignedUserId filter via REST API", async () => {
+    const createReq = new NextRequest("http://localhost/api/v1/cards", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ projectId, columnId, title: "Assigned Card", assigneeIds: [userId] }),
+    });
+    const createRes = await createCardRoute(createReq);
+    const cardData = (await createRes.json()).data;
+    expect(cardData.assignees.length).toBe(1);
+    expect(cardData.assignees[0].userId).toBe(userId);
+
+    const filterReq = new NextRequest(`http://localhost/api/v1/cards?assignedUserId=${userId}`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const filterRes = await getCardsRoute(filterReq);
+    const filterBody = await filterRes.json();
+    expect(filterBody.data.some((c: any) => c.id === cardData.id)).toBe(true);
+  });
 });

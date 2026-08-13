@@ -230,4 +230,27 @@ describe("MCP Server Core Tools", () => {
 
     await executeMcpTool("delete_project", { id: projectId });
   });
+
+  it("supports assigneeIds and assignedTo filter in MCP tools", async () => {
+    const projRes = await executeMcpTool("create_project", { name: "Assignee MCP Project", userId });
+    const projectId = projRes.project!.id;
+    const colId = (projRes.project as any).columns[0].id;
+
+    const createRes = await executeMcpTool("create_card", {
+      projectId,
+      columnId: colId,
+      title: "MCP Assigned Card",
+      assigneeIds: [userId],
+    });
+    expect(createRes.success).toBe(true);
+    expect((createRes.card as any).assignees.length).toBe(1);
+    expect((createRes.card as any).assignees[0].userId).toBe(userId);
+
+    const listRes = await executeMcpTool("list_cards", { projectId, assignedTo: userId });
+    expect(listRes.success).toBe(true);
+    expect(listRes.cards!.length).toBe(1);
+    expect(listRes.cards![0].title).toBe("MCP Assigned Card");
+
+    await executeMcpTool("delete_project", { id: projectId });
+  });
 });

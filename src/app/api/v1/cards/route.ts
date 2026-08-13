@@ -13,6 +13,7 @@ export async function GET(request: NextRequest) {
   const projectId = searchParams.get("projectId");
   const columnId = searchParams.get("columnId");
   const parentId = searchParams.get("parentId");
+  const assignedUserId = searchParams.get("assignedUserId") || searchParams.get("assignedTo");
   const query = searchParams.get("query");
   const limitParam = searchParams.get("limit");
   const cursor = searchParams.get("cursor");
@@ -38,6 +39,9 @@ export async function GET(request: NextRequest) {
     if (parentId !== null) {
       where.parentId = parentId === "null" ? null : parentId;
     }
+    if (assignedUserId) {
+      where.assignees = { some: { userId: assignedUserId } };
+    }
     if (query) {
       where.OR = [
         { title: { contains: query } },
@@ -50,6 +54,7 @@ export async function GET(request: NextRequest) {
       include: {
         labels: { include: { label: true } },
         comments: { orderBy: { createdAt: "asc" } },
+        assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
         parent: { select: { id: true, number: true, title: true } },
         children: { select: { id: true, number: true, title: true, completedAt: true } },
       },
@@ -94,6 +99,7 @@ export async function POST(request: NextRequest) {
         dueDate: body.dueDate,
         parentId: body.parentId,
         labelIds: body.labelIds,
+        assigneeIds: body.assigneeIds,
       },
       session.userId
     );

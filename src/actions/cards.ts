@@ -23,6 +23,7 @@ export async function createCard(
     dueDate?: string | null;
     parentId?: string | null;
     labelIds?: string[];
+    assigneeIds?: string[];
   },
   overrideUserId?: string
 ) {
@@ -74,12 +75,21 @@ export async function createCard(
                 create: data.labelIds.map((labelId) => ({ labelId })),
               }
             : undefined,
+        assignees:
+          data.assigneeIds && data.assigneeIds.length > 0
+            ? {
+                create: data.assigneeIds.map((userId) => ({ userId })),
+              }
+            : undefined,
       },
       include: {
         labels: {
           include: { label: true },
         },
         comments: true,
+        assignees: {
+          include: { user: { select: { id: true, name: true, email: true } } },
+        },
         parent: { select: { id: true, number: true, title: true } },
         children: { select: { id: true, number: true, title: true, completedAt: true } },
       },
@@ -106,6 +116,7 @@ export async function updateCard(
     order?: number;
     parentId?: string | null;
     labelIds?: string[];
+    assigneeIds?: string[];
   },
   overrideUserId?: string
 ) {
@@ -154,6 +165,15 @@ export async function updateCard(
       }
     }
 
+    if (data.assigneeIds !== undefined) {
+      await db.cardAssignee.deleteMany({ where: { cardId: id } });
+      if (data.assigneeIds.length > 0) {
+        updatePayload.assignees = {
+          create: data.assigneeIds.map((userId) => ({ userId })),
+        };
+      }
+    }
+
     const card = await db.card.update({
       where: { id },
       data: updatePayload,
@@ -163,6 +183,9 @@ export async function updateCard(
         },
         comments: {
           orderBy: { createdAt: "desc" },
+        },
+        assignees: {
+          include: { user: { select: { id: true, name: true, email: true } } },
         },
         parent: { select: { id: true, number: true, title: true } },
         children: { select: { id: true, number: true, title: true, completedAt: true } },
@@ -276,6 +299,9 @@ export async function getCardByIdentifier(identifier: string, overrideUserId?: s
         },
         comments: {
           orderBy: { createdAt: "desc" },
+        },
+        assignees: {
+          include: { user: { select: { id: true, name: true, email: true } } },
         },
         parent: { select: { id: true, number: true, title: true } },
         children: { select: { id: true, number: true, title: true, completedAt: true } },
