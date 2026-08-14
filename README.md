@@ -279,6 +279,10 @@ docker compose logs -f
 docker compose down
 ```
 
+`docker compose up -d` first runs a one-shot `migrate` service (`prisma migrate deploy` against the
+`opm_data` volume) before starting the app, so the database schema is always in sync on a fresh
+deployment — no manual step required.
+
 The app will be accessible at [http://localhost:3000](http://localhost:3000).
 
 ### 2. Standalone Docker Build & Run
@@ -286,14 +290,32 @@ The app will be accessible at [http://localhost:3000](http://localhost:3000).
 # Build Docker image
 docker build -t open-project-manager .
 
+# Apply the database schema to the volume (one-time, and after any migration)
+docker build --target migrator -t open-project-manager:migrator .
+docker run --rm \
+  -v opm_data:/app/data \
+  -e DATABASE_URL="file:/app/data/dev.db" \
+  open-project-manager:migrator
+
 # Run container with volume mount for persistent SQLite database
 docker run -d \
   --name open-project-manager \
   -p 3000:3000 \
-  -v opm_data:/app/dev.db \
+  -v opm_data:/app/data \
+  -e DATABASE_URL="file:/app/data/dev.db" \
   -e JWT_SECRET="$(openssl rand -base64 32)" \
   open-project-manager
 ```
+
+### Changing the schema
+Schema changes go through Prisma migrations, not `db push`. After editing `prisma/schema.prisma`:
+
+```bash
+npx prisma migrate dev --name <describe-the-change>
+```
+
+Commit the generated `prisma/migrations/` folder — `migrate deploy` (run automatically by the
+`migrate` service above) only applies migrations that are already committed.
 
 ---
 

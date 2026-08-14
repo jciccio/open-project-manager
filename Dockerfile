@@ -1,10 +1,10 @@
 # 1. Base image
-FROM node:20-alpine AS base
+FROM node:22-alpine AS base
 WORKDIR /app
 
 # 2. Dependencies stage
 FROM base AS deps
-RUN apk add --no-cache libc6-compat
+RUN apk add --no-cache libc6-compat python3 make g++
 COPY package.json yarn.lock ./
 RUN yarn install --frozen-lockfile
 
@@ -21,7 +21,15 @@ ENV NODE_ENV=production
 RUN npx prisma generate
 RUN yarn build
 
-# 4. Runner stage
+# 4. Migrator stage — runs `prisma migrate deploy` against the mounted data
+#    volume. Kept separate from the runner stage (rather than bundling the
+#    Prisma CLI into it) because the CLI needs the full node_modules tree —
+#    schema engine, @prisma/config, effect, etc. — that the Next.js
+#    standalone trace deliberately excludes to keep the runner image small.
+FROM builder AS migrator
+CMD ["npx", "prisma", "migrate", "deploy"]
+
+# 5. Runner stage
 FROM base AS runner
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
