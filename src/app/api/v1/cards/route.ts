@@ -13,6 +13,7 @@ export async function GET(request: NextRequest) {
   const projectId = searchParams.get("projectId");
   const columnId = searchParams.get("columnId");
   const parentId = searchParams.get("parentId");
+  const typeId = searchParams.get("typeId");
   const assignedUserId = searchParams.get("assignedUserId") || searchParams.get("assignedTo");
   const query = searchParams.get("query");
   const limitParam = searchParams.get("limit");
@@ -39,6 +40,9 @@ export async function GET(request: NextRequest) {
     if (parentId !== null) {
       where.parentId = parentId === "null" ? null : parentId;
     }
+    if (typeId) {
+      where.typeId = typeId;
+    }
     if (assignedUserId) {
       where.assignees = { some: { userId: assignedUserId } };
     }
@@ -52,6 +56,7 @@ export async function GET(request: NextRequest) {
     const queryOptions: any = {
       where,
       include: {
+        type: true,
         labels: { include: { label: true } },
         comments: { orderBy: { createdAt: "asc" } },
         assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
@@ -98,6 +103,7 @@ export async function POST(request: NextRequest) {
         owner: body.owner,
         dueDate: body.dueDate,
         parentId: body.parentId,
+        typeId: body.typeId,
         labelIds: body.labelIds,
         assigneeIds: body.assigneeIds,
       },

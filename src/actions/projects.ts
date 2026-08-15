@@ -3,6 +3,7 @@
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
+import { DEFAULT_CARD_TYPES } from "@/lib/cardTypeDefaults";
 
 export async function getProjects(isArchived = false, overrideUserId?: string) {
   try {
@@ -54,6 +55,9 @@ export async function getProjectById(id: string, overrideUserId?: string) {
         userId: session.userId,
       },
       include: {
+        cardTypes: {
+          orderBy: { name: "asc" },
+        },
         columns: {
           orderBy: { order: "asc" },
           include: {
@@ -61,6 +65,7 @@ export async function getProjectById(id: string, overrideUserId?: string) {
               where: { isArchived: false },
               orderBy: { order: "asc" },
               include: {
+                type: true,
                 labels: {
                   include: {
                     label: true,
@@ -158,6 +163,9 @@ export async function createProject(
             { name: "In Progress", order: 2, isDone: false },
             { name: "Done", order: 3, isDone: true },
           ],
+        },
+        cardTypes: {
+          create: DEFAULT_CARD_TYPES,
         },
       },
     });

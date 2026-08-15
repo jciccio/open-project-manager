@@ -8,6 +8,7 @@ import {
   GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { db } from "@/lib/db";
+import { DEFAULT_CARD_TYPES } from "@/lib/cardTypeDefaults";
 
 function requireUserId(providedUserId?: string): string {
   if (providedUserId) return providedUserId;
@@ -180,6 +181,7 @@ export const MCP_TOOLS = [
         assignedTo: { type: "string", description: "Filter by assigned user ID" },
         query: { type: "string", description: "Free-text search across card title and description (case-insensitive substring match)" },
         parentId: { type: "string", description: "Filter by parent card ID" },
+        typeId: { type: "string", description: "Filter by card type ID" },
         isArchived: { type: "boolean", description: "Filter by archived status (default: false)" },
         limit: { type: "number", description: "Maximum number of cards to return (1-100)" },
         cursor: { type: "string", description: "Cursor card ID for pagination (returns items after this card ID)" },
@@ -236,6 +238,7 @@ export const MCP_TOOLS = [
         dueDate: { type: "string", description: "ISO date string for deadline (e.g. 2026-09-01)" },
         parentId: { type: "string", description: "Optional parent card ID" },
         assigneeIds: { type: "array", items: { type: "string" }, description: "Optional list of assigned user IDs" },
+        typeId: { type: "string", description: "Optional card type ID" },
       },
       required: ["projectId", "columnId", "title"],
     },
@@ -246,7 +249,7 @@ export const MCP_TOOLS = [
   },
   {
     name: "update_card",
-    description: "Update task card fields (title, description, priority, story points, owner, due date, columnId, parentId, assigneeIds).",
+    description: "Update task card fields (title, description, priority, story points, owner, due date, columnId, parentId, assigneeIds, typeId).",
     inputSchema: {
       type: "object",
       properties: {
@@ -260,6 +263,7 @@ export const MCP_TOOLS = [
         columnId: { type: "string", description: "Move to a different column ID" },
         parentId: { type: "string", description: "Updated parent card ID or empty string to detach" },
         assigneeIds: { type: "array", items: { type: "string" }, description: "Optional list of assigned user IDs" },
+        typeId: { type: "string", description: "Updated card type ID or empty string to clear" },
       },
       required: ["id"],
     },
@@ -484,6 +488,71 @@ export const MCP_TOOLS = [
     },
   },
   {
+    name: "list_card_types",
+    description: "List the custom card/work-item types configured for a project.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string", description: "Project ID" },
+      },
+      required: ["projectId"],
+    },
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
+    },
+  },
+  {
+    name: "create_card_type",
+    description: "Create a new custom card/work-item type for a project (e.g. Bug, Feature, Chore).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string", description: "Project ID" },
+        name: { type: "string", description: "Type name" },
+        icon: { type: "string", description: "Icon identifier (default: Tag)" },
+        color: { type: "string", description: "Color hex code (default: #6366f1)" },
+      },
+      required: ["projectId", "name"],
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
+  },
+  {
+    name: "update_card_type",
+    description: "Update a card type's name, icon, or color.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Card type ID" },
+        name: { type: "string", description: "Updated type name" },
+        icon: { type: "string", description: "Updated icon identifier" },
+        color: { type: "string", description: "Updated color hex code" },
+      },
+      required: ["id"],
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
+  },
+  {
+    name: "delete_card_type",
+    description: "Delete a card type. Cards using it keep their other fields but revert to no type.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Card type ID to delete" },
+      },
+      required: ["id"],
+    },
+    annotations: {
+      destructiveHint: true,
+    },
+  },
+  {
     name: "add_attachment",
     description: "Upload a file attachment to a task card using a base64-encoded string.",
     inputSchema: {
@@ -594,8 +663,11 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
               { name: "Done", order: 3 },
             ],
           },
+          cardTypes: {
+            create: DEFAULT_CARD_TYPES,
+          },
         },
-        include: { columns: true },
+        include: { columns: true, cardTypes: true },
       });
       return { success: true, project };
     }
@@ -683,6 +755,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       if (args.parentId !== undefined) {
         where.parentId = args.parentId || null;
       }
+      if (args.typeId) where.typeId = args.typeId;
 
       let limit: number | undefined = undefined;
       if (typeof args.limit === "number") {
@@ -701,6 +774,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
         orderBy: [{ order: "asc" }, { id: "asc" }],
         include: {
           column: { select: { name: true } },
+          type: true,
           labels: { include: { label: true } },
           assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
           parent: { select: { id: true, number: true, title: true } },
@@ -729,6 +803,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
         include: {
           column: true,
           project: true,
+          type: true,
           labels: { include: { label: true } },
           comments: { orderBy: { createdAt: "desc" } },
           assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
@@ -766,6 +841,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
         include: {
           column: true,
           project: true,
+          type: true,
           labels: { include: { label: true } },
           comments: { orderBy: { createdAt: "desc" } },
           assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
@@ -817,6 +893,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
           completedAt,
           order,
           parentId: args.parentId || null,
+          typeId: args.typeId || null,
           assignees:
             args.assigneeIds && args.assigneeIds.length > 0
               ? {
@@ -825,6 +902,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
               : undefined,
         },
         include: {
+          type: true,
           assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
           parent: { select: { id: true, number: true, title: true } },
           children: { select: { id: true, number: true, title: true, completedAt: true } },
@@ -851,6 +929,9 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       if (args.parentId !== undefined) {
         data.parentId = args.parentId || null;
       }
+      if (args.typeId !== undefined) {
+        data.typeId = args.typeId || null;
+      }
 
       if (args.assigneeIds !== undefined) {
         await db.cardAssignee.deleteMany({ where: { cardId: args.id } });
@@ -865,6 +946,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
         where: { id: args.id },
         data,
         include: {
+          type: true,
           assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
           parent: { select: { id: true, number: true, title: true } },
           children: { select: { id: true, number: true, title: true, completedAt: true } },
@@ -1031,6 +1113,44 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
         },
       });
       return { success: true, label };
+    }
+
+    case "list_card_types": {
+      const cardTypes = await db.cardType.findMany({
+        where: { projectId: args.projectId },
+        orderBy: { name: "asc" },
+      });
+      return { success: true, cardTypes };
+    }
+
+    case "create_card_type": {
+      const cardType = await db.cardType.create({
+        data: {
+          projectId: args.projectId,
+          name: args.name.trim(),
+          icon: args.icon || "Tag",
+          color: args.color || "#6366f1",
+        },
+      });
+      return { success: true, cardType };
+    }
+
+    case "update_card_type": {
+      const data: any = {};
+      if (args.name !== undefined) data.name = args.name.trim();
+      if (args.icon !== undefined) data.icon = args.icon;
+      if (args.color !== undefined) data.color = args.color;
+
+      const cardType = await db.cardType.update({
+        where: { id: args.id },
+        data,
+      });
+      return { success: true, cardType };
+    }
+
+    case "delete_card_type": {
+      await db.cardType.delete({ where: { id: args.id } });
+      return { success: true };
     }
 
     case "add_attachment": {

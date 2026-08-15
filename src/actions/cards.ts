@@ -22,6 +22,7 @@ export async function createCard(
     owner?: string | null;
     dueDate?: string | null;
     parentId?: string | null;
+    typeId?: string | null;
     labelIds?: string[];
     assigneeIds?: string[];
   },
@@ -69,6 +70,7 @@ export async function createCard(
         completedAt,
         order: newOrder,
         parentId: data.parentId || null,
+        typeId: data.typeId || null,
         labels:
           data.labelIds && data.labelIds.length > 0
             ? {
@@ -83,6 +85,7 @@ export async function createCard(
             : undefined,
       },
       include: {
+        type: true,
         labels: {
           include: { label: true },
         },
@@ -115,6 +118,7 @@ export async function updateCard(
     dueDate?: string | null;
     order?: number;
     parentId?: string | null;
+    typeId?: string | null;
     labelIds?: string[];
     assigneeIds?: string[];
   },
@@ -153,6 +157,7 @@ export async function updateCard(
       order: data.order !== undefined ? data.order : undefined,
       columnId: data.columnId !== undefined ? data.columnId : undefined,
       parentId: data.parentId !== undefined ? (data.parentId || null) : undefined,
+      typeId: data.typeId !== undefined ? (data.typeId || null) : undefined,
       completedAt: completedAtUpdate,
     };
 
@@ -178,6 +183,7 @@ export async function updateCard(
       where: { id },
       data: updatePayload,
       include: {
+        type: true,
         labels: {
           include: { label: true },
         },
@@ -294,6 +300,7 @@ export async function getCardByIdentifier(identifier: string, overrideUserId?: s
       include: {
         project: true,
         column: true,
+        type: true,
         labels: {
           include: { label: true },
         },
@@ -398,6 +405,7 @@ export async function getArchivedCards() {
       include: {
         project: true,
         column: true,
+        type: true,
         labels: { include: { label: true } },
       },
       orderBy: { updatedAt: "desc" },

@@ -21,6 +21,7 @@ export async function GET(request: NextRequest, { params }: Props) {
         project: { userId: session.userId },
       },
       include: {
+        type: true,
         labels: { include: { label: true } },
         comments: { orderBy: { createdAt: "asc" } },
         assignees: { include: { user: { select: { id: true, name: true, email: true } } } },

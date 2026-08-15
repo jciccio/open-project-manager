@@ -26,9 +26,12 @@ import { getProjectById } from "@/actions/projects";
 import { addComment, updateComment, deleteComment } from "@/actions/comments";
 import { uploadAttachment, listAttachments, deleteAttachment } from "@/actions/attachments";
 import { getLabels } from "@/actions/labels";
+import { getCardTypes } from "@/actions/cardTypes";
 import { addCardRelation, removeCardRelation, getCardRelations } from "@/actions/relations";
 import { useTranslation } from "./LanguageProvider";
 import MarkdownEditor from "./MarkdownEditor";
+import CardTypeManagerModal from "./CardTypeManagerModal";
+import { CardTypeIcon } from "./cardTypeIcons";
 
 interface Props {
   card: {
@@ -44,6 +47,8 @@ interface Props {
     owner: string | null;
     dueDate: Date | string | null;
     completedAt?: Date | string | null;
+    typeId?: string | null;
+    type?: { id: string; name: string; icon: string; color: string } | null;
     labels: Array<{
       label: {
         id: string;
@@ -87,10 +92,15 @@ export default function CardDetailModal({
   const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>(
     card.labels ? card.labels.map((l) => l.label.id) : []
   );
+  const [typeId, setTypeId] = useState<string>(card.typeId || card.type?.id || "");
 
   const [availableLabels, setAvailableLabels] = useState<
     Array<{ id: string; name: string; color: string }>
   >([]);
+  const [availableCardTypes, setAvailableCardTypes] = useState<
+    Array<{ id: string; name: string; icon: string; color: string }>
+  >([]);
+  const [isCardTypeModalOpen, setIsCardTypeModalOpen] = useState(false);
 
   const [relations, setRelations] = useState<Array<any>>([]);
   const [projectCards, setProjectCards] = useState<
@@ -176,6 +186,12 @@ export default function CardDetailModal({
         setAvailableLabels(res.data);
       }
     }
+    async function loadCardTypes() {
+      const res = await getCardTypes(card.projectId);
+      if (res.success && res.data) {
+        setAvailableCardTypes(res.data);
+      }
+    }
     async function loadProjectCards() {
       const pRes = await getProjectById(card.projectId);
       if (pRes.success && pRes.data && pRes.data.columns) {
@@ -193,6 +209,7 @@ export default function CardDetailModal({
     }
 
     loadLabels();
+    loadCardTypes();
     loadRelations();
     loadProjectCards();
   }, [card.id, card.projectId]);
@@ -208,6 +225,7 @@ export default function CardDetailModal({
       points: isNaN(parsedPoints as number) ? null : parsedPoints,
       owner: owner.trim() || undefined,
       dueDate: dueDate || undefined,
+      typeId: typeId || "",
       labelIds: selectedLabelIds,
     });
     setIsSaving(false);
@@ -402,6 +420,38 @@ export default function CardDetailModal({
                   {columns.map((col) => (
                     <option key={col.id} value={col.id}>
                       {col.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Type Selector */}
+              <div>
+                <label className="flex items-center justify-between gap-1 text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                  <span className="flex items-center gap-1">
+                    <CardTypeIcon
+                      name={availableCardTypes.find((ct) => ct.id === typeId)?.icon}
+                      className="h-3 w-3 text-indigo-500 dark:text-indigo-400"
+                    />
+                    <span>{t("cardModal.type")}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setIsCardTypeModalOpen(true)}
+                    className="text-[10px] font-medium text-indigo-500 dark:text-indigo-400 hover:underline"
+                  >
+                    {t("cardModal.manageTypes")}
+                  </button>
+                </label>
+                <select
+                  value={typeId}
+                  onChange={(e) => setTypeId(e.target.value)}
+                  className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none cursor-pointer"
+                >
+                  <option value="">{t("cardModal.noType")}</option>
+                  {availableCardTypes.map((ct) => (
+                    <option key={ct.id} value={ct.id}>
+                      {ct.name}
                     </option>
                   ))}
                 </select>
@@ -846,6 +896,19 @@ export default function CardDetailModal({
           </button>
         </div>
       </div>
+
+      {isCardTypeModalOpen && (
+        <CardTypeManagerModal
+          projectId={card.projectId}
+          onClose={() => setIsCardTypeModalOpen(false)}
+          onChange={async () => {
+            const res = await getCardTypes(card.projectId);
+            if (res.success && res.data) {
+              setAvailableCardTypes(res.data);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

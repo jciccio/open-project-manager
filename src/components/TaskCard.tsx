@@ -3,6 +3,7 @@
 import { MessageSquare, Calendar, Zap, Link2, ShieldAlert } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useTranslation } from "./LanguageProvider";
+import { CardTypeIcon } from "./cardTypeIcons";
 
 interface Props {
   card: {
@@ -11,6 +12,7 @@ interface Props {
     description: string | null;
     number?: number;
     project?: { key: string };
+    type?: { id: string; name: string; icon: string; color: string } | null;
     priority: string;
     points: number | null;
     owner: string | null;
@@ -124,6 +126,17 @@ export default function TaskCard({ card, onClick }: Props) {
       {/* Badges Footer */}
       <div className="mt-3.5 pt-3 border-t border-slate-200 dark:border-slate-800/80 flex items-center justify-between gap-2 text-xs">
         <div className="flex flex-wrap items-center gap-1.5">
+          {/* Type Badge */}
+          {card.type && (
+            <span
+              className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-bold text-white shadow-2xs"
+              style={{ backgroundColor: card.type.color }}
+            >
+              <CardTypeIcon name={card.type.icon} className="h-2.5 w-2.5" />
+              <span>{card.type.name}</span>
+            </span>
+          )}
+
           {/* Priority Badge */}
           <span
             className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider border ${priorityStyle.bg} ${priorityStyle.text} ${priorityStyle.border}`}

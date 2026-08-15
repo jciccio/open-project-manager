@@ -253,4 +253,57 @@ describe("MCP Server Core Tools", () => {
 
     await executeMcpTool("delete_project", { id: projectId });
   });
+
+  it("seeds default card types on project creation via MCP", async () => {
+    const projRes = await executeMcpTool("create_project", { name: "Card Type Seed MCP Project", userId });
+    const projectId = projRes.project!.id;
+    expect((projRes.project as any).cardTypes.length).toBeGreaterThan(0);
+
+    const listRes = await executeMcpTool("list_card_types", { projectId });
+    expect(listRes.success).toBe(true);
+    expect(listRes.cardTypes!.some((ct: any) => ct.name === "Bug")).toBe(true);
+
+    await executeMcpTool("delete_project", { id: projectId });
+  });
+
+  it("supports full CRUD and typeId filtering via MCP card_type tools", async () => {
+    const projRes = await executeMcpTool("create_project", { name: "Card Type CRUD MCP Project", userId });
+    const projectId = projRes.project!.id;
+    const colId = (projRes.project as any).columns[0].id;
+
+    const createTypeRes = await executeMcpTool("create_card_type", {
+      projectId,
+      name: "Chore",
+      icon: "Wrench",
+      color: "#f97316",
+    });
+    expect(createTypeRes.success).toBe(true);
+    const typeId = createTypeRes.cardType!.id;
+
+    const updateTypeRes = await executeMcpTool("update_card_type", { id: typeId, name: "Maintenance" });
+    expect(updateTypeRes.success).toBe(true);
+    expect(updateTypeRes.cardType!.name).toBe("Maintenance");
+
+    const createCardRes = await executeMcpTool("create_card", {
+      projectId,
+      columnId: colId,
+      title: "Typed MCP Card",
+      typeId,
+    });
+    expect(createCardRes.success).toBe(true);
+    expect((createCardRes.card as any).type.id).toBe(typeId);
+
+    const listCardsRes = await executeMcpTool("list_cards", { projectId, typeId });
+    expect(listCardsRes.success).toBe(true);
+    expect(listCardsRes.cards!.length).toBe(1);
+
+    const updateCardRes = await executeMcpTool("update_card", { id: createCardRes.card!.id, typeId: "" });
+    expect(updateCardRes.success).toBe(true);
+    expect((updateCardRes.card as any).type).toBe(null);
+
+    const deleteTypeRes = await executeMcpTool("delete_card_type", { id: typeId });
+    expect(deleteTypeRes.success).toBe(true);
+
+    await executeMcpTool("delete_project", { id: projectId });
+  });
 });
