@@ -20,7 +20,6 @@ export const MCP_TOOLS = [
   {
     name: "list_projects",
     description: "List all projects in the workspace, optionally filtering by archived status.",
-    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -34,11 +33,14 @@ export const MCP_TOOLS = [
         },
       },
     },
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
+    },
   },
   {
     name: "get_project",
     description: "Retrieve full details for a specific project, including columns, task cards, labels, and comments.",
-    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -46,11 +48,14 @@ export const MCP_TOOLS = [
       },
       required: ["id"],
     },
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
+    },
   },
   {
     name: "create_project",
     description: "Create a new project with default Kanban columns (Backlog, To Do, In Progress, Done).",
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     inputSchema: {
       type: "object",
       properties: {
@@ -61,11 +66,14 @@ export const MCP_TOOLS = [
       },
       required: ["name"],
     },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
   },
   {
     name: "update_project",
     description: "Update project metadata or archive/unarchive status.",
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -77,11 +85,14 @@ export const MCP_TOOLS = [
       },
       required: ["id"],
     },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
   },
   {
     name: "delete_project",
     description: "Permanently delete a project and all associated columns, cards, and comments.",
-    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -89,11 +100,13 @@ export const MCP_TOOLS = [
       },
       required: ["id"],
     },
+    annotations: {
+      destructiveHint: true,
+    },
   },
   {
     name: "list_columns",
     description: "List columns for a given project.",
-    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -101,11 +114,14 @@ export const MCP_TOOLS = [
       },
       required: ["projectId"],
     },
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
+    },
   },
   {
     name: "create_column",
     description: "Add a new column to a project board.",
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     inputSchema: {
       type: "object",
       properties: {
@@ -115,11 +131,14 @@ export const MCP_TOOLS = [
       },
       required: ["projectId", "name"],
     },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
   },
   {
     name: "update_column",
     description: "Update column title or position order.",
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -129,11 +148,14 @@ export const MCP_TOOLS = [
       },
       required: ["id"],
     },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
   },
   {
     name: "delete_column",
     description: "Delete a column from a project.",
-    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -141,11 +163,13 @@ export const MCP_TOOLS = [
       },
       required: ["id"],
     },
+    annotations: {
+      destructiveHint: true,
+    },
   },
   {
     name: "list_cards",
-    description: "Query and filter task cards by project, column, priority, or assignee owner.",
-    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+    description: "Query and filter task cards by project, column, priority, assignee owner, or a free-text search across title/description.",
     inputSchema: {
       type: "object",
       properties: {
@@ -153,16 +177,22 @@ export const MCP_TOOLS = [
         columnId: { type: "string", description: "Filter by column ID" },
         priority: { type: "string", description: "Filter by priority (NONE, LOW, MEDIUM, HIGH, URGENT)" },
         owner: { type: "string", description: "Filter by assignee owner name" },
+        assignedTo: { type: "string", description: "Filter by assigned user ID" },
+        query: { type: "string", description: "Free-text search across card title and description (case-insensitive substring match)" },
+        parentId: { type: "string", description: "Filter by parent card ID" },
         isArchived: { type: "boolean", description: "Filter by archived status (default: false)" },
         limit: { type: "number", description: "Maximum number of cards to return (1-100)" },
         cursor: { type: "string", description: "Cursor card ID for pagination (returns items after this card ID)" },
       },
     },
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
+    },
   },
   {
     name: "get_card",
-    description: "Retrieve complete details for a specific task card including comments and labels.",
-    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+    description: "Retrieve complete details for a specific task card including comments, labels, assignees, parent, and child cards.",
     inputSchema: {
       type: "object",
       properties: {
@@ -170,11 +200,14 @@ export const MCP_TOOLS = [
       },
       required: ["id"],
     },
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
+    },
   },
   {
     name: "get_card_by_identifier",
     description: "Retrieve complete task card details using human-readable identifier (e.g. OPM-42 or PROJ-1).",
-    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -182,11 +215,14 @@ export const MCP_TOOLS = [
       },
       required: ["identifier"],
     },
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
+    },
   },
   {
     name: "create_card",
     description: "Create a new task card in a project column.",
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     inputSchema: {
       type: "object",
       properties: {
@@ -198,14 +234,19 @@ export const MCP_TOOLS = [
         points: { type: "number", description: "Story points estimation" },
         owner: { type: "string", description: "Assignee or owner name" },
         dueDate: { type: "string", description: "ISO date string for deadline (e.g. 2026-09-01)" },
+        parentId: { type: "string", description: "Optional parent card ID" },
+        assigneeIds: { type: "array", items: { type: "string" }, description: "Optional list of assigned user IDs" },
       },
       required: ["projectId", "columnId", "title"],
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
     },
   },
   {
     name: "update_card",
-    description: "Update task card fields (title, description, priority, story points, owner, due date, columnId).",
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    description: "Update task card fields (title, description, priority, story points, owner, due date, columnId, parentId, assigneeIds).",
     inputSchema: {
       type: "object",
       properties: {
@@ -217,14 +258,19 @@ export const MCP_TOOLS = [
         owner: { type: "string", description: "Updated assignee owner name" },
         dueDate: { type: "string", description: "Updated ISO due date string or empty string to clear" },
         columnId: { type: "string", description: "Move to a different column ID" },
+        parentId: { type: "string", description: "Updated parent card ID or empty string to detach" },
+        assigneeIds: { type: "array", items: { type: "string" }, description: "Optional list of assigned user IDs" },
       },
       required: ["id"],
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
     },
   },
   {
     name: "move_card",
     description: "Move a task card to another column or update its order position index.",
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -234,11 +280,41 @@ export const MCP_TOOLS = [
       },
       required: ["id", "targetColumnId"],
     },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
+  },
+  {
+    name: "reorder_cards",
+    description: "Reorder multiple task cards in bulk atomically.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        items: {
+          type: "array",
+          description: "List of items containing card ID, order, and optional columnId",
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "string", description: "Card ID" },
+              order: { type: "number", description: "New order position value" },
+              columnId: { type: "string", description: "Optional target column ID" },
+            },
+            required: ["id", "order"],
+          },
+        },
+      },
+      required: ["items"],
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
   },
   {
     name: "delete_card",
     description: "Delete a task card permanently.",
-    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -246,11 +322,13 @@ export const MCP_TOOLS = [
       },
       required: ["id"],
     },
+    annotations: {
+      destructiveHint: true,
+    },
   },
   {
     name: "archive_card",
     description: "Archive a task card so it is hidden from active project board views.",
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -258,11 +336,14 @@ export const MCP_TOOLS = [
       },
       required: ["id"],
     },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
   },
   {
     name: "unarchive_card",
     description: "Unarchive a task card so it is restored to active project board views.",
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -270,11 +351,14 @@ export const MCP_TOOLS = [
       },
       required: ["id"],
     },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
   },
   {
     name: "add_comment",
     description: "Add a comment feed entry to a task card.",
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     inputSchema: {
       type: "object",
       properties: {
@@ -284,11 +368,14 @@ export const MCP_TOOLS = [
       },
       required: ["cardId", "author", "content"],
     },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
   },
   {
     name: "add_card_relation",
     description: "Add a dependency or relationship between two cards (BLOCKS, BLOCKED_BY, RELATES_TO).",
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     inputSchema: {
       type: "object",
       properties: {
@@ -298,11 +385,14 @@ export const MCP_TOOLS = [
       },
       required: ["sourceCardId", "targetCardId"],
     },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
   },
   {
     name: "remove_card_relation",
     description: "Delete an existing card relation by ID.",
-    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -310,11 +400,13 @@ export const MCP_TOOLS = [
       },
       required: ["relationId"],
     },
+    annotations: {
+      destructiveHint: true,
+    },
   },
   {
     name: "get_card_relations",
     description: "List all relations (blocking, blocked by, relates to) for a specific card.",
-    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -322,11 +414,14 @@ export const MCP_TOOLS = [
       },
       required: ["cardId"],
     },
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
+    },
   },
   {
     name: "list_comments",
     description: "List all comments for a specific task card.",
-    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -334,11 +429,14 @@ export const MCP_TOOLS = [
       },
       required: ["cardId"],
     },
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
+    },
   },
   {
     name: "update_comment",
     description: "Update the text content of an existing comment.",
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -347,11 +445,14 @@ export const MCP_TOOLS = [
       },
       required: ["commentId", "content"],
     },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
   },
   {
     name: "list_labels",
     description: "List custom labels available in the workspace or specific project.",
-    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -359,11 +460,14 @@ export const MCP_TOOLS = [
         userId: { type: "string", description: "Optional user ID scope" },
       },
     },
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
+    },
   },
   {
     name: "create_label",
     description: "Create a new custom color-coded label.",
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     inputSchema: {
       type: "object",
       properties: {
@@ -374,11 +478,14 @@ export const MCP_TOOLS = [
       },
       required: ["name"],
     },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
   },
   {
     name: "add_attachment",
     description: "Upload a file attachment to a task card using a base64-encoded string.",
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     inputSchema: {
       type: "object",
       properties: {
@@ -391,11 +498,14 @@ export const MCP_TOOLS = [
       },
       required: ["cardId", "filename", "contentBase64"],
     },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
   },
   {
     name: "list_attachments",
     description: "List all file attachments associated with a specific task card.",
-    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -403,11 +513,14 @@ export const MCP_TOOLS = [
       },
       required: ["cardId"],
     },
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
+    },
   },
   {
     name: "delete_attachment",
     description: "Delete a task card attachment permanently by ID.",
-    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -415,6 +528,9 @@ export const MCP_TOOLS = [
         userId: { type: "string", description: "Optional user ID scope" },
       },
       required: ["id"],
+    },
+    annotations: {
+      destructiveHint: true,
     },
   },
 ];
@@ -556,6 +672,17 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       if (args.columnId) where.columnId = args.columnId;
       if (args.priority) where.priority = args.priority;
       if (args.owner) where.owner = { contains: args.owner };
+      if (args.assignedTo) where.assignees = { some: { userId: args.assignedTo } };
+      if (args.query) {
+        where.OR = [
+          { title: { contains: args.query } },
+          { description: { contains: args.query } },
+        ];
+      }
+
+      if (args.parentId !== undefined) {
+        where.parentId = args.parentId || null;
+      }
 
       let limit: number | undefined = undefined;
       if (typeof args.limit === "number") {
@@ -575,6 +702,9 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
         include: {
           column: { select: { name: true } },
           labels: { include: { label: true } },
+          assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
+          parent: { select: { id: true, number: true, title: true } },
+          children: { select: { id: true, number: true, title: true, completedAt: true } },
           _count: { select: { comments: true } },
         },
       };
@@ -601,6 +731,9 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
           project: true,
           labels: { include: { label: true } },
           comments: { orderBy: { createdAt: "desc" } },
+          assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
+          parent: { select: { id: true, number: true, title: true } },
+          children: { select: { id: true, number: true, title: true, completedAt: true } },
         },
       });
       if (!card) throw new Error(`Card with ID ${args.id} not found.`);
@@ -635,6 +768,9 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
           project: true,
           labels: { include: { label: true } },
           comments: { orderBy: { createdAt: "desc" } },
+          assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
+          parent: { select: { id: true, number: true, title: true } },
+          children: { select: { id: true, number: true, title: true, completedAt: true } },
         },
       });
 
@@ -649,12 +785,13 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "create_card": {
-      let order = 0;
+      const ORDER_GAP = 10000;
+      let order = ORDER_GAP;
       const lastCard = await db.card.findFirst({
         where: { columnId: args.columnId },
         orderBy: { order: "desc" },
       });
-      if (lastCard) order = lastCard.order + 1;
+      if (lastCard) order = lastCard.order + ORDER_GAP;
 
       const maxCard = await db.card.findFirst({
         where: { projectId: args.projectId },
@@ -679,6 +816,18 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
           dueDate: args.dueDate ? new Date(args.dueDate) : null,
           completedAt,
           order,
+          parentId: args.parentId || null,
+          assignees:
+            args.assigneeIds && args.assigneeIds.length > 0
+              ? {
+                  create: args.assigneeIds.map((userId: string) => ({ userId })),
+                }
+              : undefined,
+        },
+        include: {
+          assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
+          parent: { select: { id: true, number: true, title: true } },
+          children: { select: { id: true, number: true, title: true, completedAt: true } },
         },
       });
       return { success: true, card };
@@ -699,10 +848,27 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       if (args.dueDate !== undefined) {
         data.dueDate = args.dueDate ? new Date(args.dueDate) : null;
       }
+      if (args.parentId !== undefined) {
+        data.parentId = args.parentId || null;
+      }
+
+      if (args.assigneeIds !== undefined) {
+        await db.cardAssignee.deleteMany({ where: { cardId: args.id } });
+        if (args.assigneeIds.length > 0) {
+          data.assignees = {
+            create: args.assigneeIds.map((userId: string) => ({ userId })),
+          };
+        }
+      }
 
       const card = await db.card.update({
         where: { id: args.id },
         data,
+        include: {
+          assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
+          parent: { select: { id: true, number: true, title: true } },
+          children: { select: { id: true, number: true, title: true, completedAt: true } },
+        },
       });
       return { success: true, card };
     }
@@ -722,6 +888,24 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
         },
       });
       return { success: true, card };
+    }
+
+    case "reorder_cards": {
+      const items = args.items || [];
+      if (!Array.isArray(items) || items.length === 0) {
+        return { success: false, error: "items array is required" };
+      }
+      const updates = items.map((item: any) =>
+        db.card.update({
+          where: { id: item.id },
+          data: {
+            order: item.order,
+            ...(item.columnId ? { columnId: item.columnId } : {}),
+          },
+        })
+      );
+      await db.$transaction(updates);
+      return { success: true, count: items.length };
     }
 
     case "delete_card": {

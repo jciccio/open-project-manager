@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { GET as getCardsRoute, POST as createCardRoute } from "../cards/route";
+import { POST as reorderCardsRoute } from "../cards/reorder/route";
 import { GET as getCardByIdRoute, PUT as updateCardRoute, DELETE as deleteCardRoute } from "../cards/[id]/route";
 import { GET as getByIdentifierRoute } from "../cards/by-identifier/[identifier]/route";
 import { NextRequest } from "next/server";
@@ -146,5 +147,130 @@ describe("REST API: Cards", () => {
     expect(page2Body.data[0].title).toBe("Paginated Card 3");
     expect(page2Body.nextCursor).toBeNull();
   });
-});
 
+  it("filters by query across title and description on GET /api/v1/cards", async () => {
+    const createOne = async (title: string, description?: string) => {
+      const req = new NextRequest("http://localhost/api/v1/cards", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ projectId, columnId, title, description }),
+      });
+      return createCardRoute(req);
+    };
+
+    await createOne("Fix login bug", "Users can't sign in with SSO");
+    await createOne("Update onboarding docs");
+    await createOne("Refactor sidebar", "unrelated to login");
+
+    // Matches by title substring, case-insensitive
+    const titleReq = new NextRequest(`http://localhost/api/v1/cards?projectId=${projectId}&query=LOGIN`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const titleRes = await getCardsRoute(titleReq);
+    expect(titleRes.status).toBe(200);
+    const titleBody = await titleRes.json();
+    expect(titleBody.data.length).toBe(2);
+    expect(titleBody.data.map((c: { title: string }) => c.title).sort()).toEqual(
+      ["Fix login bug", "Refactor sidebar"].sort()
+    );
+
+    // Matches by description substring
+    const descReq = new NextRequest(`http://localhost/api/v1/cards?projectId=${projectId}&query=onboarding`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const descRes = await getCardsRoute(descReq);
+    const descBody = await descRes.json();
+    expect(descBody.data.length).toBe(1);
+    expect(descBody.data[0].title).toBe("Update onboarding docs");
+
+    // No match
+    const noneReq = new NextRequest(`http://localhost/api/v1/cards?projectId=${projectId}&query=nonexistentterm`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const noneRes = await getCardsRoute(noneReq);
+    const noneBody = await noneRes.json();
+    expect(noneBody.data.length).toBe(0);
+  });
+
+  it("bulk reorders cards via POST /api/v1/cards/reorder", async () => {
+    const req1 = new NextRequest("http://localhost/api/v1/cards", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ projectId, columnId, title: "Card 1" }),
+    });
+    const res1 = await createCardRoute(req1);
+    const card1 = (await res1.json()).data;
+
+    const req2 = new NextRequest("http://localhost/api/v1/cards", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ projectId, columnId, title: "Card 2" }),
+    });
+    const res2 = await createCardRoute(req2);
+    const card2 = (await res2.json()).data;
+
+    const reorderReq = new NextRequest("http://localhost/api/v1/cards/reorder", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        items: [
+          { id: card1.id, order: 30000 },
+          { id: card2.id, order: 5000 },
+        ],
+      }),
+    });
+    const reorderRes = await reorderCardsRoute(reorderReq);
+    expect(reorderRes.status).toBe(200);
+    const reorderBody = await reorderRes.json();
+    expect(reorderBody.success).toBe(true);
+  });
+
+  it("supports parentId in REST API creation and filtering", async () => {
+    const parentReq = new NextRequest("http://localhost/api/v1/cards", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ projectId, columnId, title: "REST Parent" }),
+    });
+    const parentRes = await createCardRoute(parentReq);
+    const parentData = (await parentRes.json()).data;
+
+    const childReq = new NextRequest("http://localhost/api/v1/cards", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ projectId, columnId, title: "REST Child", parentId: parentData.id }),
+    });
+    const childRes = await createCardRoute(childReq);
+    const childData = (await childRes.json()).data;
+    expect(childData.parentId).toBe(parentData.id);
+
+    const filterReq = new NextRequest(`http://localhost/api/v1/cards?parentId=${parentData.id}`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const filterRes = await getCardsRoute(filterReq);
+    const filterBody = await filterRes.json();
+    expect(filterBody.data.length).toBe(1);
+    expect(filterBody.data[0].id).toBe(childData.id);
+  });
+
+  it("supports assigneeIds and assignedUserId filter via REST API", async () => {
+    const createReq = new NextRequest("http://localhost/api/v1/cards", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ projectId, columnId, title: "Assigned Card", assigneeIds: [userId] }),
+    });
+    const createRes = await createCardRoute(createReq);
+    const cardData = (await createRes.json()).data;
+    expect(cardData.assignees.length).toBe(1);
+    expect(cardData.assignees[0].userId).toBe(userId);
+
+    const filterReq = new NextRequest(`http://localhost/api/v1/cards?assignedUserId=${userId}`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const filterRes = await getCardsRoute(filterReq);
+    const filterBody = await filterRes.json();
+    expect(filterBody.data.some((c: any) => c.id === cardData.id)).toBe(true);
+  });
+});

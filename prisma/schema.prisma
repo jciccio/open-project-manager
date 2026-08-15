@@ -14,9 +14,10 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  projects  Project[]
-  labels    Label[]
-  apiTokens ApiToken[]
+  projects      Project[]
+  labels        Label[]
+  apiTokens     ApiToken[]
+  assignedCards CardAssignee[]
 }
 
 model ApiToken {
@@ -80,13 +81,30 @@ model Card {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
+  parentId    String?
+  parent      Card?     @relation("CardParentChildren", fields: [parentId], references: [id], onDelete: SetNull)
+  children    Card[]    @relation("CardParentChildren")
+
   labels            CardLabel[]
   comments          Comment[]
   attachments       Attachment[]
+  assignees         CardAssignee[]
   outgoingRelations CardRelation[] @relation("SourceCardRelations")
   incomingRelations CardRelation[] @relation("TargetCardRelations")
 
   @@unique([projectId, number])
+  @@index([parentId])
+}
+
+model CardAssignee {
+  cardId    String
+  card      Card     @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([cardId, userId])
+  @@index([userId])
 }
 
 model Attachment {

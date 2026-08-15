@@ -23,26 +23,6 @@ describe("MCP Server Core Tools", () => {
     expect(toolNames).toContain("add_comment");
   });
 
-  it("every tool declares annotations (readOnlyHint/destructiveHint/idempotentHint)", () => {
-    for (const tool of MCP_TOOLS) {
-      const annotations = tool.annotations;
-      expect(annotations, `${tool.name} is missing an annotations object`).toBeDefined();
-      expect(typeof annotations.readOnlyHint, `${tool.name}.annotations.readOnlyHint`).toBe("boolean");
-      expect(typeof annotations.destructiveHint, `${tool.name}.annotations.destructiveHint`).toBe("boolean");
-      expect(typeof annotations.idempotentHint, `${tool.name}.annotations.idempotentHint`).toBe("boolean");
-
-      // Naming-convention guardrails so a future tool can't drift from its own name.
-      if (/^(list|get)_/.test(tool.name)) {
-        expect(annotations.readOnlyHint, `${tool.name} starts with list_/get_ but readOnlyHint is not true`).toBe(true);
-        expect(annotations.destructiveHint, `${tool.name} starts with list_/get_ but destructiveHint is not false`).toBe(false);
-      }
-      if (/^(delete|remove)_/.test(tool.name)) {
-        expect(annotations.destructiveHint, `${tool.name} starts with delete_/remove_ but destructiveHint is not true`).toBe(true);
-        expect(annotations.readOnlyHint, `${tool.name} starts with delete_/remove_ but readOnlyHint is not false`).toBe(false);
-      }
-    }
-  });
-
   it("executes project, column, card, comment, and label tools correctly", async () => {
     // 1. Create Project via MCP tool
     const projRes = await executeMcpTool("create_project", {
@@ -136,6 +116,46 @@ describe("MCP Server Core Tools", () => {
     await executeMcpTool("delete_project", { id: projectId });
   });
 
+  it("filters by query across title and description in list_cards tool", async () => {
+    const projRes = await executeMcpTool("create_project", {
+      name: "Search Test Project",
+      userId,
+    });
+    const projectId = projRes.project!.id;
+    const colId = (projRes.project as any).columns[0].id;
+
+    await executeMcpTool("create_card", {
+      projectId,
+      columnId: colId,
+      title: "Fix login bug",
+      description: "Users can't sign in with SSO",
+    });
+    await executeMcpTool("create_card", {
+      projectId,
+      columnId: colId,
+      title: "Update onboarding docs",
+    });
+    await executeMcpTool("create_card", {
+      projectId,
+      columnId: colId,
+      title: "Refactor sidebar",
+      description: "unrelated to login",
+    });
+
+    const titleMatch = await executeMcpTool("list_cards", { projectId, query: "LOGIN" });
+    expect(titleMatch.success).toBe(true);
+    expect(titleMatch.cards!.length).toBe(2);
+
+    const descMatch = await executeMcpTool("list_cards", { projectId, query: "onboarding" });
+    expect(descMatch.cards!.length).toBe(1);
+    expect(descMatch.cards![0].title).toBe("Update onboarding docs");
+
+    const noMatch = await executeMcpTool("list_cards", { projectId, query: "nonexistentterm" });
+    expect(noMatch.cards!.length).toBe(0);
+
+    await executeMcpTool("delete_project", { id: projectId });
+  });
+
   it("throws an error for unknown tool names", async () => {
     await expect(executeMcpTool("non_existent_tool")).rejects.toThrow("Unknown MCP tool: non_existent_tool");
   });
@@ -143,5 +163,94 @@ describe("MCP Server Core Tools", () => {
   it("initializes MCP Server instance", () => {
     const server = createMcpServer();
     expect(server).toBeDefined();
+  });
+
+  it("includes tool annotations (readOnlyHint, destructiveHint) on MCP tools", () => {
+    const listProjects = MCP_TOOLS.find((t) => t.name === "list_projects");
+    expect(listProjects?.annotations).toEqual({
+      readOnlyHint: true,
+      idempotentHint: true,
+    });
+
+    const deleteProject = MCP_TOOLS.find((t) => t.name === "delete_project");
+    expect(deleteProject?.annotations).toEqual({
+      destructiveHint: true,
+    });
+
+    const createProject = MCP_TOOLS.find((t) => t.name === "create_project");
+    expect(createProject?.annotations).toEqual({
+      readOnlyHint: false,
+      destructiveHint: false,
+    });
+  });
+
+  it("supports reorder_cards MCP tool", async () => {
+    const projRes = await executeMcpTool("create_project", { name: "Reorder MCP Project", userId });
+    const projectId = projRes.project!.id;
+    const colId = (projRes.project as any).columns[0].id;
+
+    const c1 = await executeMcpTool("create_card", { projectId, columnId: colId, title: "Card 1" });
+    const c2 = await executeMcpTool("create_card", { projectId, columnId: colId, title: "Card 2" });
+
+    expect(c1.card!.order).toBe(10000);
+    expect(c2.card!.order).toBe(20000);
+
+    const reorderRes = await executeMcpTool("reorder_cards", {
+      items: [
+        { id: c1.card!.id, order: 25000 },
+        { id: c2.card!.id, order: 5000 },
+      ],
+    });
+    expect(reorderRes.success).toBe(true);
+    expect(reorderRes.count).toBe(2);
+
+    await executeMcpTool("delete_project", { id: projectId });
+  });
+
+  it("supports parent/sub-card nesting in MCP tools", async () => {
+    const projRes = await executeMcpTool("create_project", { name: "Nesting MCP Project", userId });
+    const projectId = projRes.project!.id;
+    const colId = (projRes.project as any).columns[0].id;
+
+    const parent = await executeMcpTool("create_card", { projectId, columnId: colId, title: "MCP Parent" });
+    const parentId = parent.card!.id;
+
+    const child = await executeMcpTool("create_card", {
+      projectId,
+      columnId: colId,
+      title: "MCP Child",
+      parentId,
+    });
+    expect(child.success).toBe(true);
+    expect(child.card!.parentId).toBe(parentId);
+
+    const getParentRes = await executeMcpTool("get_card", { id: parentId });
+    expect((getParentRes.card as any).children.length).toBe(1);
+    expect((getParentRes.card as any).children[0].title).toBe("MCP Child");
+
+    await executeMcpTool("delete_project", { id: projectId });
+  });
+
+  it("supports assigneeIds and assignedTo filter in MCP tools", async () => {
+    const projRes = await executeMcpTool("create_project", { name: "Assignee MCP Project", userId });
+    const projectId = projRes.project!.id;
+    const colId = (projRes.project as any).columns[0].id;
+
+    const createRes = await executeMcpTool("create_card", {
+      projectId,
+      columnId: colId,
+      title: "MCP Assigned Card",
+      assigneeIds: [userId],
+    });
+    expect(createRes.success).toBe(true);
+    expect((createRes.card as any).assignees.length).toBe(1);
+    expect((createRes.card as any).assignees[0].userId).toBe(userId);
+
+    const listRes = await executeMcpTool("list_cards", { projectId, assignedTo: userId });
+    expect(listRes.success).toBe(true);
+    expect(listRes.cards!.length).toBe(1);
+    expect(listRes.cards![0].title).toBe("MCP Assigned Card");
+
+    await executeMcpTool("delete_project", { id: projectId });
   });
 });

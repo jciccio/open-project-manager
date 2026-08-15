@@ -1,18 +1,32 @@
 services:
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: migrator
+    environment:
+      - DATABASE_URL=file:/app/data/dev.db
+    volumes:
+      - opm_data:/app/data
+    restart: "no"
+
   open-project-manager:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: open-project-manager
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     ports:
       - "3000:3000"
     environment:
       - NODE_ENV=production
       - PORT=3000
-      - DATABASE_URL=file:./dev.db
+      - DATABASE_URL=file:/app/data/dev.db
       - JWT_SECRET=${JWT_SECRET:?Set JWT_SECRET in a .env file — generate one with: openssl rand -base64 32}
     volumes:
-      - opm_data:/app/dev.db
+      - opm_data:/app/data
     restart: unless-stopped
 
 volumes:

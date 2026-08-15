@@ -12,6 +12,9 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const projectId = searchParams.get("projectId");
   const columnId = searchParams.get("columnId");
+  const parentId = searchParams.get("parentId");
+  const assignedUserId = searchParams.get("assignedUserId") || searchParams.get("assignedTo");
+  const query = searchParams.get("query");
   const limitParam = searchParams.get("limit");
   const cursor = searchParams.get("cursor");
 
@@ -26,17 +29,34 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    const where: any = {
+      ...(columnId
+        ? { columnId }
+        : projectId
+        ? { project: { id: projectId, userId: session.userId } }
+        : { project: { userId: session.userId } }),
+    };
+    if (parentId !== null) {
+      where.parentId = parentId === "null" ? null : parentId;
+    }
+    if (assignedUserId) {
+      where.assignees = { some: { userId: assignedUserId } };
+    }
+    if (query) {
+      where.OR = [
+        { title: { contains: query } },
+        { description: { contains: query } },
+      ];
+    }
+
     const queryOptions: any = {
-      where: {
-        ...(columnId
-          ? { columnId }
-          : projectId
-          ? { project: { id: projectId, userId: session.userId } }
-          : { project: { userId: session.userId } }),
-      },
+      where,
       include: {
         labels: { include: { label: true } },
         comments: { orderBy: { createdAt: "asc" } },
+        assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
+        parent: { select: { id: true, number: true, title: true } },
+        children: { select: { id: true, number: true, title: true, completedAt: true } },
       },
       orderBy: [{ order: "asc" }, { id: "asc" }],
     };
@@ -77,7 +97,9 @@ export async function POST(request: NextRequest) {
         points: body.points,
         owner: body.owner,
         dueDate: body.dueDate,
+        parentId: body.parentId,
         labelIds: body.labelIds,
+        assigneeIds: body.assigneeIds,
       },
       session.userId
     );

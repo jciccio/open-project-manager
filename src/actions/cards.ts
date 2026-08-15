@@ -21,7 +21,9 @@ export async function createCard(
     points?: number | null;
     owner?: string | null;
     dueDate?: string | null;
+    parentId?: string | null;
     labelIds?: string[];
+    assigneeIds?: string[];
   },
   overrideUserId?: string
 ) {
@@ -35,12 +37,13 @@ export async function createCard(
       return { success: false, error: "Card title is required" };
     }
 
+    const ORDER_GAP = 10000;
     const lastCard = await db.card.findFirst({
       where: { columnId: data.columnId },
       orderBy: { order: "desc" },
     });
 
-    const newOrder = lastCard ? lastCard.order + 1 : 0;
+    const newOrder = lastCard ? lastCard.order + ORDER_GAP : ORDER_GAP;
 
     const maxCard = await db.card.findFirst({
       where: { projectId: data.projectId },
@@ -65,10 +68,17 @@ export async function createCard(
         dueDate: data.dueDate ? new Date(data.dueDate) : null,
         completedAt,
         order: newOrder,
+        parentId: data.parentId || null,
         labels:
           data.labelIds && data.labelIds.length > 0
             ? {
                 create: data.labelIds.map((labelId) => ({ labelId })),
+              }
+            : undefined,
+        assignees:
+          data.assigneeIds && data.assigneeIds.length > 0
+            ? {
+                create: data.assigneeIds.map((userId) => ({ userId })),
               }
             : undefined,
       },
@@ -77,6 +87,11 @@ export async function createCard(
           include: { label: true },
         },
         comments: true,
+        assignees: {
+          include: { user: { select: { id: true, name: true, email: true } } },
+        },
+        parent: { select: { id: true, number: true, title: true } },
+        children: { select: { id: true, number: true, title: true, completedAt: true } },
       },
     });
 
@@ -99,13 +114,19 @@ export async function updateCard(
     owner?: string | null;
     dueDate?: string | null;
     order?: number;
+    parentId?: string | null;
     labelIds?: string[];
+    assigneeIds?: string[];
   },
   overrideUserId?: string
 ) {
   try {
     const session = overrideUserId ? { userId: overrideUserId } : await getSession();
     if (!session) return { success: false, error: "Unauthorized" };
+
+    if (data.parentId === id) {
+      return { success: false, error: "A card cannot be its own parent" };
+    }
 
     const existingCard = await db.card.findUnique({
       where: { id },
@@ -131,6 +152,7 @@ export async function updateCard(
       dueDate: data.dueDate !== undefined ? (data.dueDate ? new Date(data.dueDate) : null) : undefined,
       order: data.order !== undefined ? data.order : undefined,
       columnId: data.columnId !== undefined ? data.columnId : undefined,
+      parentId: data.parentId !== undefined ? (data.parentId || null) : undefined,
       completedAt: completedAtUpdate,
     };
 
@@ -139,6 +161,15 @@ export async function updateCard(
       if (data.labelIds.length > 0) {
         updatePayload.labels = {
           create: data.labelIds.map((labelId) => ({ labelId })),
+        };
+      }
+    }
+
+    if (data.assigneeIds !== undefined) {
+      await db.cardAssignee.deleteMany({ where: { cardId: id } });
+      if (data.assigneeIds.length > 0) {
+        updatePayload.assignees = {
+          create: data.assigneeIds.map((userId) => ({ userId })),
         };
       }
     }
@@ -153,6 +184,11 @@ export async function updateCard(
         comments: {
           orderBy: { createdAt: "desc" },
         },
+        assignees: {
+          include: { user: { select: { id: true, name: true, email: true } } },
+        },
+        parent: { select: { id: true, number: true, title: true } },
+        children: { select: { id: true, number: true, title: true, completedAt: true } },
       },
     });
 
@@ -264,6 +300,11 @@ export async function getCardByIdentifier(identifier: string, overrideUserId?: s
         comments: {
           orderBy: { createdAt: "desc" },
         },
+        assignees: {
+          include: { user: { select: { id: true, name: true, email: true } } },
+        },
+        parent: { select: { id: true, number: true, title: true } },
+        children: { select: { id: true, number: true, title: true, completedAt: true } },
       },
     });
 
@@ -366,6 +407,55 @@ export async function getArchivedCards() {
   } catch (error) {
     console.error("Error fetching archived cards:", error);
     return { success: false, error: "Failed to fetch archived cards" };
+  }
+}
+
+export interface ReorderItem {
+  id: string;
+  order: number;
+  columnId?: string;
+}
+
+export async function reorderCards(items: ReorderItem[]) {
+  try {
+    const session = await getSession();
+    if (!session) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return { success: false, error: "Items array is required" };
+    }
+
+    const cardIds = items.map((i) => i.id);
+    const existingCards = await db.card.findMany({
+      where: {
+        id: { in: cardIds },
+        project: { userId: session.userId },
+      },
+      select: { id: true },
+    });
+
+    if (existingCards.length !== cardIds.length) {
+      return { success: false, error: "Unauthorized or card not found" };
+    }
+
+    const updates = items.map((item) =>
+      db.card.update({
+        where: { id: item.id },
+        data: {
+          order: item.order,
+          ...(item.columnId ? { columnId: item.columnId } : {}),
+        },
+      })
+    );
+
+    await db.$transaction(updates);
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) {
+    console.error("Error reordering cards:", error);
+    return { success: false, error: "Failed to reorder cards" };
   }
 }
 

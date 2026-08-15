@@ -23,7 +23,7 @@ jobs:
 
       - run: npx prisma generate
 
-      - run: npx prisma db push
+      - run: npx prisma migrate deploy
 
       - name: Typecheck
         run: yarn typecheck

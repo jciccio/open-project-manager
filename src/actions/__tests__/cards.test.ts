@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { createCard, updateCard, moveCard, deleteCard, getCardByIdentifier, archiveCard, unarchiveCard, getArchivedCards } from "../cards";
+import { createCard, updateCard, moveCard, deleteCard, getCardByIdentifier, archiveCard, unarchiveCard, getArchivedCards, reorderCards } from "../cards";
 import { createProject, getProjectById } from "../projects";
 import { createTestUser, cleanupTestUser } from "@/test/helpers";
 import { createSession, destroySession } from "@/lib/auth";
@@ -137,6 +137,55 @@ describe("Cards Server Actions", () => {
 
     const delRes = await deleteCard(cardId);
     expect(delRes.success).toBe(true);
+  });
+
+  it("reorders multiple cards atomically using reorderCards", async () => {
+    const c1 = await createCard({ projectId, columnId, title: "Card A" });
+    const c2 = await createCard({ projectId, columnId, title: "Card B" });
+
+    expect(c1.data?.order).toBe(10000);
+    expect(c2.data?.order).toBe(20000);
+
+    const reorderRes = await reorderCards([
+      { id: c1.data!.id, order: 25000 },
+      { id: c2.data!.id, order: 5000 },
+    ]);
+    expect(reorderRes.success).toBe(true);
+  });
+
+  it("supports parent and sub-card nesting and prevents self-parenting", async () => {
+    const parentCard = await createCard({ projectId, columnId, title: "Parent Epic" });
+    const parentId = parentCard.data!.id;
+
+    const childCard = await createCard({
+      projectId,
+      columnId,
+      title: "Sub-task 1",
+      parentId,
+    });
+    expect(childCard.success).toBe(true);
+    expect(childCard.data?.parentId).toBe(parentId);
+    expect(childCard.data?.parent?.title).toBe("Parent Epic");
+
+    const selfParentRes = await updateCard(parentId, { parentId });
+    expect(selfParentRes.success).toBe(false);
+    expect(selfParentRes.error).toBe("A card cannot be its own parent");
+  });
+
+  it("supports assigning structured users to a card", async () => {
+    const cardRes = await createCard({
+      projectId,
+      columnId,
+      title: "Card With Assignees",
+      assigneeIds: [userId],
+    });
+    expect(cardRes.success).toBe(true);
+    expect(cardRes.data?.assignees.length).toBe(1);
+    expect(cardRes.data?.assignees[0].user.id).toBe(userId);
+
+    const updateRes = await updateCard(cardRes.data!.id, { assigneeIds: [] });
+    expect(updateRes.success).toBe(true);
+    expect(updateRes.data?.assignees.length).toBe(0);
   });
 });
 
