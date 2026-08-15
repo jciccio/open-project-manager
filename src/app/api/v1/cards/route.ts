@@ -3,6 +3,8 @@ import { getApiSession } from "@/lib/auth";
 import { createCard } from "@/actions/cards";
 import { db } from "@/lib/db";
 
+const DEFAULT_LIST_CARDS_LIMIT = 100;
+
 export async function GET(request: NextRequest) {
   const session = await getApiSession(request);
   if (!session) {
@@ -18,14 +20,12 @@ export async function GET(request: NextRequest) {
   const limitParam = searchParams.get("limit");
   const cursor = searchParams.get("cursor");
 
-  let limit: number | undefined = undefined;
+  let limit: number = DEFAULT_LIST_CARDS_LIMIT;
   if (limitParam) {
     const parsed = parseInt(limitParam, 10);
     if (!isNaN(parsed)) {
       limit = Math.min(Math.max(1, parsed), 100);
     }
-  } else if (cursor) {
-    limit = 50;
   }
 
   try {
@@ -59,11 +59,8 @@ export async function GET(request: NextRequest) {
         children: { select: { id: true, number: true, title: true, completedAt: true } },
       },
       orderBy: [{ order: "asc" }, { id: "asc" }],
+      take: limit,
     };
-
-    if (limit !== undefined) {
-      queryOptions.take = limit;
-    }
 
     if (cursor) {
       queryOptions.cursor = { id: cursor };
@@ -71,7 +68,7 @@ export async function GET(request: NextRequest) {
     }
 
     const cards = await db.card.findMany(queryOptions);
-    const nextCursor = limit !== undefined && cards.length === limit ? cards[cards.length - 1].id : null;
+    const nextCursor = cards.length === limit ? cards[cards.length - 1].id : null;
 
     return NextResponse.json({ success: true, data: cards, nextCursor });
   } catch (err) {

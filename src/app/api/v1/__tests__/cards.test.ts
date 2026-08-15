@@ -6,6 +6,7 @@ import { GET as getByIdentifierRoute } from "../cards/by-identifier/[identifier]
 import { NextRequest } from "next/server";
 import { createTestUser, createTestProject, cleanupTestUser } from "@/test/helpers";
 import { getProjectById } from "@/actions/projects";
+import { db } from "@/lib/db";
 
 describe("REST API: Cards", () => {
   let userId: string;
@@ -146,6 +147,27 @@ describe("REST API: Cards", () => {
     expect(page2Body.data.length).toBe(1);
     expect(page2Body.data[0].title).toBe("Paginated Card 3");
     expect(page2Body.nextCursor).toBeNull();
+  });
+
+  it("defaults to a bounded page size on GET /api/v1/cards with no limit or cursor", async () => {
+    await db.card.createMany({
+      data: Array.from({ length: 105 }, (_, i) => ({
+        projectId,
+        columnId,
+        title: `Bulk Card ${i}`,
+        number: i + 1,
+        order: (i + 1) * 10000,
+      })),
+    });
+
+    const req = new NextRequest(`http://localhost/api/v1/cards?projectId=${projectId}`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const res = await getCardsRoute(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.length).toBe(100);
+    expect(body.nextCursor).not.toBeNull();
   });
 
   it("filters by query across title and description on GET /api/v1/cards", async () => {

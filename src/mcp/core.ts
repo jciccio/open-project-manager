@@ -9,6 +9,8 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { db } from "@/lib/db";
 
+const DEFAULT_LIST_CARDS_LIMIT = 100;
+
 function requireUserId(providedUserId?: string): string {
   if (providedUserId) return providedUserId;
   throw new Error(
@@ -181,7 +183,7 @@ export const MCP_TOOLS = [
         query: { type: "string", description: "Free-text search across card title and description (case-insensitive substring match)" },
         parentId: { type: "string", description: "Filter by parent card ID" },
         isArchived: { type: "boolean", description: "Filter by archived status (default: false)" },
-        limit: { type: "number", description: "Maximum number of cards to return (1-100)" },
+        limit: { type: "number", description: "Maximum number of cards to return (1-100, default 100)" },
         cursor: { type: "string", description: "Cursor card ID for pagination (returns items after this card ID)" },
       },
     },
@@ -684,7 +686,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
         where.parentId = args.parentId || null;
       }
 
-      let limit: number | undefined = undefined;
+      let limit: number = DEFAULT_LIST_CARDS_LIMIT;
       if (typeof args.limit === "number") {
         limit = Math.min(Math.max(1, Math.floor(args.limit)), 100);
       } else if (args.limit) {
@@ -692,8 +694,6 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
         if (!isNaN(parsed)) {
           limit = Math.min(Math.max(1, parsed), 100);
         }
-      } else if (args.cursor) {
-        limit = 50;
       }
 
       const queryOptions: any = {
@@ -707,11 +707,8 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
           children: { select: { id: true, number: true, title: true, completedAt: true } },
           _count: { select: { comments: true } },
         },
+        take: limit,
       };
-
-      if (limit !== undefined) {
-        queryOptions.take = limit;
-      }
 
       if (args.cursor) {
         queryOptions.cursor = { id: args.cursor };
@@ -719,7 +716,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       }
 
       const cards = await db.card.findMany(queryOptions);
-      const nextCursor = limit !== undefined && cards.length === limit ? cards[cards.length - 1].id : null;
+      const nextCursor = cards.length === limit ? cards[cards.length - 1].id : null;
       return { success: true, cards, nextCursor };
     }
 
