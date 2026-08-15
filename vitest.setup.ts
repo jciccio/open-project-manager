@@ -28,6 +28,34 @@ Object.defineProperty(window, 'matchMedia', {
   })),
 });
 
+// Mock localStorage for JSDOM — jsdom 30 defers to Node's own experimental
+// `localStorage` global, which comes back as an inert stub (no getItem/setItem)
+// without a --localstorage-file flag. A plain in-memory mock sidesteps that.
+function createLocalStorageMock() {
+  let store: Record<string, string> = {};
+  return {
+    getItem: (key: string) => (key in store ? store[key] : null),
+    setItem: (key: string, value: string) => {
+      store[key] = String(value);
+    },
+    removeItem: (key: string) => {
+      delete store[key];
+    },
+    clear: () => {
+      store = {};
+    },
+    key: (index: number) => Object.keys(store)[index] ?? null,
+    get length() {
+      return Object.keys(store).length;
+    },
+  };
+}
+
+Object.defineProperty(window, 'localStorage', {
+  writable: true,
+  value: createLocalStorageMock(),
+});
+
 // Mock next/cache revalidatePath & revalidateTag for non-Next environment
 vi.mock('next/cache', () => ({
   revalidatePath: vi.fn(),
