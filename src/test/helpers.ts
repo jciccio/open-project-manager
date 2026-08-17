@@ -74,6 +74,22 @@ export async function createTestCard(
   });
 }
 
+export async function createTestCardType(
+  projectId: string,
+  name = "Bug",
+  icon = "Bug",
+  color = "#ef4444"
+) {
+  return await db.cardType.create({
+    data: {
+      projectId,
+      name,
+      icon,
+      color,
+    },
+  });
+}
+
 export async function cleanupTestUser(userId: string) {
   try {
     await db.user.delete({

@@ -44,9 +44,10 @@ model Project {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  columns Column[]
-  cards   Card[]
-  labels  Label[]
+  columns   Column[]
+  cards     Card[]
+  labels    Label[]
+  cardTypes CardType[]
 }
 
 model Column {
@@ -85,6 +86,9 @@ model Card {
   parent      Card?     @relation("CardParentChildren", fields: [parentId], references: [id], onDelete: SetNull)
   children    Card[]    @relation("CardParentChildren")
 
+  typeId      String?
+  type        CardType? @relation(fields: [typeId], references: [id], onDelete: SetNull)
+
   labels            CardLabel[]
   comments          Comment[]
   attachments       Attachment[]
@@ -94,6 +98,7 @@ model Card {
 
   @@unique([projectId, number])
   @@index([parentId])
+  @@index([typeId])
 }
 
 model CardAssignee {
@@ -132,6 +137,21 @@ model CardRelation {
   createdAt    DateTime @default(now())
 
   @@unique([sourceCardId, targetCardId, type])
+}
+
+model CardType {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name      String
+  icon      String   @default("Tag")
+  color     String   @default("#6366f1")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cards Card[]
+
+  @@unique([name, projectId])
 }
 
 model Label {
