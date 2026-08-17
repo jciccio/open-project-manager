@@ -331,7 +331,6 @@ describe("MCP Server Core Tools", () => {
     await executeMcpTool("delete_project", { id: projectId });
   });
 
-<<<<<<< HEAD
   it("lists card activity via list_card_activity MCP tool", async () => {
     const projRes = await executeMcpTool("create_project", { name: "Activity MCP Project", userId });
     const projectId = projRes.project!.id;
