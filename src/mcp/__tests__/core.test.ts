@@ -331,6 +331,7 @@ describe("MCP Server Core Tools", () => {
     await executeMcpTool("delete_project", { id: projectId });
   });
 
+<<<<<<< HEAD
   it("lists card activity via list_card_activity MCP tool", async () => {
     const projRes = await executeMcpTool("create_project", { name: "Activity MCP Project", userId });
     const projectId = projRes.project!.id;
@@ -357,6 +358,35 @@ describe("MCP Server Core Tools", () => {
     expect(actRes.success).toBe(true);
     expect(actRes.activities!.length).toBeGreaterThan(0);
     expect(actRes.activities![0].type).toBe("card_created");
+
+    await executeMcpTool("delete_project", { id: projectId });
+  });
+
+  it("supports add_card_link and remove_card_link MCP tools", async () => {
+    const projRes = await executeMcpTool("create_project", { name: "Links MCP Project", userId });
+    const projectId = projRes.project!.id;
+    const colId = (projRes.project as any).columns[0].id;
+
+    const createRes = await executeMcpTool("create_card", {
+      projectId,
+      columnId: colId,
+      title: "Card With Links",
+    });
+    const cardId = createRes.card!.id;
+
+    const addRes = await executeMcpTool("add_card_link", {
+      cardId,
+      url: "https://example.com",
+      title: "Example",
+    });
+    expect(addRes.success).toBe(true);
+    expect(addRes.link?.url).toBe("https://example.com");
+
+    const linkId = addRes.link!.id;
+
+    const removeRes = await executeMcpTool("remove_card_link", { linkId });
+    expect(removeRes.success).toBe(true);
+    expect(removeRes.deletedId).toBe(linkId);
 
     await executeMcpTool("delete_project", { id: projectId });
   });
