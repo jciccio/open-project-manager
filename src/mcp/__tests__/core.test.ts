@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { executeMcpTool, MCP_TOOLS, createMcpServer } from "../core";
 import { createTestUser, cleanupTestUser } from "@/test/helpers";
+import { db } from "@/lib/db";
 
 describe("MCP Server Core Tools", () => {
   let userId: string;
@@ -112,6 +113,29 @@ describe("MCP Server Core Tools", () => {
     expect(page2.cards!.length).toBe(1);
     expect(page2.cards![0].title).toBe("Card 3");
     expect(page2.nextCursor).toBeNull();
+
+    await executeMcpTool("delete_project", { id: projectId });
+  });
+
+  it("defaults to a bounded page size when list_cards is called with no limit or cursor", async () => {
+    const projRes = await executeMcpTool("create_project", { name: "Default Limit MCP Project", userId });
+    const projectId = projRes.project!.id;
+    const colId = (projRes.project as any).columns[0].id;
+
+    await db.card.createMany({
+      data: Array.from({ length: 105 }, (_, i) => ({
+        projectId,
+        columnId: colId,
+        title: `Bulk Card ${i}`,
+        number: i + 1,
+        order: (i + 1) * 10000,
+      })),
+    });
+
+    const res = await executeMcpTool("list_cards", { projectId });
+    expect(res.success).toBe(true);
+    expect(res.cards!.length).toBe(100);
+    expect(res.nextCursor).not.toBeNull();
 
     await executeMcpTool("delete_project", { id: projectId });
   });
