@@ -650,6 +650,71 @@ export const MCP_TOOLS = [
       destructiveHint: true,
     },
   },
+  {
+    name: "list_saved_views",
+    description: "List all saved filter views configured for a project.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string", description: "Target project ID" },
+      },
+      required: ["projectId"],
+    },
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
+    },
+  },
+  {
+    name: "create_saved_view",
+    description: "Create a named saved view with a JSON filter configuration for a project.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string", description: "Project ID to attach the view to" },
+        name: { type: "string", description: "Display name of the saved view" },
+        filterJson: { type: "string", description: "JSON string or object of filter parameters" },
+        isDefault: { type: "boolean", description: "Whether this view should be the default" },
+      },
+      required: ["projectId", "name"],
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
+  },
+  {
+    name: "update_saved_view",
+    description: "Update an existing saved view's name, filter configuration, or default status.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Saved view ID to update" },
+        name: { type: "string", description: "New display name" },
+        filterJson: { type: "string", description: "New JSON filter configuration" },
+        isDefault: { type: "boolean", description: "Set as default view" },
+      },
+      required: ["id"],
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
+  },
+  {
+    name: "delete_saved_view",
+    description: "Delete a saved view permanently by ID.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Saved view ID to delete" },
+      },
+      required: ["id"],
+    },
+    annotations: {
+      destructiveHint: true,
+    },
+  },
 ];
 
 export async function executeMcpTool(name: string, args: Record<string, any> = {}) {
@@ -1254,6 +1319,68 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     case "remove_card_link": {
       await db.cardLink.delete({ where: { id: args.linkId } });
       return { success: true, deletedId: args.linkId };
+    }
+
+    case "list_saved_views": {
+      const savedViews = await db.savedView.findMany({
+        where: { projectId: args.projectId },
+        orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
+      });
+      return { success: true, savedViews };
+    }
+
+    case "create_saved_view": {
+      const filterJson =
+        typeof args.filterJson === "object" ? JSON.stringify(args.filterJson) : args.filterJson;
+
+      if (args.isDefault) {
+        await db.savedView.updateMany({
+          where: { projectId: args.projectId, isDefault: true },
+          data: { isDefault: false },
+        });
+      }
+
+      const savedView = await db.savedView.create({
+        data: {
+          projectId: args.projectId,
+          name: args.name.trim(),
+          filterJson: filterJson || "{}",
+          isDefault: !!args.isDefault,
+        },
+      });
+      return { success: true, savedView };
+    }
+
+    case "update_saved_view": {
+      const data: any = {};
+      if (args.name !== undefined) data.name = args.name.trim();
+      if (args.filterJson !== undefined) {
+        data.filterJson =
+          typeof args.filterJson === "object" ? JSON.stringify(args.filterJson) : args.filterJson;
+      }
+      if (args.isDefault !== undefined) {
+        data.isDefault = args.isDefault;
+        if (args.isDefault) {
+          const existing = await db.savedView.findUnique({ where: { id: args.id } });
+          if (existing) {
+            await db.savedView.updateMany({
+              where: { projectId: existing.projectId, isDefault: true, id: { not: args.id } },
+              data: { isDefault: false },
+            });
+          }
+        }
+      }
+
+      const savedView = await db.savedView.update({
+        where: { id: args.id },
+        data,
+      });
+      return { success: true, savedView };
+    }
+
+    case "delete_saved_view": {
+      await db.savedView.delete({ where: { id: args.id } });
+      return { success: true, deletedId: args.id };
     }
 
     default:
