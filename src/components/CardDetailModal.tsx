@@ -20,10 +20,15 @@ import {
   Plus,
   Archive,
   Paperclip,
+  History,
+  Activity as ActivityIcon,
+  ArrowRight,
+  Clock,
 } from "lucide-react";
 import { updateCard, deleteCard, archiveCard, getCardByIdentifier } from "@/actions/cards";
 import { getProjectById } from "@/actions/projects";
 import { addComment, updateComment, deleteComment } from "@/actions/comments";
+import { getCardActivity } from "@/actions/activity";
 import { uploadAttachment, listAttachments, deleteAttachment } from "@/actions/attachments";
 import { getLabels } from "@/actions/labels";
 import { getCardTypes } from "@/actions/cardTypes";
@@ -60,6 +65,15 @@ interface Props {
       id: string;
       author: string;
       content: string;
+      createdAt: Date | string;
+    }>;
+    activities?: Array<{
+      id: string;
+      cardId: string;
+      actorUserId: string;
+      type: string;
+      fromValue: string | null;
+      toValue: string | null;
       createdAt: Date | string;
     }>;
   };
@@ -125,7 +139,20 @@ export default function CardDetailModal({
   const [attachments, setAttachments] = useState<Array<any>>((card as any).attachments || []);
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
 
+  const [activities, setActivities] = useState<Array<any>>(card.activities || []);
+  const [feedTab, setFeedTab] = useState<"comments" | "activity">("comments");
+  const [isLoadingActivities, setIsLoadingActivities] = useState(false);
+
   const { t } = useTranslation();
+
+  async function loadActivities() {
+    setIsLoadingActivities(true);
+    const res = await getCardActivity(card.id);
+    if (res.success && res.data) {
+      setActivities(res.data);
+    }
+    setIsLoadingActivities(false);
+  }
 
   async function loadRelations() {
     const res = await getCardRelations(card.id);
@@ -142,6 +169,7 @@ export default function CardDetailModal({
       }
     }
     fetchAttachments();
+    loadActivities();
   }, [card.id]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -275,6 +303,7 @@ export default function CardDetailModal({
 
     if (res.success) {
       setCommentContent("");
+      loadActivities();
       onRefresh();
     }
   }
@@ -749,131 +778,265 @@ export default function CardDetailModal({
             </div>
           </div>
 
-          {/* Comments Feed Section */}
+          {/* Comments & Activity Log Section */}
           <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
-            <div className="flex items-center gap-2">
-              <MessageSquare className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
-              <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-                {t("cardModal.activityComments")} ({card.comments ? card.comments.length : 0})
-              </h4>
-            </div>
-
-            {/* Add Comment Form */}
-            <form onSubmit={handleAddComment} className="space-y-2">
+            {/* Feed Tabs */}
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
               <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  placeholder={t("cardModal.yourName")}
-                  value={commentAuthor}
-                  onChange={(e) => setCommentAuthor(e.target.value)}
-                  className="w-1/3 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2.5 py-1 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  required
-                  placeholder={t("cardModal.writeComment")}
-                  value={commentContent}
-                  onChange={(e) => setCommentContent(e.target.value)}
-                  className="flex-1 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
-                />
                 <button
-                  type="submit"
-                  disabled={isSubmittingComment}
-                  className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 transition-colors flex items-center gap-1"
+                  type="button"
+                  onClick={() => setFeedTab("comments")}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold transition-colors ${
+                    feedTab === "comments"
+                      ? "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800"
+                      : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                  }`}
                 >
-                  <Send className="h-3 w-3" />
-                  <span>{t("cardModal.post")}</span>
+                  <MessageSquare className="h-3.5 w-3.5" />
+                  <span>{t("cardModal.tabComments")}</span>
+                  <span className="ml-1 rounded-full bg-slate-200 dark:bg-slate-800 px-1.5 py-0.2 text-[10px] text-slate-700 dark:text-slate-300">
+                    {card.comments ? card.comments.length : 0}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFeedTab("activity")}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold transition-colors ${
+                    feedTab === "activity"
+                      ? "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800"
+                      : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                  }`}
+                >
+                  <History className="h-3.5 w-3.5" />
+                  <span>{t("cardModal.tabActivity")}</span>
+                  <span className="ml-1 rounded-full bg-slate-200 dark:bg-slate-800 px-1.5 py-0.2 text-[10px] text-slate-700 dark:text-slate-300">
+                    {activities.length}
+                  </span>
                 </button>
               </div>
-            </form>
-
-            {/* Comments List */}
-            <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-              {card.comments && card.comments.length > 0 ? (
-                card.comments.map((c) => (
-                  <div
-                    key={c.id}
-                    className="group flex items-start justify-between gap-2 rounded-lg bg-slate-50 dark:bg-slate-800/50 p-2.5 border border-slate-200 dark:border-slate-800"
-                  >
-                    <div className="space-y-1 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-slate-900 dark:text-slate-200">
-                          {c.author}
-                        </span>
-                        <span className="text-[10px] text-slate-400">
-                          {new Date(c.createdAt).toLocaleDateString(undefined, {
-                            month: "short",
-                            day: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </span>
-                      </div>
-                      {editingCommentId === c.id ? (
-                        <div className="flex items-center gap-2 mt-1">
-                          <input
-                            type="text"
-                            value={editingCommentText}
-                            onChange={(e) => setEditingCommentText(e.target.value)}
-                            className="flex-1 rounded-lg bg-white dark:bg-slate-900 border border-indigo-500 px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none"
-                            autoFocus
-                          />
-                          <button
-                            type="button"
-                            onClick={() => handleSaveEditComment(c.id)}
-                            className="p-1 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 rounded-md"
-                            title="Save comment"
-                          >
-                            <Check className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setEditingCommentId(null)}
-                            className="p-1 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-md"
-                            title="Cancel edit"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      ) : (
-                        <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
-                          {c.content}
-                        </p>
-                      )}
-                    </div>
-                    {editingCommentId !== c.id && (
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditingCommentId(c.id);
-                            setEditingCommentText(c.content);
-                          }}
-                          className="p-1 text-slate-400 hover:text-indigo-500 transition-colors"
-                          title="Edit comment"
-                        >
-                          <Pencil className="h-3 w-3" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteComment(c.id)}
-                          className="p-1 text-slate-400 hover:text-red-500 transition-colors"
-                          title="Delete comment"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))
-              ) : (
-                <p className="text-xs text-slate-400 italic text-center py-2">
-                  {t("cardModal.noComments")}
-                </p>
-              )}
             </div>
+
+            {feedTab === "comments" ? (
+              <>
+                {/* Add Comment Form */}
+                <form onSubmit={handleAddComment} className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      placeholder={t("cardModal.yourName")}
+                      value={commentAuthor}
+                      onChange={(e) => setCommentAuthor(e.target.value)}
+                      className="w-1/3 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2.5 py-1 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      required
+                      placeholder={t("cardModal.writeComment")}
+                      value={commentContent}
+                      onChange={(e) => setCommentContent(e.target.value)}
+                      className="flex-1 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
+                    />
+                    <button
+                      type="submit"
+                      disabled={isSubmittingComment}
+                      className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 transition-colors flex items-center gap-1"
+                    >
+                      <Send className="h-3 w-3" />
+                      <span>{t("cardModal.post")}</span>
+                    </button>
+                  </div>
+                </form>
+
+                {/* Comments List */}
+                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                  {card.comments && card.comments.length > 0 ? (
+                    card.comments.map((c) => (
+                      <div
+                        key={c.id}
+                        className="group flex items-start justify-between gap-2 rounded-lg bg-slate-50 dark:bg-slate-800/50 p-2.5 border border-slate-200 dark:border-slate-800"
+                      >
+                        <div className="space-y-1 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-slate-900 dark:text-slate-200">
+                              {c.author}
+                            </span>
+                            <span className="text-[10px] text-slate-400">
+                              {new Date(c.createdAt).toLocaleDateString(undefined, {
+                                month: "short",
+                                day: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </span>
+                          </div>
+                          {editingCommentId === c.id ? (
+                            <div className="flex items-center gap-2 mt-1">
+                              <input
+                                type="text"
+                                value={editingCommentText}
+                                onChange={(e) => setEditingCommentText(e.target.value)}
+                                className="flex-1 rounded-lg bg-white dark:bg-slate-900 border border-indigo-500 px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none"
+                                autoFocus
+                              />
+                              <button
+                                type="button"
+                                onClick={() => handleSaveEditComment(c.id)}
+                                className="p-1 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 rounded-md"
+                                title="Save comment"
+                              >
+                                <Check className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditingCommentId(null)}
+                                className="p-1 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-md"
+                                title="Cancel edit"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
+                              {c.content}
+                            </p>
+                          )}
+                        </div>
+                        {editingCommentId !== c.id && (
+                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingCommentId(c.id);
+                                setEditingCommentText(c.content);
+                              }}
+                              className="p-1 text-slate-400 hover:text-indigo-500 transition-colors"
+                              title="Edit comment"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteComment(c.id)}
+                              className="p-1 text-slate-400 hover:text-red-500 transition-colors"
+                              title="Delete comment"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-xs text-slate-400 italic text-center py-2">
+                      {t("cardModal.noComments")}
+                    </p>
+                  )}
+                </div>
+              </>
+            ) : (
+              /* Activity Feed List */
+              <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                {isLoadingActivities ? (
+                  <p className="text-xs text-slate-400 italic text-center py-4">
+                    Loading activity...
+                  </p>
+                ) : activities && activities.length > 0 ? (
+                  activities.map((act) => {
+                    return (
+                      <div
+                        key={act.id}
+                        className="flex items-start gap-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/40 p-2.5 border border-slate-200/80 dark:border-slate-800 text-xs"
+                      >
+                        <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-200/70 dark:bg-slate-700/70">
+                          {act.type === "card_created" ? (
+                            <Plus className="h-3 w-3 text-emerald-500" />
+                          ) : act.type === "moved" ? (
+                            <ArrowRight className="h-3 w-3 text-blue-500" />
+                          ) : act.type === "priority_changed" ? (
+                            <Zap className="h-3 w-3 text-amber-500" />
+                          ) : act.type === "title_changed" || act.type === "description_changed" ? (
+                            <Pencil className="h-3 w-3 text-indigo-500" />
+                          ) : act.type === "points_changed" ? (
+                            <Sparkles className="h-3 w-3 text-violet-500" />
+                          ) : act.type === "due_date_changed" ? (
+                            <Calendar className="h-3 w-3 text-cyan-500" />
+                          ) : act.type === "type_changed" ? (
+                            <Layers className="h-3 w-3 text-indigo-400" />
+                          ) : act.type === "label_added" || act.type === "label_removed" ? (
+                            <Tag className="h-3 w-3 text-pink-500" />
+                          ) : act.type === "assigned" || act.type === "unassigned" ? (
+                            <User className="h-3 w-3 text-purple-500" />
+                          ) : act.type === "comment_added" ? (
+                            <MessageSquare className="h-3 w-3 text-blue-400" />
+                          ) : act.type === "archived" || act.type === "unarchived" ? (
+                            <Archive className="h-3 w-3 text-amber-500" />
+                          ) : (
+                            <ActivityIcon className="h-3 w-3 text-slate-400" />
+                          )}
+                        </div>
+                        <div className="flex-1 space-y-0.5 min-w-0">
+                          <p className="text-slate-800 dark:text-slate-200 leading-snug">
+                            {act.type === "card_created" && "Card created"}
+                            {act.type === "moved" &&
+                              (act.fromValue && act.toValue
+                                ? `Moved from "${act.fromValue}" to "${act.toValue}"`
+                                : `Moved to "${act.toValue || ""}"`)}
+                            {act.type === "priority_changed" &&
+                              `Priority changed from ${act.fromValue || "NONE"} to ${act.toValue || "NONE"}`}
+                            {act.type === "title_changed" && `Title changed to "${act.toValue}"`}
+                            {act.type === "description_changed" && "Updated description"}
+                            {act.type === "points_changed" &&
+                              (act.toValue ? `Points set to ${act.toValue}` : "Cleared points")}
+                            {act.type === "due_date_changed" &&
+                              (act.toValue ? `Due date set to ${act.toValue}` : "Removed due date")}
+                            {act.type === "type_changed" &&
+                              (act.toValue ? `Card type changed to "${act.toValue}"` : "Removed card type")}
+                            {act.type === "label_added" && `Added label "${act.toValue}"`}
+                            {act.type === "label_removed" && `Removed label "${act.fromValue}"`}
+                            {act.type === "assigned" && `Assigned to ${act.toValue}`}
+                            {act.type === "unassigned" && `Unassigned ${act.fromValue}`}
+                            {act.type === "comment_added" && "Added a comment"}
+                            {act.type === "archived" && "Archived card"}
+                            {act.type === "unarchived" && "Restored card from archive"}
+                            {![
+                              "card_created",
+                              "moved",
+                              "priority_changed",
+                              "title_changed",
+                              "description_changed",
+                              "points_changed",
+                              "due_date_changed",
+                              "type_changed",
+                              "label_added",
+                              "label_removed",
+                              "assigned",
+                              "unassigned",
+                              "comment_added",
+                              "archived",
+                              "unarchived",
+                            ].includes(act.type) && act.type}
+                          </p>
+                          <span className="text-[10px] text-slate-400 block">
+                            {new Date(act.createdAt).toLocaleDateString(undefined, {
+                              month: "short",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <p className="text-xs text-slate-400 italic text-center py-4">
+                    {t("cardModal.noActivity")}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         </div>
 

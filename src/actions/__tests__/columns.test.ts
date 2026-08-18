@@ -13,7 +13,7 @@ describe("Columns Server Actions", () => {
     userId = user.id;
     await createSession({ userId, email: user.email, name: user.name });
 
-    const pRes = await createProject({ name: "Column Test Project" });
+    const pRes = await createProject({ name: "Column Test Project" }, userId);
     projectId = pRes.data!.id;
   });
 

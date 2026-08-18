@@ -16,13 +16,13 @@ describe("Labels & Comments Server Actions", () => {
     userId = user.id;
     await createSession({ userId, email: user.email, name: user.name });
 
-    const pRes = await createProject({ name: "Labels/Comments Project" });
+    const pRes = await createProject({ name: "Labels/Comments Project" }, userId);
     projectId = pRes.data!.id;
 
-    const projectDetails = await getProjectById(projectId);
+    const projectDetails = await getProjectById(projectId, userId);
     const columnId = projectDetails.data!.columns[0].id;
 
-    const cardRes = await createCard({ projectId, columnId, title: "Label Comment Card" });
+    const cardRes = await createCard({ projectId, columnId, title: "Label Comment Card" }, userId);
     cardId = cardRes.data!.id;
   });
 

@@ -441,6 +441,21 @@ export const MCP_TOOLS = [
     },
   },
   {
+    name: "list_card_activity",
+    description: "List the audit trail / activity log of events for a specific task card.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cardId: { type: "string", description: "Target card ID" },
+      },
+      required: ["cardId"],
+    },
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
+    },
+  },
+  {
     name: "update_comment",
     description: "Update the text content of an existing comment.",
     inputSchema: {
@@ -1025,6 +1040,14 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
         orderBy: { createdAt: "desc" },
       });
       return { success: true, comments };
+    }
+
+    case "list_card_activity": {
+      const activities = await db.activity.findMany({
+        where: { cardId: args.cardId },
+        orderBy: { createdAt: "desc" },
+      });
+      return { success: true, activities };
     }
 
     case "update_comment": {
