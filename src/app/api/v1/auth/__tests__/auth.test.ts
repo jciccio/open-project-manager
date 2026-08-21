@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { POST } from "../login/route";
 import { NextRequest } from "next/server";
 import { createTestUser, cleanupTestUser } from "@/test/helpers";
+import { db } from "@/lib/db";
 
 describe("REST API: /api/v1/auth/login", () => {
   let userId: string;
@@ -53,5 +54,26 @@ describe("REST API: /api/v1/auth/login", () => {
     expect(body.success).toBe(true);
     expect(body.token).toBeDefined();
     expect(body.user.email).toBe(userEmail);
+  });
+
+  it("returns 401 for an OIDC-only user with no passwordHash", async () => {
+    const oidcOnlyEmail = `oidc-only-rest-${Date.now()}@example.com`;
+    const oidcOnlyUser = await db.user.create({
+      data: { email: oidcOnlyEmail, name: "OIDC Only User", oidcSubject: `sub-${Date.now()}` },
+    });
+
+    try {
+      const req = new NextRequest("http://localhost/api/v1/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: oidcOnlyEmail, password: "anything123" }),
+      });
+      const res = await POST(req);
+      expect(res.status).toBe(401);
+      const body = await res.json();
+      expect(body.error).toBe("Invalid email or password");
+    } finally {
+      await cleanupTestUser(oidcOnlyUser.id);
+    }
   });
 });
