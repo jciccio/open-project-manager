@@ -58,6 +58,7 @@ async function runLoadTest() {
           priority: cardNum % 2 === 0 ? "HIGH" : "URGENT",
           points: (cardNum % 8) + 1,
           owner: `Worker-${cardNum % 5}`,
+          number: cardNum + 1,
         },
       });
 
