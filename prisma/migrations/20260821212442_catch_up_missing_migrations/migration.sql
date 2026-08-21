@@ -1,5 +1,10 @@
+-- These tables/indexes may already exist on a database whose owner ran
+-- `prisma db push` (per this repo's own README) instead of `migrate deploy`
+-- before this catch-up migration was added — IF NOT EXISTS keeps this
+-- migration applicable either way instead of failing `migrate deploy`.
+
 -- CreateTable
-CREATE TABLE "Activity" (
+CREATE TABLE IF NOT EXISTS "Activity" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "cardId" TEXT NOT NULL,
     "actorUserId" TEXT NOT NULL,
@@ -11,7 +16,7 @@ CREATE TABLE "Activity" (
 );
 
 -- CreateTable
-CREATE TABLE "SavedView" (
+CREATE TABLE IF NOT EXISTS "SavedView" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "projectId" TEXT NOT NULL,
     "name" TEXT NOT NULL,
@@ -23,7 +28,7 @@ CREATE TABLE "SavedView" (
 );
 
 -- CreateTable
-CREATE TABLE "CardLink" (
+CREATE TABLE IF NOT EXISTS "CardLink" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "cardId" TEXT NOT NULL,
     "url" TEXT NOT NULL,
@@ -34,13 +39,13 @@ CREATE TABLE "CardLink" (
 );
 
 -- CreateIndex
-CREATE INDEX "Activity_cardId_idx" ON "Activity"("cardId");
+CREATE INDEX IF NOT EXISTS "Activity_cardId_idx" ON "Activity"("cardId");
 
 -- CreateIndex
-CREATE INDEX "SavedView_projectId_idx" ON "SavedView"("projectId");
+CREATE INDEX IF NOT EXISTS "SavedView_projectId_idx" ON "SavedView"("projectId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "SavedView_name_projectId_key" ON "SavedView"("name", "projectId");
+CREATE UNIQUE INDEX IF NOT EXISTS "SavedView_name_projectId_key" ON "SavedView"("name", "projectId");
 
 -- CreateIndex
-CREATE INDEX "CardLink_cardId_idx" ON "CardLink"("cardId");
+CREATE INDEX IF NOT EXISTS "CardLink_cardId_idx" ON "CardLink"("cardId");
