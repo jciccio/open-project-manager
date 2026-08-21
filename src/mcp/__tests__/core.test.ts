@@ -389,5 +389,45 @@ describe("MCP Server Core Tools", () => {
 
     await executeMcpTool("delete_project", { id: projectId });
   });
+
+  it("supports saved views CRUD via MCP tools", async () => {
+    const projRes = await executeMcpTool("create_project", { name: "Saved Views MCP Project", userId });
+    const projectId = projRes.project!.id;
+
+    // 1. Create saved view
+    const createRes = await executeMcpTool("create_saved_view", {
+      projectId,
+      name: "MCP View 1",
+      filterJson: JSON.stringify({ priority: "HIGH" }),
+      isDefault: true,
+    });
+    expect(createRes.success).toBe(true);
+    expect(createRes.savedView!.name).toBe("MCP View 1");
+    expect(createRes.savedView!.isDefault).toBe(true);
+    const viewId = createRes.savedView!.id;
+
+    // 2. List saved views
+    const listRes = await executeMcpTool("list_saved_views", { projectId });
+    expect(listRes.success).toBe(true);
+    expect(listRes.savedViews!.length).toBe(1);
+    expect(listRes.savedViews![0].id).toBe(viewId);
+
+    // 3. Update saved view
+    const updateRes = await executeMcpTool("update_saved_view", {
+      id: viewId,
+      name: "Updated MCP View",
+      isDefault: false,
+    });
+    expect(updateRes.success).toBe(true);
+    expect(updateRes.savedView!.name).toBe("Updated MCP View");
+    expect(updateRes.savedView!.isDefault).toBe(false);
+
+    // 4. Delete saved view
+    const deleteRes = await executeMcpTool("delete_saved_view", { id: viewId });
+    expect(deleteRes.success).toBe(true);
+    expect(deleteRes.deletedId).toBe(viewId);
+
+    await executeMcpTool("delete_project", { id: projectId });
+  });
 });
 

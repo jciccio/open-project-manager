@@ -11,6 +11,7 @@ interface Props {
   onRefresh: () => void;
   searchQuery: string;
   priorityFilter: string;
+  typeFilter?: string;
 }
 
 const PRIORITY_COLORS: Record<string, { bg: string; text: string; border: string }> = {
@@ -26,6 +27,7 @@ export default function ListView({
   onRefresh,
   searchQuery,
   priorityFilter,
+  typeFilter = "ALL",
 }: Props) {
   const [movingCardId, setMovingCardId] = useState<string | null>(null);
   const { t } = useTranslation();
@@ -53,7 +55,11 @@ export default function ListView({
           const matchesPriority =
             priorityFilter === "ALL" || card.priority === priorityFilter;
 
-          return matchesSearch && matchesPriority;
+          const matchesType =
+            typeFilter === "ALL" ||
+            (typeFilter === "NONE" ? !card.typeId : card.typeId === typeFilter);
+
+          return matchesSearch && matchesPriority && matchesType;
         });
 
         return (

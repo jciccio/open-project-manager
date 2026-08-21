@@ -55,6 +55,9 @@ export async function getProjectById(id: string, overrideUserId?: string) {
         userId: session.userId,
       },
       include: {
+        savedViews: {
+          orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
+        },
         cardTypes: {
           orderBy: { name: "asc" },
         },
