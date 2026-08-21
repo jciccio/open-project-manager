@@ -81,7 +81,6 @@ interface Props {
       url: string;
       title: string | null;
     }>;
-    }>;
   };
   columns: Array<{
     id: string;

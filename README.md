@@ -1,13 +1,13 @@
 # Open Project Manager 🚀
 
-A lightweight, fast, and self-hosted project management web application inspired by Vikunja. Built with **Next.js 15+ (App Router)**, **TypeScript**, **Tailwind CSS**, and **SQLite + Prisma ORM (v7)**.
+A lightweight, fast, and self-hosted project management web application inspired by Vikunja. Built with **Next.js 15+ (App Router)**, **TypeScript**, **Tailwind CSS**, and **SQLite / PostgreSQL + Prisma ORM (v7)**.
 
 [![CircleCI](https://img.shields.io/circleci/build/github/jciccio/open-project-manager/main?logo=circleci)](https://circleci.com/gh/jciccio/open-project-manager)
 [![Tests](https://img.shields.io/badge/tests-55%20passed-emerald?logo=vitest)](https://github.com/jciccio/open-project-manager)
 [![Downloads](https://img.shields.io/github/downloads/jciccio/open-project-manager/total?logo=github&label=downloads)](https://github.com/jciccio/open-project-manager/releases)
 [![Docker](https://img.shields.io/badge/docker-ready-2496ED?logo=docker&logoColor=white)](https://github.com/jciccio/open-project-manager)
 [![MCP Native](https://img.shields.io/badge/MCP-native-7C3AED)](https://github.com/jciccio/open-project-manager)
-[![Stack](https://img.shields.io/badge/Stack-Next.js%2015%20%7C%20TypeScript%20%7C%20SQLite%20%7C%20Prisma%207-indigo)](https://github.com/jciccio/open-project-manager)
+[![Stack](https://img.shields.io/badge/Stack-Next.js%2015%20%7C%20TypeScript%20%7C%20SQLite%20%26%20Postgres%20%7C%20Prisma%207-indigo)](https://github.com/jciccio/open-project-manager)
 
 ---
 <img width="1512" height="731" alt="Screenshot 2026-08-09 at 12 28 28 PM" src="https://github.com/user-attachments/assets/bbf583f6-7c34-419c-82c6-4e44a71c7361" />
@@ -41,8 +41,8 @@ A lightweight, fast, and self-hosted project management web application inspired
 - 📎 **File Attachments**: Upload, stream, list, and delete card attachments (documents, images, logs) via UI, REST API, and base64 MCP tools.
 - 📄 **Card Cursoring & Pagination**: Cursor-based pagination (`limit` & `cursor`) for large project card listings.
 - 💬 **In-Place Comment Editing & Feeds**: Discuss tasks and edit comments in-place across UI, REST API (`PATCH /api/v1/comments/:id`), and MCP tools.
-- 🐳 **Official Docker Image & Compose**: Multi-stage `Dockerfile` standalone build and single-command `docker-compose.yml` orchestration with volume persistence.
-- 🪶 **Lightweight & Portable**: Single `.sqlite` file database stored locally (`dev.db`) using Prisma v7.
+- 🐳 **Official Docker Image & Compose**: Multi-stage `Dockerfile` standalone build and single-command `docker-compose.yml` (SQLite) & `docker-compose.postgres.yml` (PostgreSQL) orchestration with automated migration bootstrapping.
+- 🪶 **Flexible Database Engine**: Single `.sqlite` file database stored locally (`dev.db`) by default, with opt-in PostgreSQL support via connection string (`DATABASE_URL=postgresql://...`).
 
 ---
 
@@ -263,7 +263,9 @@ curl -X POST http://localhost:3000/api/v1/mcp/jsonrpc \
 Open Project Manager provides an official multi-stage `Dockerfile` and `docker-compose.yml` for containerized deployments with standalone Next.js builds and SQLite data persistence.
 
 ### 1. Using Docker Compose (Recommended)
-Run the application in the background with persistent SQLite storage. `docker-compose.yml` requires a `JWT_SECRET` in a `.env` file next to it — Compose refuses to start without one:
+
+#### Option A: SQLite (Zero-Config Default)
+Run the application in the background with persistent SQLite storage. `docker-compose.yml` requires a `JWT_SECRET` in a `.env` file next to it:
 
 ```bash
 # Create a .env with a real secret
@@ -281,7 +283,24 @@ docker compose down
 
 `docker compose up -d` first runs a one-shot `migrate` service (`prisma migrate deploy` against the
 `opm_data` volume) before starting the app, so the database schema is always in sync on a fresh
-deployment — no manual step required.
+deployment.
+
+#### Option B: PostgreSQL (Opt-In)
+For production setups with an integrated or centralized PostgreSQL database:
+
+```bash
+# Create a .env with a real secret
+echo "JWT_SECRET=$(openssl rand -base64 32)" > .env
+
+# Build and launch application alongside Postgres 16
+docker compose -f docker-compose.postgres.yml up -d
+
+# View logs
+docker compose -f docker-compose.postgres.yml logs -f
+
+# Stop containers
+docker compose -f docker-compose.postgres.yml down
+```
 
 The app will be accessible at [http://localhost:3000](http://localhost:3000).
 
