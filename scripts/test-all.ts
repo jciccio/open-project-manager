@@ -1,17 +1,11 @@
-import { PrismaClient } from "@prisma/client";
-import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import bcrypt from "bcryptjs";
 import { SignJWT, jwtVerify } from "jose";
-import path from "path";
-
-const dbPath = path.join(/*turbopackIgnore: true*/ process.cwd(), "dev.db");
-const adapter = new PrismaBetterSqlite3({ url: dbPath });
-const prisma = new PrismaClient({ adapter });
+import { db as prisma, getDatabaseProvider } from "../src/lib/db";
 
 const JWT_SECRET = new TextEncoder().encode("opm-test-secret-key-2026");
 
 async function runTests() {
-  console.log("🧪 Starting Automated Test Suite for Open Project Manager...\n");
+  console.log(`🧪 Starting Automated Test Suite for Open Project Manager (DB: ${getDatabaseProvider()})...\n`);
   let passedCount = 0;
   let totalCount = 0;
 
@@ -46,7 +40,7 @@ async function runTests() {
     assert(verified.payload.email === "test@example.com", "JWT signing and verification");
 
     // Test 3: Database Connection & CRUD
-    console.log("\n▶ Testing Database CRUD & Multi-Account Scoping...");
+    console.log(`\n▶ Testing Database CRUD & Multi-Account Scoping on ${getDatabaseProvider()}...`);
     const testUserEmail = `test-user-${Date.now()}@example.com`;
     const user = await prisma.user.create({
       data: {
@@ -55,7 +49,7 @@ async function runTests() {
         passwordHash: hash,
       },
     });
-    assert(!!user.id, "User creation in SQLite");
+    assert(!!user.id, `User creation in ${getDatabaseProvider()}`);
 
     // Create Project
     const project = await prisma.project.create({

@@ -1,18 +1,13 @@
-import { PrismaClient } from "@prisma/client";
-import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import bcrypt from "bcryptjs";
-import path from "path";
-
-const dbPath = path.join(/*turbopackIgnore: true*/ process.cwd(), "dev.db");
-const adapter = new PrismaBetterSqlite3({ url: dbPath });
-const prisma = new PrismaClient({ adapter });
+import { db as prisma, getDatabaseProvider } from "../src/lib/db";
 
 function formatMB(bytes: number): string {
   return (bytes / 1024 / 1024).toFixed(2) + " MB";
 }
 
 async function runLoadTest() {
-  console.log("⚡ Starting High-Concurrency Memory Load Test...\n");
+  const provider = getDatabaseProvider();
+  console.log(`⚡ Starting High-Concurrency Memory Load Test (DB: ${provider})...\n`);
 
   const startMem = process.memoryUsage();
   console.log(`[Baseline]  RSS: ${formatMB(startMem.rss)} | Heap Used: ${formatMB(startMem.heapUsed)}`);
@@ -120,7 +115,8 @@ async function runLoadTest() {
   console.log(`\n[Post-Load Clean] RSS: ${formatMB(postMem.rss)} | Heap Used: ${formatMB(postMem.heapUsed)}`);
 
   console.log("\n=== Load Test Summary ===");
-  console.log(`  Total Tasks Created & Moved: ${finalCardCount}`);
+  console.log(`  Database Provider:            ${provider}`);
+  console.log(`  Total Tasks Created & Moved:  ${finalCardCount}`);
   console.log(`  Memory Delta (Peak vs Start): ${formatMB(peakMem.rss - startMem.rss)}`);
   console.log(`  Peak RAM Usage:               ${formatMB(peakMem.rss)}`);
   console.log(`  Peak Heap Used:               ${formatMB(peakMem.heapUsed)}`);

@@ -1,11 +1,6 @@
-import { PrismaClient } from "@prisma/client";
-import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import fs from "fs";
 import path from "path";
-
-const dbPath = path.join(/*turbopackIgnore: true*/ process.cwd(), "dev.db");
-const adapter = new PrismaBetterSqlite3({ url: dbPath });
-const prisma = new PrismaClient({ adapter });
+import { db as prisma, getDatabaseProvider } from "../src/lib/db";
 
 function formatMB(bytes: number): string {
   return (bytes / 1024 / 1024).toFixed(2) + " MB";
@@ -16,7 +11,8 @@ function formatKB(bytes: number): string {
 }
 
 async function runBenchmark() {
-  console.log("📊 Running Open Project Manager System & Memory Profiler...\n");
+  const provider = getDatabaseProvider();
+  console.log(`📊 Running Open Project Manager System & Memory Profiler (DB: ${provider})...\n`);
 
   // Force garbage collection if available
   if (global.gc) {
@@ -24,7 +20,8 @@ async function runBenchmark() {
   }
 
   const memUsage = process.memoryUsage();
-  const dbStats = fs.existsSync(dbPath) ? fs.statSync(dbPath) : null;
+  const dbPath = path.join(/*turbopackIgnore: true*/ process.cwd(), "dev.db");
+  const dbStats = provider === "sqlite" && fs.existsSync(dbPath) ? fs.statSync(dbPath) : null;
 
   // DB Record Counts
   const userCount = await prisma.user.count();
@@ -42,8 +39,11 @@ async function runBenchmark() {
   console.log(`  ArrayBuffers:             ${formatMB(memUsage.arrayBuffers)}`);
 
   console.log("\n=== Storage & Database Metrics ===");
-  console.log(`  SQLite File Path:         ${dbPath}`);
-  console.log(`  SQLite Database Size:     ${dbStats ? formatKB(dbStats.size) : "N/A"}`);
+  console.log(`  Database Provider:        ${provider}`);
+  if (provider === "sqlite") {
+    console.log(`  SQLite File Path:         ${dbPath}`);
+    console.log(`  SQLite Database Size:     ${dbStats ? formatKB(dbStats.size) : "N/A"}`);
+  }
   console.log(`  Total Users:              ${userCount}`);
   console.log(`  Total Projects:           ${projectCount}`);
   console.log(`  Total Columns:            ${columnCount}`);
