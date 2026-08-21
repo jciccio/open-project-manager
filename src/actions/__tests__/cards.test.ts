@@ -187,6 +187,28 @@ describe("Cards Server Actions", () => {
     expect(updateRes.success).toBe(true);
     expect(updateRes.data?.assignees.length).toBe(0);
   });
+
+  it("adds and removes external links from a card", async () => {
+    const cardRes = await createCard({ projectId, columnId, title: "Card With Links" });
+    const cardId = cardRes.data!.id;
+
+    const { addCardLink, removeCardLink } = await import("../cards");
+
+    const linkRes = await addCardLink(cardId, "https://github.com", "GitHub");
+    expect(linkRes.success).toBe(true);
+    expect(linkRes.data?.url).toBe("https://github.com");
+    expect(linkRes.data?.title).toBe("GitHub");
+
+    const lookupRes = await getCardByIdentifier(`CTP-${cardRes.data!.number}`);
+    expect(lookupRes.data?.links.length).toBe(1);
+    expect(lookupRes.data?.links[0].url).toBe("https://github.com");
+
+    const removeRes = await removeCardLink(linkRes.data!.id);
+    expect(removeRes.success).toBe(true);
+
+    const lookupRes2 = await getCardByIdentifier(`CTP-${cardRes.data!.number}`);
+    expect(lookupRes2.data?.links.length).toBe(0);
+  });
 });
 
 

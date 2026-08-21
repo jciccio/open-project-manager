@@ -619,6 +619,37 @@ export const MCP_TOOLS = [
       destructiveHint: true,
     },
   },
+  {
+    name: "add_card_link",
+    description: "Add an external link (URL) to a task card.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cardId: { type: "string", description: "Target task card ID" },
+        url: { type: "string", description: "URL to attach" },
+        title: { type: "string", description: "Optional title for the link" },
+      },
+      required: ["cardId", "url"],
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
+  },
+  {
+    name: "remove_card_link",
+    description: "Delete an external link from a task card by its link ID.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        linkId: { type: "string", description: "Link ID to remove" },
+      },
+      required: ["linkId"],
+    },
+    annotations: {
+      destructiveHint: true,
+    },
+  },
 ];
 
 export async function executeMcpTool(name: string, args: Record<string, any> = {}) {
@@ -1207,6 +1238,22 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
         throw new Error(res.error || "Failed to delete attachment");
       }
       return { success: true, deletedId: args.id };
+    }
+
+    case "add_card_link": {
+      const link = await db.cardLink.create({
+        data: {
+          cardId: args.cardId,
+          url: args.url,
+          title: args.title || null,
+        },
+      });
+      return { success: true, link };
+    }
+
+    case "remove_card_link": {
+      await db.cardLink.delete({ where: { id: args.linkId } });
+      return { success: true, deletedId: args.linkId };
     }
 
     default:

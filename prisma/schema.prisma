@@ -93,6 +93,7 @@ model Card {
   labels            CardLabel[]
   comments          Comment[]
   attachments       Attachment[]
+  links             CardLink[]
   assignees         CardAssignee[]
   outgoingRelations CardRelation[] @relation("SourceCardRelations")
   incomingRelations CardRelation[] @relation("TargetCardRelations")
@@ -214,4 +215,14 @@ model SavedView {
   @@index([projectId])
 }
 
+model CardLink {
+  id        String   @id @default(cuid())
+  cardId    String
+  card      Card     @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  url       String
+  title     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
+  @@index([cardId])
+}

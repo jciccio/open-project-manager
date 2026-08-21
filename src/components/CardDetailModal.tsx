@@ -25,7 +25,7 @@ import {
   ArrowRight,
   Clock,
 } from "lucide-react";
-import { updateCard, deleteCard, archiveCard, getCardByIdentifier } from "@/actions/cards";
+import { updateCard, deleteCard, archiveCard, getCardByIdentifier, addCardLink, removeCardLink } from "@/actions/cards";
 import { getProjectById } from "@/actions/projects";
 import { addComment, updateComment, deleteComment } from "@/actions/comments";
 import { getCardActivity } from "@/actions/activity";
@@ -75,6 +75,11 @@ interface Props {
       fromValue: string | null;
       toValue: string | null;
       createdAt: Date | string;
+    }>;
+    links?: Array<{
+      id: string;
+      url: string;
+      title: string | null;
     }>;
   };
   columns: Array<{
@@ -135,6 +140,11 @@ export default function CardDetailModal({
 
   const [isSaving, setIsSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  const [links, setLinks] = useState<Array<any>>((card as any).links || []);
+  const [isAddingLink, setIsAddingLink] = useState(false);
+  const [newLinkUrl, setNewLinkUrl] = useState("");
+  const [newLinkTitle, setNewLinkTitle] = useState("");
 
   const [attachments, setAttachments] = useState<Array<any>>((card as any).attachments || []);
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
@@ -371,6 +381,33 @@ export default function CardDetailModal({
     const res = await removeCardRelation(relationId);
     if (res.success) {
       loadRelations();
+      onRefresh();
+    }
+  }
+
+  async function handleAddLink(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newLinkUrl.trim()) return;
+
+    let url = newLinkUrl.trim();
+    if (!url.startsWith("http://") && !url.startsWith("https://")) {
+      url = "https://" + url;
+    }
+
+    const res = await addCardLink(card.id, url, newLinkTitle.trim() || undefined);
+    if (res.success && res.data) {
+      setLinks((prev) => [...prev, res.data]);
+      setNewLinkUrl("");
+      setNewLinkTitle("");
+      setIsAddingLink(false);
+      onRefresh();
+    }
+  }
+
+  async function handleRemoveLink(linkId: string) {
+    const res = await removeCardLink(linkId);
+    if (res.success) {
+      setLinks((prev) => prev.filter((l) => l.id !== linkId));
       onRefresh();
     }
   }
@@ -715,6 +752,87 @@ export default function CardDetailModal({
               ) : (
                 <p className="text-xs text-slate-500 dark:text-slate-400 italic">
                   No linked cards or dependencies.
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* External Links Section */}
+          <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Link2 className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+                  External Links ({links.length})
+                </h4>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddingLink(!isAddingLink)}
+                className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>Add Link</span>
+              </button>
+            </div>
+
+            {isAddingLink && (
+              <form onSubmit={handleAddLink} className="p-3.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 space-y-2.5">
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="url"
+                    required
+                    placeholder="https://..."
+                    value={newLinkUrl}
+                    onChange={(e) => setNewLinkUrl(e.target.value)}
+                    className="flex-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Title (optional)"
+                    value={newLinkTitle}
+                    onChange={(e) => setNewLinkTitle(e.target.value)}
+                    className="w-1/3 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none"
+                  />
+                  <button
+                    type="submit"
+                    className="rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 transition-colors"
+                  >
+                    Add
+                  </button>
+                </div>
+              </form>
+            )}
+
+            <div className="space-y-1.5">
+              {links.length > 0 ? (
+                links.map((link) => (
+                  <div
+                    key={link.id}
+                    className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 dark:bg-slate-800/50 px-2.5 py-1.5 border border-slate-200 dark:border-slate-800 text-xs"
+                  >
+                    <a
+                      href={link.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 hover:underline truncate"
+                    >
+                      <Link2 className="h-3 w-3 shrink-0" />
+                      <span className="truncate font-medium">{link.title || link.url}</span>
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveLink(link.id)}
+                      className="text-slate-400 hover:text-rose-500 transition-colors p-1"
+                      title="Remove link"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <p className="text-xs text-slate-500 dark:text-slate-400 italic">
+                  No external links added.
                 </p>
               )}
             </div>
