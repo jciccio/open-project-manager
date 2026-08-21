@@ -3,6 +3,7 @@
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
+import { recordActivity } from "./activity";
 
 export async function listComments(cardId: string, overrideUserId?: string) {
   try {
@@ -61,6 +62,13 @@ export async function addComment(
         author: author.trim() || session.name || "Team Member",
         content: content.trim(),
       },
+    });
+
+    await recordActivity({
+      cardId,
+      actorUserId: session.userId,
+      type: "comment_added",
+      toValue: content.trim().slice(0, 100),
     });
 
     revalidatePath(`/projects/${card.projectId}`);

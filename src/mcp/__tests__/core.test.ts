@@ -330,4 +330,35 @@ describe("MCP Server Core Tools", () => {
 
     await executeMcpTool("delete_project", { id: projectId });
   });
+
+  it("lists card activity via list_card_activity MCP tool", async () => {
+    const projRes = await executeMcpTool("create_project", { name: "Activity MCP Project", userId });
+    const projectId = projRes.project!.id;
+    const colId = (projRes.project as any).columns[0].id;
+
+    const createCardRes = await executeMcpTool("create_card", {
+      projectId,
+      columnId: colId,
+      title: "Task for MCP Activity",
+    });
+    const cardId = createCardRes.card!.id;
+
+    // Manually create an activity or use db / actions
+    await db.activity.create({
+      data: {
+        cardId,
+        actorUserId: userId,
+        type: "card_created",
+        toValue: "Task for MCP Activity",
+      },
+    });
+
+    const actRes = await executeMcpTool("list_card_activity", { cardId });
+    expect(actRes.success).toBe(true);
+    expect(actRes.activities!.length).toBeGreaterThan(0);
+    expect(actRes.activities![0].type).toBe("card_created");
+
+    await executeMcpTool("delete_project", { id: projectId });
+  });
 });
+

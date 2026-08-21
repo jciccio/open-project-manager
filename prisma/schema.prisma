@@ -44,10 +44,11 @@ model Project {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  columns   Column[]
-  cards     Card[]
-  labels    Label[]
-  cardTypes CardType[]
+  columns    Column[]
+  cards      Card[]
+  labels     Label[]
+  cardTypes  CardType[]
+  savedViews SavedView[]
 }
 
 model Column {
@@ -95,6 +96,7 @@ model Card {
   assignees         CardAssignee[]
   outgoingRelations CardRelation[] @relation("SourceCardRelations")
   incomingRelations CardRelation[] @relation("TargetCardRelations")
+  activities        Activity[]
 
   @@unique([projectId, number])
   @@index([parentId])
@@ -184,3 +186,32 @@ model Comment {
   content   String
   createdAt DateTime @default(now())
 }
+
+model Activity {
+  id          String   @id @default(cuid())
+  cardId      String
+  card        Card     @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  actorUserId String
+  type        String   // card_created | moved | priority_changed | title_changed | description_changed | assigned | unassigned | label_added | label_removed | comment_added | archived | unarchived | type_changed | due_date_changed | points_changed
+  fromValue   String?
+  toValue     String?
+  createdAt   DateTime @default(now())
+
+  @@index([cardId])
+}
+
+model SavedView {
+  id         String   @id @default(cuid())
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name       String
+  filterJson String   @default("{}")
+  isDefault  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([name, projectId])
+  @@index([projectId])
+}
+
+
