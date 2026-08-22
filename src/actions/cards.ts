@@ -105,6 +105,7 @@ export async function createCard(
 
     await recordActivity({
       cardId: card.id,
+      projectId: data.projectId,
       actorUserId: session.userId,
       type: "card_created",
       toValue: card.title,
@@ -225,6 +226,7 @@ export async function updateCard(
     if (data.title !== undefined && data.title !== existingCard.title) {
       await recordActivity({
         cardId: id,
+        projectId: existingCard.projectId,
         actorUserId: session.userId,
         type: "title_changed",
         fromValue: existingCard.title,
@@ -235,6 +237,7 @@ export async function updateCard(
     if (data.description !== undefined && data.description !== existingCard.description) {
       await recordActivity({
         cardId: id,
+        projectId: existingCard.projectId,
         actorUserId: session.userId,
         type: "description_changed",
         fromValue: existingCard.description || undefined,
@@ -245,6 +248,7 @@ export async function updateCard(
     if (data.priority !== undefined && data.priority !== existingCard.priority) {
       await recordActivity({
         cardId: id,
+        projectId: existingCard.projectId,
         actorUserId: session.userId,
         type: "priority_changed",
         fromValue: existingCard.priority,
@@ -255,6 +259,7 @@ export async function updateCard(
     if (data.points !== undefined && data.points !== existingCard.points) {
       await recordActivity({
         cardId: id,
+        projectId: existingCard.projectId,
         actorUserId: session.userId,
         type: "points_changed",
         fromValue: existingCard.points != null ? String(existingCard.points) : undefined,
@@ -265,6 +270,7 @@ export async function updateCard(
     if (data.columnId !== undefined && data.columnId !== existingCard.columnId) {
       await recordActivity({
         cardId: id,
+        projectId: existingCard.projectId,
         actorUserId: session.userId,
         type: "moved",
         fromValue: existingCard.column?.name,
@@ -276,6 +282,7 @@ export async function updateCard(
       const newType = data.typeId ? await db.cardType.findUnique({ where: { id: data.typeId } }) : null;
       await recordActivity({
         cardId: id,
+        projectId: existingCard.projectId,
         actorUserId: session.userId,
         type: "type_changed",
         fromValue: existingCard.type?.name,
@@ -289,6 +296,7 @@ export async function updateCard(
       if (oldDue !== newDue) {
         await recordActivity({
           cardId: id,
+          projectId: existingCard.projectId,
           actorUserId: session.userId,
           type: "due_date_changed",
           fromValue: oldDue || undefined,
@@ -305,6 +313,7 @@ export async function updateCard(
           const l = await db.label.findUnique({ where: { id: addedId } });
           await recordActivity({
             cardId: id,
+            projectId: existingCard.projectId,
             actorUserId: session.userId,
             type: "label_added",
             toValue: l?.name || addedId,
@@ -315,6 +324,7 @@ export async function updateCard(
         if (!newLabelIds.has(old.labelId)) {
           await recordActivity({
             cardId: id,
+            projectId: existingCard.projectId,
             actorUserId: session.userId,
             type: "label_removed",
             fromValue: old.label.name,
@@ -331,6 +341,7 @@ export async function updateCard(
           const u = await db.user.findUnique({ where: { id: addedId } });
           await recordActivity({
             cardId: id,
+            projectId: existingCard.projectId,
             actorUserId: session.userId,
             type: "assigned",
             toValue: u?.name || addedId,
@@ -342,6 +353,7 @@ export async function updateCard(
           const u = await db.user.findUnique({ where: { id: old.userId } });
           await recordActivity({
             cardId: id,
+            projectId: existingCard.projectId,
             actorUserId: session.userId,
             type: "unassigned",
             fromValue: u?.name || old.userId,
@@ -392,6 +404,7 @@ export async function moveCard(
     if (existingCard.columnId !== targetColumnId) {
       await recordActivity({
         cardId,
+        projectId: existingCard.projectId,
         actorUserId: session.userId,
         type: "moved",
         fromValue: existingCard.column?.name,
@@ -520,6 +533,7 @@ export async function archiveCard(id: string) {
 
     await recordActivity({
       cardId: id,
+      projectId: card.projectId,
       actorUserId: session.userId,
       type: "archived",
     });
@@ -555,6 +569,7 @@ export async function unarchiveCard(id: string) {
 
     await recordActivity({
       cardId: id,
+      projectId: card.projectId,
       actorUserId: session.userId,
       type: "unarchived",
     });
