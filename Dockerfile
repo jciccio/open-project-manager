@@ -2,6 +2,11 @@
 FROM node:22-alpine AS base
 WORKDIR /app
 
+# Defined once here so the migrator and runner stages below share the same
+# uid/gid — both write into the same mounted data volume.
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+
 # 2. Dependencies stage
 FROM base AS deps
 RUN apk add --no-cache libc6-compat python3 make g++
@@ -26,7 +31,15 @@ RUN yarn build
 #    Prisma CLI into it) because the CLI needs the full node_modules tree —
 #    schema engine, @prisma/config, effect, etc. — that the Next.js
 #    standalone trace deliberately excludes to keep the runner image small.
+#
+# Runs as the same non-root `nextjs` user as the runner stage: on a fresh
+# named volume, Docker seeds the volume's initial content from whichever
+# image's /app/data first mounts it, and if this stage created dev.db as
+# root (the default before this fix), the runner's `nextjs` user could read
+# it but never write it — breaking every write, including registration.
 FROM builder AS migrator
+RUN mkdir -p /app/data && chown nextjs:nodejs /app/data
+USER nextjs
 CMD ["npx", "prisma", "migrate", "deploy"]
 
 # 5. Runner stage
@@ -36,9 +49,6 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
-
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/prisma.config.ts ./
@@ -46,6 +56,8 @@ COPY --from=builder /app/prisma.config.ts ./
 # Set correct ownership for standalone output and static assets
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+RUN mkdir -p /app/data && chown nextjs:nodejs /app/data
 
 USER nextjs
 
