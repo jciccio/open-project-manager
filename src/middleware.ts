@@ -9,7 +9,13 @@ if (!process.env.JWT_SECRET) {
 }
 const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET);
 
-const PUBLIC_PATHS = ["/login", "/register", "/api/v1/auth/login"];
+const PUBLIC_PATHS = [
+  "/login",
+  "/register",
+  "/api/v1/auth/login",
+  "/api/v1/auth/oidc/login",
+  "/api/v1/auth/oidc/callback",
+];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
