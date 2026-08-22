@@ -230,5 +230,12 @@ export const es: TranslationKeys = {
     alreadyHaveAccount: "¿Ya tienes una cuenta?",
     passwordsDoNotMatch: "Las contraseñas no coinciden.",
     fillAllFields: "Por favor, completa todos los campos.",
+    orContinueWith: "O continúa con",
+    signInWithSso: "Iniciar sesión con SSO",
+    oidcErrorSessionExpired: "Tu sesión de inicio de sesión expiró. Inténtalo de nuevo.",
+    oidcErrorEmailNotVerified:
+      "Tu proveedor de identidad no confirmó que tu correo esté verificado, por lo que no se puede vincular a una cuenta existente.",
+    oidcErrorMissingEmail: "Tu proveedor de identidad no proporcionó una dirección de correo electrónico.",
+    oidcErrorFailed: "El inicio de sesión falló. Inténtalo de nuevo o contacta a tu administrador.",
   },
 };

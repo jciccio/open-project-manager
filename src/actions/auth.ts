@@ -70,7 +70,7 @@ export async function loginUser(formData: { email: string; password: string }) {
       where: { email: email.toLowerCase().trim() },
     });
 
-    if (!user) {
+    if (!user || !user.passwordHash) {
       return { success: false, error: "Invalid email or password." };
     }
 
@@ -150,12 +150,16 @@ export async function updateUserProfile(data: {
     }
 
     if (data.newPassword) {
-      if (!data.currentPassword) {
-        return { success: false, error: "Current password is required to change password." };
-      }
-      const isValid = await bcrypt.compare(data.currentPassword, user.passwordHash);
-      if (!isValid) {
-        return { success: false, error: "Current password is incorrect." };
+      // A user with no passwordHash yet (OIDC-only) has nothing to verify
+      // against — the active session already proves their identity.
+      if (user.passwordHash) {
+        if (!data.currentPassword) {
+          return { success: false, error: "Current password is required to change password." };
+        }
+        const isValid = await bcrypt.compare(data.currentPassword, user.passwordHash);
+        if (!isValid) {
+          return { success: false, error: "Current password is incorrect." };
+        }
       }
       if (data.newPassword.length < 6) {
         return { success: false, error: "New password must be at least 6 characters long." };

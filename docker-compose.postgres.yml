@@ -48,6 +48,10 @@ services:
       - DATABASE_PROVIDER=postgresql
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/opm?schema=public
       - JWT_SECRET=${JWT_SECRET:?Set JWT_SECRET in a .env file — generate one with: openssl rand -base64 32}
+      - OIDC_ISSUER_URL=${OIDC_ISSUER_URL:-}
+      - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
+      - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
+      - OIDC_REDIRECT_URI=${OIDC_REDIRECT_URI:-}
     restart: unless-stopped
 
 volumes:
