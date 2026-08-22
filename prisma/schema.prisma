@@ -49,6 +49,7 @@ model Project {
   labels     Label[]
   cardTypes  CardType[]
   savedViews SavedView[]
+  webhooks   Webhook[]
 }
 
 model Column {
@@ -212,6 +213,20 @@ model SavedView {
   updatedAt  DateTime @updatedAt
 
   @@unique([name, projectId])
+  @@index([projectId])
+}
+
+model Webhook {
+  id         String   @id @default(cuid())
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  url        String
+  secret     String
+  eventsJson String   @default("[]")
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
   @@index([projectId])
 }
 
