@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as client from "openid-client";
 import { createSession } from "@/lib/auth";
-import { getOidcConfig, isOidcConfigured, resolveOidcUser } from "@/lib/oidc";
+import { getOidcConfig, getOidcRedirectUri, isOidcConfigured, resolveOidcUser } from "@/lib/oidc";
 
 const OIDC_COOKIE_NAMES = ["opm_oidc_verifier", "opm_oidc_state", "opm_oidc_nonce"] as const;
 
-function redirectToLogin(request: NextRequest, error: string) {
-  const response = NextResponse.redirect(new URL(`/login?error=${error}`, request.url));
+function redirectToLogin(publicOrigin: string, error: string) {
+  const response = NextResponse.redirect(new URL(`/login?error=${error}`, publicOrigin));
   for (const name of OIDC_COOKIE_NAMES) {
     response.cookies.delete(name);
   }
@@ -18,17 +18,26 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "OIDC is not configured" }, { status: 404 });
   }
 
+  // Never build absolute URLs from request.url/request.nextUrl in this route:
+  // behind a reverse proxy that doesn't forward the original Host, it reflects
+  // the container's own bind address (e.g. http://0.0.0.0:3000), not the
+  // public URL — which also breaks the redirect_uri the token exchange sends
+  // to the IdP, since openid-client derives it from the URL passed in below.
+  const publicOrigin = new URL(getOidcRedirectUri()).origin;
+
   const codeVerifier = request.cookies.get("opm_oidc_verifier")?.value;
   const expectedState = request.cookies.get("opm_oidc_state")?.value;
   const expectedNonce = request.cookies.get("opm_oidc_nonce")?.value;
 
   if (!codeVerifier || !expectedState || !expectedNonce) {
-    return redirectToLogin(request, "oidc_session_expired");
+    return redirectToLogin(publicOrigin, "oidc_session_expired");
   }
 
   try {
     const config = await getOidcConfig();
-    const tokens = await client.authorizationCodeGrant(config, request, {
+    const callbackUrl = new URL(getOidcRedirectUri());
+    callbackUrl.search = request.nextUrl.search;
+    const tokens = await client.authorizationCodeGrant(config, callbackUrl, {
       pkceCodeVerifier: codeVerifier,
       expectedState,
       expectedNonce,
@@ -47,7 +56,7 @@ export async function GET(request: NextRequest) {
     });
 
     if (!result.ok) {
-      return redirectToLogin(request, `oidc_${result.error}`);
+      return redirectToLogin(publicOrigin, `oidc_${result.error}`);
     }
 
     await createSession({
@@ -56,13 +65,13 @@ export async function GET(request: NextRequest) {
       name: result.user.name,
     });
 
-    const response = NextResponse.redirect(new URL("/", request.url));
+    const response = NextResponse.redirect(new URL("/", publicOrigin));
     for (const name of OIDC_COOKIE_NAMES) {
       response.cookies.delete(name);
     }
     return response;
   } catch (error) {
     console.error("OIDC callback error:", error);
-    return redirectToLogin(request, "oidc_failed");
+    return redirectToLogin(publicOrigin, "oidc_failed");
   }
 }
