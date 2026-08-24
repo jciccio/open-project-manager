@@ -358,6 +358,19 @@ Create a `.env.local` with a signing secret for auth tokens (the app refuses to 
 echo "JWT_SECRET=$(openssl rand -base64 32)" > .env.local
 ```
 
+To let users sign in through an existing identity provider (Authentik, Keycloak, Authelia, etc.)
+alongside the built-in email/password login, add these four variables. OIDC login is only
+enabled when all four are set:
+```bash
+OIDC_ISSUER_URL=https://idp.example.com
+OIDC_CLIENT_ID=open-project-manager
+OIDC_CLIENT_SECRET=your-client-secret
+OIDC_REDIRECT_URI=https://opm.example.com/api/v1/auth/oidc/callback
+```
+Register `OIDC_REDIRECT_URI` as an allowed redirect URI on your IdP client. A user's IdP account
+is linked to an existing email/password account only when the IdP asserts `email_verified: true`
+for that address; otherwise sign-in is rejected rather than silently creating a duplicate account.
+
 ### 4. Initialize the SQLite Database
 Synchronize the Prisma v7 schema with your local SQLite database:
 ```bash

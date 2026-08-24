@@ -9,6 +9,8 @@ import {
   listApiTokens,
   revokeApiToken,
 } from "../auth";
+import { createSession } from "@/lib/auth";
+import { db } from "@/lib/db";
 import { cleanupTestUser } from "@/test/helpers";
 
 describe("Auth Server Actions", () => {
@@ -166,6 +168,38 @@ describe("Auth Server Actions", () => {
     await logoutUser();
     const current = await getCurrentUser();
     expect(current).toBeNull();
+  });
+
+  it("rejects password login for an OIDC-only user with no passwordHash", async () => {
+    const oidcOnlyEmail = `oidc-only-${Date.now()}@example.com`;
+    const oidcOnlyUser = await db.user.create({
+      data: { email: oidcOnlyEmail, name: "OIDC Only User", oidcSubject: `sub-${Date.now()}` },
+    });
+    createdUserId = oidcOnlyUser.id;
+
+    const res = await loginUser({ email: oidcOnlyEmail, password: "anything123" });
+    expect(res.success).toBe(false);
+    expect(res.error).toBe("Invalid email or password.");
+  });
+
+  it("lets an OIDC-only user set a password without a current password", async () => {
+    const oidcOnlyEmail = `oidc-setpass-${Date.now()}@example.com`;
+    const oidcOnlyUser = await db.user.create({
+      data: { email: oidcOnlyEmail, name: "OIDC Only User", oidcSubject: `sub-${Date.now()}` },
+    });
+    createdUserId = oidcOnlyUser.id;
+
+    await createSession({
+      userId: oidcOnlyUser.id,
+      email: oidcOnlyUser.email,
+      name: oidcOnlyUser.name,
+    });
+
+    const res = await updateUserProfile({ newPassword: "BrandNewPassword123!" });
+    expect(res.success).toBe(true);
+
+    const loginRes = await loginUser({ email: oidcOnlyEmail, password: "BrandNewPassword123!" });
+    expect(loginRes.success).toBe(true);
   });
 });
 

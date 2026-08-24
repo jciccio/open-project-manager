@@ -228,6 +228,13 @@ export const en = {
     alreadyHaveAccount: "Already have an account?",
     passwordsDoNotMatch: "Passwords do not match.",
     fillAllFields: "Please fill in all fields.",
+    orContinueWith: "Or continue with",
+    signInWithSso: "Sign in with SSO",
+    oidcErrorSessionExpired: "Your sign-in session expired. Please try again.",
+    oidcErrorEmailNotVerified:
+      "Your identity provider did not confirm your email is verified, so it can't be linked to an existing account.",
+    oidcErrorMissingEmail: "Your identity provider did not provide an email address.",
+    oidcErrorFailed: "Sign-in failed. Please try again or contact your administrator.",
   },
 };
 
