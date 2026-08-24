@@ -19,6 +19,7 @@ model User {
   labels        Label[]
   apiTokens     ApiToken[]
   assignedCards CardAssignee[]
+  importRecords ImportRecord[]
 }
 
 model ApiToken {
@@ -214,6 +215,21 @@ model SavedView {
 
   @@unique([name, projectId])
   @@index([projectId])
+}
+
+model ImportRecord {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  source      String
+  entityType  String
+  sourceId    String
+  localId     String
+  importRunId String
+  createdAt   DateTime @default(now())
+
+  @@unique([userId, source, entityType, sourceId])
+  @@index([importRunId])
 }
 
 model CardLink {
