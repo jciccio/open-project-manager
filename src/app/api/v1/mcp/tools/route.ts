@@ -13,6 +13,10 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const session = await getApiSession(request);
+    if (!session) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+
     const body = await request.json();
 
     const toolName = body.tool || body.name;
@@ -24,11 +28,8 @@ export async function POST(request: NextRequest) {
     }
 
     const args = body.arguments || body.args || {};
-    if (session && !args.userId) {
-      args.userId = session.userId;
-    }
 
-    const result = await executeMcpTool(toolName, args);
+    const result = await executeMcpTool(toolName, args, { userId: session.userId });
     return NextResponse.json(result);
   } catch (error: any) {
     console.error("MCP Tool Execution Error:", error);

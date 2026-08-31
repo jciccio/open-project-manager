@@ -11,6 +11,7 @@ import { db } from "@/lib/db";
 import { DEFAULT_CARD_TYPES } from "@/lib/cardTypeDefaults";
 import { nextCardNumber, withCardNumberRetry } from "@/lib/cardNumbering";
 import { generateProjectKey } from "@/lib/projectKey";
+import { verifyProjectAccess } from "@/lib/permissions";
 
 const DEFAULT_LIST_CARDS_LIMIT = 100;
 
@@ -721,19 +722,21 @@ export const MCP_TOOLS = [
   },
 ];
 
-export async function executeMcpTool(name: string, args: Record<string, any> = {}) {
+function accessibleProjectsFilter(userId: string) {
+  return [{ userId }, { members: { some: { userId } } }];
+}
+
+export async function executeMcpTool(
+  name: string,
+  args: Record<string, any> = {},
+  ctx: { userId: string }
+) {
+  const userId = ctx.userId;
   switch (name) {
     case "list_projects": {
       const isArchived = args.isArchived ?? false;
-      const where: any = { isArchived };
-      if (args.userId) {
-        where.OR = [
-          { userId: args.userId },
-          { members: { some: { userId: args.userId } } },
-        ];
-      }
       const projects = await db.project.findMany({
-        where,
+        where: { OR: accessibleProjectsFilter(userId), isArchived },
         orderBy: { createdAt: "desc" },
         include: {
           _count: { select: { cards: true, columns: true } },
@@ -760,12 +763,13 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
           },
         },
       });
-      if (!project) throw new Error(`Project with ID ${args.id} not found.`);
+      if (!project || !(await verifyProjectAccess(project.id, userId, "VIEWER"))) {
+        throw new Error(`Project with ID ${args.id} not found.`);
+      }
       return { success: true, project };
     }
 
     case "create_project": {
-      const userId = requireUserId(args.userId);
       const nameStr = args.name.trim();
       const projectKey = await generateProjectKey(nameStr, args.key, userId);
       const project = await db.project.create({
@@ -800,6 +804,9 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "update_project": {
+      const existingProject = await db.project.findUnique({ where: { id: args.id } });
+      if (!existingProject || !(await verifyProjectAccess(existingProject.id, userId, "ADMIN"))) throw new Error(`Project with ID ${args.id} not found.`);
+
       const data: any = {};
       if (args.name !== undefined) data.name = args.name.trim();
       if (args.description !== undefined) data.description = args.description;
@@ -814,11 +821,15 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "delete_project": {
+      const existingProject = await db.project.findUnique({ where: { id: args.id } });
+      if (!existingProject || !(await verifyProjectAccess(existingProject.id, userId, "OWNER"))) throw new Error(`Project with ID ${args.id} not found.`);
       await db.project.delete({ where: { id: args.id } });
       return { success: true, deletedId: args.id };
     }
 
     case "list_columns": {
+      const project = await db.project.findUnique({ where: { id: args.projectId } });
+      if (!project || !(await verifyProjectAccess(project.id, userId, "VIEWER"))) throw new Error(`Project with ID ${args.projectId} not found.`);
       const columns = await db.column.findMany({
         where: { projectId: args.projectId },
         orderBy: { order: "asc" },
@@ -828,6 +839,9 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "create_column": {
+      const project = await db.project.findUnique({ where: { id: args.projectId } });
+      if (!project || !(await verifyProjectAccess(project.id, userId, "ADMIN"))) throw new Error(`Project with ID ${args.projectId} not found.`);
+
       let order = args.order;
       if (order === undefined) {
         const lastCol = await db.column.findFirst({
@@ -847,6 +861,9 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "update_column": {
+      const existingColumn = await db.column.findUnique({ where: { id: args.id } });
+      if (!existingColumn || !(await verifyProjectAccess(existingColumn.projectId, userId, "ADMIN"))) throw new Error(`Column with ID ${args.id} not found.`);
+
       const data: any = {};
       if (args.name !== undefined) data.name = args.name.trim();
       if (args.order !== undefined) data.order = args.order;
@@ -859,6 +876,8 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "delete_column": {
+      const existingColumn = await db.column.findUnique({ where: { id: args.id } });
+      if (!existingColumn || !(await verifyProjectAccess(existingColumn.projectId, userId, "ADMIN"))) throw new Error(`Column with ID ${args.id} not found.`);
       await db.column.delete({ where: { id: args.id } });
       return { success: true, deletedId: args.id };
     }
@@ -866,6 +885,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     case "list_cards": {
       const where: any = {
         isArchived: typeof args.isArchived === "boolean" ? args.isArchived : false,
+        project: { OR: accessibleProjectsFilter(userId) },
       };
       if (args.projectId) where.projectId = args.projectId;
       if (args.columnId) where.columnId = args.columnId;
@@ -933,7 +953,9 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
           children: { select: { id: true, number: true, title: true, completedAt: true } },
         },
       });
-      if (!card) throw new Error(`Card with ID ${args.id} not found.`);
+      if (!card || !(await verifyProjectAccess(card.projectId, userId, "VIEWER"))) {
+        throw new Error(`Card with ID ${args.id} not found.`);
+      }
       return {
         success: true,
         card: {
@@ -944,7 +966,6 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "get_card_by_identifier": {
-      const userId = requireUserId(args.userId);
       const clean = (args.identifier || "").trim();
       const lastDash = clean.lastIndexOf("-");
       if (lastDash === -1) {
@@ -959,7 +980,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       const card = await db.card.findFirst({
         where: {
           number: num,
-          project: { key, userId },
+          project: { key, OR: accessibleProjectsFilter(userId) },
         },
         include: {
           column: true,
@@ -984,6 +1005,9 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "create_card": {
+      const ownerProject = await db.project.findUnique({ where: { id: args.projectId } });
+      if (!ownerProject || !(await verifyProjectAccess(ownerProject.id, userId, "MEMBER"))) throw new Error(`Project with ID ${args.projectId} not found.`);
+
       const ORDER_GAP = 10000;
       let order = ORDER_GAP;
       const lastCard = await db.card.findFirst({
@@ -1015,7 +1039,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
             assignees:
               args.assigneeIds && args.assigneeIds.length > 0
                 ? {
-                    create: args.assigneeIds.map((userId: string) => ({ userId })),
+                    create: args.assigneeIds.map((assigneeId: string) => ({ userId: assigneeId })),
                   }
                 : undefined,
           },
@@ -1031,6 +1055,9 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "update_card": {
+      const existingCard = await db.card.findUnique({ where: { id: args.id } });
+      if (!existingCard || !(await verifyProjectAccess(existingCard.projectId, userId, "MEMBER"))) throw new Error(`Card with ID ${args.id} not found.`);
+
       const data: any = {};
       if (args.title !== undefined) data.title = args.title.trim();
       if (args.description !== undefined) data.description = args.description;
@@ -1056,7 +1083,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
         await db.cardAssignee.deleteMany({ where: { cardId: args.id } });
         if (args.assigneeIds.length > 0) {
           data.assignees = {
-            create: args.assigneeIds.map((userId: string) => ({ userId })),
+            create: args.assigneeIds.map((assigneeId: string) => ({ userId: assigneeId })),
           };
         }
       }
@@ -1075,6 +1102,9 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "move_card": {
+      const existingCard = await db.card.findUnique({ where: { id: args.id } });
+      if (!existingCard || !(await verifyProjectAccess(existingCard.projectId, userId, "MEMBER"))) throw new Error(`Card with ID ${args.id} not found.`);
+
       const targetColumnId = args.targetColumnId;
       const newOrder = typeof args.newOrder === "number" ? args.newOrder : 0;
       const targetCol = await db.column.findUnique({ where: { id: targetColumnId } });
@@ -1096,6 +1126,19 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       if (!Array.isArray(items) || items.length === 0) {
         return { success: false, error: "items array is required" };
       }
+      const cardIds = items.map((item: any) => item.id);
+      const found = await db.card.findMany({
+        where: { id: { in: cardIds } },
+        select: { projectId: true },
+      });
+      if (found.length !== new Set(cardIds).size) {
+        throw new Error("One or more cards were not found.");
+      }
+      for (const projectId of new Set(found.map((c) => c.projectId))) {
+        if (!(await verifyProjectAccess(projectId, userId, "MEMBER"))) {
+          throw new Error("One or more cards were not found.");
+        }
+      }
       const updates = items.map((item: any) =>
         db.card.update({
           where: { id: item.id },
@@ -1110,11 +1153,15 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "delete_card": {
+      const existingCard = await db.card.findUnique({ where: { id: args.id } });
+      if (!existingCard || !(await verifyProjectAccess(existingCard.projectId, userId, "MEMBER"))) throw new Error(`Card with ID ${args.id} not found.`);
       await db.card.delete({ where: { id: args.id } });
       return { success: true, deletedId: args.id };
     }
 
     case "archive_card": {
+      const existingCard = await db.card.findUnique({ where: { id: args.id } });
+      if (!existingCard || !(await verifyProjectAccess(existingCard.projectId, userId, "MEMBER"))) throw new Error(`Card with ID ${args.id} not found.`);
       const card = await db.card.update({
         where: { id: args.id },
         data: { isArchived: true },
@@ -1123,6 +1170,8 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "unarchive_card": {
+      const existingCard = await db.card.findUnique({ where: { id: args.id } });
+      if (!existingCard || !(await verifyProjectAccess(existingCard.projectId, userId, "MEMBER"))) throw new Error(`Card with ID ${args.id} not found.`);
       const card = await db.card.update({
         where: { id: args.id },
         data: { isArchived: false },
@@ -1131,6 +1180,8 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "add_comment": {
+      const parentCard = await db.card.findUnique({ where: { id: args.cardId } });
+      if (!parentCard || !(await verifyProjectAccess(parentCard.projectId, userId, "MEMBER"))) throw new Error(`Card with ID ${args.cardId} not found.`);
       const comment = await db.comment.create({
         data: {
           cardId: args.cardId,
@@ -1142,6 +1193,8 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "list_comments": {
+      const parentCard = await db.card.findUnique({ where: { id: args.cardId } });
+      if (!parentCard || !(await verifyProjectAccess(parentCard.projectId, userId, "VIEWER"))) throw new Error(`Card with ID ${args.cardId} not found.`);
       const comments = await db.comment.findMany({
         where: { cardId: args.cardId },
         orderBy: { createdAt: "desc" },
@@ -1150,6 +1203,8 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "list_card_activity": {
+      const parentCard = await db.card.findUnique({ where: { id: args.cardId } });
+      if (!parentCard || !(await verifyProjectAccess(parentCard.projectId, userId, "VIEWER"))) throw new Error(`Card with ID ${args.cardId} not found.`);
       const activities = await db.activity.findMany({
         where: { cardId: args.cardId },
         orderBy: { createdAt: "desc" },
@@ -1158,6 +1213,11 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "update_comment": {
+      const existingComment = await db.comment.findUnique({
+        where: { id: args.commentId },
+        include: { card: { select: { projectId: true } } },
+      });
+      if (!existingComment || !(await verifyProjectAccess(existingComment.card.projectId, userId, "MEMBER"))) throw new Error(`Comment with ID ${args.commentId} not found.`);
       const comment = await db.comment.update({
         where: { id: args.commentId },
         data: { content: args.content.trim() },
@@ -1166,6 +1226,11 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "add_card_relation": {
+      const sourceCard = await db.card.findUnique({ where: { id: args.sourceCardId } });
+      if (!sourceCard || !(await verifyProjectAccess(sourceCard.projectId, userId, "MEMBER"))) throw new Error(`Card with ID ${args.sourceCardId} not found.`);
+      const targetCardExists = await db.card.findUnique({ where: { id: args.targetCardId } });
+      if (!targetCardExists) throw new Error(`Card with ID ${args.targetCardId} not found.`);
+
       const type = args.type ? args.type.toUpperCase().trim() : "BLOCKS";
       const relation = await db.cardRelation.create({
         data: {
@@ -1178,11 +1243,19 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "remove_card_relation": {
+      const existingRelation = await db.cardRelation.findUnique({
+        where: { id: args.relationId },
+        include: { sourceCard: { select: { projectId: true } } },
+      });
+      if (!existingRelation || !(await verifyProjectAccess(existingRelation.sourceCard.projectId, userId, "MEMBER"))) throw new Error(`Card relation with ID ${args.relationId} not found.`);
       await db.cardRelation.delete({ where: { id: args.relationId } });
       return { success: true, deletedId: args.relationId };
     }
 
     case "get_card_relations": {
+      const relCard = await db.card.findUnique({ where: { id: args.cardId } });
+      if (!relCard || !(await verifyProjectAccess(relCard.projectId, userId, "VIEWER"))) throw new Error(`Card with ID ${args.cardId} not found.`);
+
       const outgoing = await db.cardRelation.findMany({
         where: { sourceCardId: args.cardId },
         include: { targetCard: { include: { project: true, column: true } } },
@@ -1219,9 +1292,12 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "list_labels": {
+      if (args.projectId && !(await verifyProjectAccess(args.projectId, userId, "VIEWER"))) {
+        throw new Error(`Project with ID ${args.projectId} not found.`);
+      }
       const where: any = {};
       if (args.projectId) where.OR = [{ projectId: args.projectId }, { userId: null, projectId: null }];
-      else if (args.userId) where.userId = args.userId;
+      else where.userId = userId;
 
       const labels = await db.label.findMany({
         where,
@@ -1231,18 +1307,23 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "create_label": {
+      if (args.projectId && !(await verifyProjectAccess(args.projectId, userId, "MEMBER"))) {
+        throw new Error(`Project with ID ${args.projectId} not found.`);
+      }
       const label = await db.label.create({
         data: {
           name: args.name.trim(),
           color: args.color || "#3b82f6",
           projectId: args.projectId || null,
-          userId: args.projectId ? null : (args.userId || null),
+          userId: args.projectId ? null : userId,
         },
       });
       return { success: true, label };
     }
 
     case "list_card_types": {
+      const typesProject = await db.project.findUnique({ where: { id: args.projectId } });
+      if (!typesProject || !(await verifyProjectAccess(typesProject.id, userId, "VIEWER"))) throw new Error(`Project with ID ${args.projectId} not found.`);
       const cardTypes = await db.cardType.findMany({
         where: { projectId: args.projectId },
         orderBy: { name: "asc" },
@@ -1251,6 +1332,8 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "create_card_type": {
+      const typesProject = await db.project.findUnique({ where: { id: args.projectId } });
+      if (!typesProject || !(await verifyProjectAccess(typesProject.id, userId, "ADMIN"))) throw new Error(`Project with ID ${args.projectId} not found.`);
       const cardType = await db.cardType.create({
         data: {
           projectId: args.projectId,
@@ -1263,6 +1346,9 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "update_card_type": {
+      const existingType = await db.cardType.findUnique({ where: { id: args.id } });
+      if (!existingType || !(await verifyProjectAccess(existingType.projectId, userId, "ADMIN"))) throw new Error(`Card type with ID ${args.id} not found.`);
+
       const data: any = {};
       if (args.name !== undefined) data.name = args.name.trim();
       if (args.icon !== undefined) data.icon = args.icon;
@@ -1276,6 +1362,8 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "delete_card_type": {
+      const existingType = await db.cardType.findUnique({ where: { id: args.id } });
+      if (!existingType || !(await verifyProjectAccess(existingType.projectId, userId, "ADMIN"))) throw new Error(`Card type with ID ${args.id} not found.`);
       await db.cardType.delete({ where: { id: args.id } });
       return { success: true };
     }
@@ -1291,7 +1379,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
           mimeType: args.mimeType,
           uploadedBy: args.uploadedBy,
         },
-        requireUserId(args.userId)
+        userId
       );
       if (!res.success) {
         throw new Error(res.error || "Failed to upload attachment");
@@ -1300,6 +1388,8 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "list_attachments": {
+      const attachmentsCard = await db.card.findUnique({ where: { id: args.cardId } });
+      if (!attachmentsCard || !(await verifyProjectAccess(attachmentsCard.projectId, userId, "VIEWER"))) throw new Error(`Card with ID ${args.cardId} not found.`);
       const attachments = await db.attachment.findMany({
         where: { cardId: args.cardId },
         orderBy: { createdAt: "desc" },
@@ -1309,7 +1399,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
 
     case "delete_attachment": {
       const { deleteAttachment } = await import("@/lib/services/attachments");
-      const res = await deleteAttachment(args.id, requireUserId(args.userId));
+      const res = await deleteAttachment(args.id, userId);
       if (!res.success) {
         throw new Error(res.error || "Failed to delete attachment");
       }
@@ -1317,6 +1407,8 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "add_card_link": {
+      const linkCard = await db.card.findUnique({ where: { id: args.cardId } });
+      if (!linkCard || !(await verifyProjectAccess(linkCard.projectId, userId, "MEMBER"))) throw new Error(`Card with ID ${args.cardId} not found.`);
       const link = await db.cardLink.create({
         data: {
           cardId: args.cardId,
@@ -1328,11 +1420,18 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "remove_card_link": {
+      const existingLink = await db.cardLink.findUnique({
+        where: { id: args.linkId },
+        include: { card: { select: { projectId: true } } },
+      });
+      if (!existingLink || !(await verifyProjectAccess(existingLink.card.projectId, userId, "MEMBER"))) throw new Error(`Card link with ID ${args.linkId} not found.`);
       await db.cardLink.delete({ where: { id: args.linkId } });
       return { success: true, deletedId: args.linkId };
     }
 
     case "list_saved_views": {
+      const viewsProject = await db.project.findUnique({ where: { id: args.projectId } });
+      if (!viewsProject || !(await verifyProjectAccess(viewsProject.id, userId, "VIEWER"))) throw new Error(`Project with ID ${args.projectId} not found.`);
       const savedViews = await db.savedView.findMany({
         where: { projectId: args.projectId },
         orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
@@ -1341,6 +1440,9 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "create_saved_view": {
+      const viewsProject = await db.project.findUnique({ where: { id: args.projectId } });
+      if (!viewsProject || !(await verifyProjectAccess(viewsProject.id, userId, "MEMBER"))) throw new Error(`Project with ID ${args.projectId} not found.`);
+
       const filterJson =
         typeof args.filterJson === "object" ? JSON.stringify(args.filterJson) : args.filterJson;
 
@@ -1363,6 +1465,9 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "update_saved_view": {
+      const existing = await db.savedView.findUnique({ where: { id: args.id } });
+      if (!existing || !(await verifyProjectAccess(existing.projectId, userId, "MEMBER"))) throw new Error(`Saved view with ID ${args.id} not found.`);
+
       const data: any = {};
       if (args.name !== undefined) data.name = args.name.trim();
       if (args.filterJson !== undefined) {
@@ -1372,13 +1477,10 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       if (args.isDefault !== undefined) {
         data.isDefault = args.isDefault;
         if (args.isDefault) {
-          const existing = await db.savedView.findUnique({ where: { id: args.id } });
-          if (existing) {
-            await db.savedView.updateMany({
-              where: { projectId: existing.projectId, isDefault: true, id: { not: args.id } },
-              data: { isDefault: false },
-            });
-          }
+          await db.savedView.updateMany({
+            where: { projectId: existing.projectId, isDefault: true, id: { not: args.id } },
+            data: { isDefault: false },
+          });
         }
       }
 
@@ -1390,6 +1492,8 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "delete_saved_view": {
+      const existing = await db.savedView.findUnique({ where: { id: args.id } });
+      if (!existing || !(await verifyProjectAccess(existing.projectId, userId, "MEMBER"))) throw new Error(`Saved view with ID ${args.id} not found.`);
       await db.savedView.delete({ where: { id: args.id } });
       return { success: true, deletedId: args.id };
     }
@@ -1422,7 +1526,11 @@ export function createMcpServer(): Server {
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
     try {
-      const result = await executeMcpTool(name, args || {});
+      // stdio has no session/cookie mechanism, so identity is trusted from the
+      // caller-supplied userId argument here — this is issue #122's scope, not #83's.
+      const providedUserId = args?.userId;
+      const ctx = { userId: requireUserId(typeof providedUserId === "string" ? providedUserId : undefined) };
+      const result = await executeMcpTool(name, args || {}, ctx);
       return {
         content: [
           {
