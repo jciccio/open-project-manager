@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
-import { getCardByIdentifier } from "@/actions/cards";
+import { getCardByIdentifier } from "@/lib/services/cards";
 
 interface Props {
   params: Promise<{ identifier: string }>;

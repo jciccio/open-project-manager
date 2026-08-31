@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { createTestUser, createTestProject, createTestColumn, cleanupTestUser } from "@/test/helpers";
-import { createCard } from "@/actions/cards";
-import { uploadAttachment, listAttachments, deleteAttachment } from "@/actions/attachments";
+import { createCard } from "@/lib/services/cards";
+import { uploadAttachment, listAttachments, deleteAttachment } from "@/lib/services/attachments";
 import { executeMcpTool } from "@/mcp/core";
 import { GET as getAttachmentsRoute, POST as postAttachmentRoute } from "@/app/api/v1/cards/[id]/attachments/route";
 import { GET as getAttachmentFileRoute, DELETE as deleteAttachmentRoute } from "@/app/api/v1/attachments/[id]/route";

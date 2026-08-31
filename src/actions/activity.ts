@@ -2,6 +2,7 @@
 
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
+import * as activityService from "@/lib/services/activity";
 
 export async function recordActivity(data: {
   cardId: string;
@@ -26,28 +27,8 @@ export async function recordActivity(data: {
   }
 }
 
-export async function getCardActivity(cardId: string, overrideUserId?: string) {
-  try {
-    const session = overrideUserId ? { userId: overrideUserId } : await getSession();
-    if (!session) return { success: false, error: "Unauthorized" };
-
-    const card = await db.card.findUnique({
-      where: { id: cardId },
-      include: { project: true },
-    });
-
-    if (!card || card.project.userId !== session.userId) {
-      return { success: false, error: "Unauthorized or card not found" };
-    }
-
-    const activities = await db.activity.findMany({
-      where: { cardId },
-      orderBy: { createdAt: "desc" },
-    });
-
-    return { success: true, data: activities };
-  } catch (error) {
-    console.error("Error fetching card activity:", error);
-    return { success: false, error: "Failed to fetch card activity" };
-  }
+export async function getCardActivity(cardId: string) {
+  const session = await getSession();
+  if (!session) return { success: false as const, error: "Unauthorized" };
+  return activityService.getCardActivity(cardId, session.userId);
 }
