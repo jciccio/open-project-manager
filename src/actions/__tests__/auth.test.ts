@@ -9,9 +9,10 @@ import {
   listApiTokens,
   revokeApiToken,
 } from "../auth";
-import { createSession } from "@/lib/auth";
+import { createSession, verifyToken, getApiSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { cleanupTestUser } from "@/test/helpers";
+import { NextRequest } from "next/server";
 
 describe("Auth Server Actions", () => {
   let createdUserId: string | null = null;
@@ -149,6 +150,49 @@ describe("Auth Server Actions", () => {
 
     const listAfterRevoke = await listApiTokens();
     expect(listAfterRevoke.tokens).toHaveLength(0);
+  });
+
+  it("never accepts an API token JWT as a session, valid or revoked", async () => {
+    const regRes = await registerUser({
+      name: "Cookie Confusion User",
+      email: testEmail,
+      password: testPass,
+    });
+    if (regRes.data) createdUserId = regRes.data.userId;
+
+    const createRes = await createApiToken("Cookie Confusion Client");
+    const apiTokenSecret = createRes.token!.secret;
+
+    // registerUser() logs the user in (sets a real session cookie via
+    // next/headers). Clear it so getApiSession's cookies()-fallback branch
+    // can't mask the NextRequest cookie we're actually testing below.
+    await logoutUser();
+
+    // Rejected as a session, both directly and via the getApiSession cookie
+    // fallback, even while the token is still valid and unrevoked.
+    expect(await verifyToken(apiTokenSecret)).toBeNull();
+    const reqWithValidToken = new NextRequest("http://localhost/api/v1/cards", {
+      headers: { Cookie: `opm_session=${apiTokenSecret}` },
+    });
+    expect(await getApiSession(reqWithValidToken)).toBeNull();
+
+    // Still rejected once revoked (would previously stay "valid" as a cookie
+    // for up to a year past revocation).
+    await revokeApiToken(createRes.token!.id);
+    expect(await verifyToken(apiTokenSecret)).toBeNull();
+    const reqWithRevokedToken = new NextRequest("http://localhost/api/v1/cards", {
+      headers: { Cookie: `opm_session=${apiTokenSecret}` },
+    });
+    expect(await getApiSession(reqWithRevokedToken)).toBeNull();
+
+    // A real session JWT is unaffected.
+    const sessionToken = await createSession({
+      userId: regRes.data!.userId,
+      email: testEmail,
+      name: "Cookie Confusion User",
+    });
+    const sessionPayload = await verifyToken(sessionToken);
+    expect(sessionPayload?.email).toBe(testEmail);
   });
 
   it("rejects creating an API token with an empty name", async () => {
