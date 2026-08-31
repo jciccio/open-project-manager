@@ -372,9 +372,9 @@ is linked to an existing email/password account only when the IdP asserts `email
 for that address; otherwise sign-in is rejected rather than silently creating a duplicate account.
 
 ### 4. Initialize the SQLite Database
-Synchronize the Prisma v7 schema with your local SQLite database:
+Apply the committed Prisma migrations to your local SQLite database:
 ```bash
-npx prisma db push
+npx prisma migrate deploy
 ```
 
 ### 5. Seed Sample Projects & Users (Optional)
@@ -404,7 +404,7 @@ Open [http://localhost:3000](http://localhost:3000) in your web browser to log i
 | `yarn load-test` | Runs high-concurrency stress test (1,500 operations) & measures RAM spikes |
 | `yarn build` | Compiles the production build |
 | `yarn start` | Starts the production server |
-| `npx prisma db push` | Applies schema changes to SQLite (`dev.db`) |
+| `npx prisma db push` | Prototypes a schema change against SQLite without a migration — for quick local experiments only; commit an actual migration (see "Changing the schema") for anything real |
 | `npx prisma studio` | Opens Prisma GUI to inspect and edit SQLite records visually |
 
 ---
