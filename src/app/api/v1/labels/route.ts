@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
-import { getLabels, createLabel } from "@/actions/labels";
+import { getLabels, createLabel } from "@/lib/services/labels";
 
 export async function GET(request: NextRequest) {
   const session = await getApiSession(request);

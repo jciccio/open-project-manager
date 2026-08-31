@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
-import { uploadAttachment, listAttachments } from "@/actions/attachments";
+import { uploadAttachment, listAttachments } from "@/lib/services/attachments";
 
 export async function GET(
   request: NextRequest,

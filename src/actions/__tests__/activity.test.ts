@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { db } from "@/lib/db";
-import { createProject } from "@/actions/projects";
-import { createCard, updateCard, moveCard, archiveCard, unarchiveCard } from "@/actions/cards";
-import { addComment } from "@/actions/comments";
-import { getCardActivity } from "@/actions/activity";
+import { createProject } from "@/lib/services/projects";
+import { createCard, updateCard, moveCard } from "@/lib/services/cards";
+import { addComment } from "@/lib/services/comments";
+import { getCardActivity } from "@/lib/services/activity";
 
 describe("Card Activity / Audit Trail Actions", () => {
   let userId: string;

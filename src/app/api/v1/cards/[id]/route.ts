@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
-import { updateCard, deleteCard } from "@/actions/cards";
+import { updateCard, deleteCard } from "@/lib/services/cards";
 import { db } from "@/lib/db";
 
 interface Props {
