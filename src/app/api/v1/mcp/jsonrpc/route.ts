@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { MCP_TOOLS, executeMcpTool } from "@/mcp/core";
+import { MCP_TOOLS, executeMcpTool, readMcpResource } from "@/mcp/core";
 import { getApiSession } from "@/lib/auth";
-import { db } from "@/lib/db";
 
 export async function POST(request: NextRequest) {
   try {
@@ -48,12 +47,18 @@ export async function POST(request: NextRequest) {
         });
 
       case "tools/call": {
+        if (!session) {
+          return NextResponse.json(
+            { jsonrpc: "2.0", id, error: { code: -32001, message: "Unauthorized" } },
+            { status: 401 }
+          );
+        }
+
         const toolName = params?.name;
         const args = params?.arguments || {};
-        if (session && !args.userId) args.userId = session.userId;
 
         try {
-          const result = await executeMcpTool(toolName, args);
+          const result = await executeMcpTool(toolName, args, { userId: session.userId });
           return NextResponse.json({
             jsonrpc: "2.0",
             id,
@@ -100,30 +105,36 @@ export async function POST(request: NextRequest) {
         });
 
       case "resources/read": {
+        if (!session) {
+          return NextResponse.json(
+            { jsonrpc: "2.0", id, error: { code: -32001, message: "Unauthorized" } },
+            { status: 401 }
+          );
+        }
+
         const uri = params?.uri;
-        if (uri === "opm://projects") {
-          const projects = await db.project.findMany({
-            where: { isArchived: false },
-          });
+        try {
+          const resource = await readMcpResource(uri, session.userId);
           return NextResponse.json({
             jsonrpc: "2.0",
             id,
             result: {
               contents: [
                 {
-                  uri,
-                  mimeType: "application/json",
-                  text: JSON.stringify(projects, null, 2),
+                  uri: resource.uri,
+                  mimeType: resource.mimeType,
+                  text: JSON.stringify(resource.data, null, 2),
                 },
               ],
             },
           });
+        } catch (resourceError: any) {
+          return NextResponse.json({
+            jsonrpc: "2.0",
+            id,
+            error: { code: -32602, message: resourceError.message || `Resource non-existent: ${uri}` },
+          });
         }
-        return NextResponse.json({
-          jsonrpc: "2.0",
-          id,
-          error: { code: -32602, message: `Resource non-existent: ${uri}` },
-        });
       }
 
       default:

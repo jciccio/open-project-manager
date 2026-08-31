@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { createTestUser, createTestProject, cleanupTestUser } from "@/test/helpers";
-import { getSavedViews, createSavedView, updateSavedView, deleteSavedView } from "@/actions/views";
+import { getSavedViews, createSavedView, updateSavedView, deleteSavedView } from "@/lib/services/views";
 
 describe("Saved Views Actions", () => {
   let userId: string;

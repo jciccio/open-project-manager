@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
-import { deleteLabel } from "@/actions/labels";
+import { deleteLabel } from "@/lib/services/labels";
 
 interface Props {
   params: Promise<{ id: string }>;

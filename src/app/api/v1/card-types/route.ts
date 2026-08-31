@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
-import { getCardTypes, createCardType } from "@/actions/cardTypes";
+import { getCardTypes, createCardType } from "@/lib/services/cardTypes";
 
 export async function GET(request: NextRequest) {
   const session = await getApiSession(request);

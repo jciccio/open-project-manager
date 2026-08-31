@@ -36,6 +36,24 @@ describe("Projects Server Actions", () => {
     expect(res.error).toBe("Unauthorized");
   });
 
+  it("ignores a client-supplied extra argument in place of a real session (regression for #82)", async () => {
+    const createRes = await createProject({ name: "Session Only Project" });
+    const projectId = createRes.data!.id;
+
+    await destroySession();
+
+    // Pre-fix, a trailing userId argument stood in for a real session on every
+    // action — verify these calls now fall through to "Unauthorized" instead.
+    const asAny = deleteProject as unknown as (id: string, forgedUserId: string) => ReturnType<typeof deleteProject>;
+    const res = await asAny(projectId, userId);
+    expect(res.success).toBe(false);
+    expect(res.error).toBe("Unauthorized");
+
+    await createSession({ userId, email: userEmail, name: userName });
+    const stillThere = await getProjectById(projectId);
+    expect(stillThere.success).toBe(true);
+  });
+
   it("creates a new project with default Kanban columns", async () => {
     const res = await createProject({
       name: "Alpha Project",

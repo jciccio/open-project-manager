@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
-import { deleteAttachment } from "@/actions/attachments";
+import { deleteAttachment } from "@/lib/services/attachments";
 import { db } from "@/lib/db";
 import fs from "fs";
 import path from "path";

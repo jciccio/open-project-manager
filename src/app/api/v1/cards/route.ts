@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
-import { createCard } from "@/actions/cards";
+import { createCard } from "@/lib/services/cards";
 import { db } from "@/lib/db";
 
 const DEFAULT_LIST_CARDS_LIMIT = 100;
