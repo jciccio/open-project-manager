@@ -11,6 +11,20 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: file:./dev.db
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: opm
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d opm"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
 
@@ -24,6 +38,24 @@ jobs:
       - run: npx prisma generate
 
       - run: npx prisma migrate deploy
+
+      # Catches exactly the kind of drift #85 was (wrongly) filed for: a
+      # migration folder that no longer matches schema.prisma. `migrate
+      # deploy` above only proves the committed migrations apply cleanly —
+      # not that they still produce the schema the code expects.
+      - name: Check SQLite migrations match schema.prisma
+        run: npx prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --exit-code
+
+      # `migrate diff` needs the shadow database to already exist (unlike
+      # `migrate dev`, it doesn't create/drop one itself).
+      - name: Create Postgres shadow database
+        run: PGPASSWORD=postgres psql -h localhost -U postgres -d opm -c "CREATE DATABASE opm_shadow;"
+
+      - name: Check Postgres migrations match schema.postgresql.prisma
+        env:
+          DATABASE_PROVIDER: postgresql
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/opm
+        run: npx prisma migrate diff --from-migrations prisma/migrations-postgres --to-schema prisma/schema.postgresql.prisma --exit-code
 
       - name: Typecheck
         run: yarn typecheck
