@@ -9,6 +9,11 @@ export async function getLabels(projectId?: string, overrideUserId?: string) {
     const session = overrideUserId ? { userId: overrideUserId } : await getSession();
     if (!session) return { success: false, error: "Unauthorized" };
 
+    if (projectId) {
+      const project = await db.project.findFirst({ where: { id: projectId, userId: session.userId } });
+      if (!project) return { success: false, error: "Unauthorized" };
+    }
+
     const where: any = projectId
       ? { OR: [{ projectId }, { userId: session.userId }, { userId: null, projectId: null }] }
       : { OR: [{ userId: session.userId }, { userId: null }] };
@@ -31,6 +36,11 @@ export async function createLabel(name: string, color?: string, projectId?: stri
 
     if (!name.trim()) {
       return { success: false, error: "Label name is required" };
+    }
+
+    if (projectId) {
+      const project = await db.project.findFirst({ where: { id: projectId, userId: session.userId } });
+      if (!project) return { success: false, error: "Unauthorized" };
     }
 
     const label = await db.label.create({
@@ -57,9 +67,20 @@ export async function deleteLabel(id: string, overrideUserId?: string) {
 
     const label = await db.label.findUnique({
       where: { id },
+      include: { project: true },
     });
 
-    if (!label || (label.userId && label.userId !== session.userId)) {
+    if (!label) return { success: false, error: "Unauthorized" };
+
+    // Project-scoped label: only the owning project's user may delete it.
+    // Personal label: only its own creator may delete it.
+    // Global label (both null): not deletable here — there's no admin
+    // concept in this app, so nobody should be able to remove a label
+    // every user relies on.
+    const isOwnedByCaller = label.projectId
+      ? label.project?.userId === session.userId
+      : label.userId === session.userId;
+    if (!isOwnedByCaller) {
       return { success: false, error: "Unauthorized" };
     }
 

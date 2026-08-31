@@ -5,6 +5,7 @@ import { createProject, getProjectById } from "../projects";
 import { createCard } from "../cards";
 import { createTestUser, cleanupTestUser } from "@/test/helpers";
 import { createSession, destroySession } from "@/lib/auth";
+import { db } from "@/lib/db";
 
 describe("Labels & Comments Server Actions", () => {
   let userId: string;
@@ -53,6 +54,46 @@ describe("Labels & Comments Server Actions", () => {
     const getRes = await getLabels(projectId);
     expect(getRes.success).toBe(true);
     expect(getRes.data?.some((l) => l.name === "Feature")).toBe(true);
+  });
+
+  it("blocks a second user from listing, creating in, or deleting from a project they don't own", async () => {
+    const victimLabelRes = await createLabel("Victim Label", "#10b981", projectId);
+    const victimLabelId = victimLabelRes.data!.id;
+
+    const { user: attacker } = await createTestUser(`labels-attacker-${Date.now()}`);
+    try {
+      await createSession({ userId: attacker.id, email: attacker.email, name: attacker.name });
+
+      const listRes = await getLabels(projectId);
+      expect(listRes.success).toBe(false);
+
+      const createRes = await createLabel("Attacker Label", "#ef4444", projectId);
+      expect(createRes.success).toBe(false);
+
+      const deleteRes = await deleteLabel(victimLabelId);
+      expect(deleteRes.success).toBe(false);
+
+      const stillThere = await db.label.findUnique({ where: { id: victimLabelId } });
+      expect(stillThere).not.toBeNull();
+    } finally {
+      await cleanupTestUser(attacker.id);
+    }
+  });
+
+  it("never lets a regular user delete a global (no-owner) label", async () => {
+    const globalLabel = await db.label.create({
+      data: { name: `Global Label ${Date.now()}`, color: "#3b82f6" },
+    });
+
+    try {
+      const res = await deleteLabel(globalLabel.id);
+      expect(res.success).toBe(false);
+
+      const stillThere = await db.label.findUnique({ where: { id: globalLabel.id } });
+      expect(stillThere).not.toBeNull();
+    } finally {
+      await db.label.delete({ where: { id: globalLabel.id } });
+    }
   });
 
   it("adds, updates, and deletes comments on a card", async () => {
