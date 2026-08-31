@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
-import { getSavedViews, createSavedView } from "@/actions/views";
+import { getSavedViews, createSavedView } from "@/lib/services/views";
 
 export async function GET(request: NextRequest) {
   const session = await getApiSession(request);

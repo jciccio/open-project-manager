@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
-import { listComments, addComment } from "@/actions/comments";
+import { listComments, addComment } from "@/lib/services/comments";
 
 export async function GET(
   request: NextRequest,

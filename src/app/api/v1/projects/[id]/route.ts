@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
-import { getProjectById, updateProject, deleteProject } from "@/actions/projects";
+import { getProjectById, updateProject, deleteProject } from "@/lib/services/projects";
 
 interface Props {
   params: Promise<{ id: string }>;

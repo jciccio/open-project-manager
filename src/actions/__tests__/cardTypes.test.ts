@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { createCardType, getCardTypes, updateCardType, deleteCardType } from "../cardTypes";
 import { createProject, getProjectById } from "../projects";
 import { createCard, updateCard } from "../cards";
+import { updateCardType as updateCardTypeService } from "@/lib/services/cardTypes";
 import { createTestUser, cleanupTestUser } from "@/test/helpers";
 import { createSession, destroySession } from "@/lib/auth";
 
@@ -15,10 +16,10 @@ describe("Card Type Server Actions", () => {
     userId = user.id;
     await createSession({ userId, email: user.email, name: user.name });
 
-    const pRes = await createProject({ name: "Card Types Project" }, userId);
+    const pRes = await createProject({ name: "Card Types Project" });
     projectId = pRes.data!.id;
 
-    const projectDetails = await getProjectById(projectId, userId);
+    const projectDetails = await getProjectById(projectId);
     columnId = projectDetails.data!.columns[0].id;
   });
 
@@ -61,7 +62,7 @@ describe("Card Type Server Actions", () => {
     const { user: otherUser } = await createTestUser(`card-types-other-${Date.now()}`);
     try {
       const createRes = await createCardType("Epic", projectId, "Layers", "#8b5cf6");
-      const res = await updateCardType(createRes.data!.id, { name: "Hacked" }, otherUser.id);
+      const res = await updateCardTypeService(createRes.data!.id, { name: "Hacked" }, otherUser.id);
       expect(res.success).toBe(false);
     } finally {
       await cleanupTestUser(otherUser.id);

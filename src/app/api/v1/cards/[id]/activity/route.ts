@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
-import { getCardActivity } from "@/actions/activity";
+import { getCardActivity } from "@/lib/services/activity";
 
 export async function GET(
   request: NextRequest,
