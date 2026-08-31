@@ -78,19 +78,19 @@ describe("Card Attachments", () => {
       contentBase64: base64Content,
       mimeType: "text/plain",
       userId,
-    });
+    }, { userId });
     expect(addRes.success).toBe(true);
     expect(addRes.attachment!.filename).toBe("mcp-file.txt");
     const attachmentId = addRes.attachment!.id;
 
     // 2. list_attachments tool
-    const listRes = await executeMcpTool("list_attachments", { cardId });
+    const listRes = await executeMcpTool("list_attachments", { cardId }, { userId });
     expect(listRes.success).toBe(true);
     expect(listRes.attachments!.length).toBe(1);
     expect(listRes.attachments![0].id).toBe(attachmentId);
 
     // 3. delete_attachment tool
-    const delRes = await executeMcpTool("delete_attachment", { id: attachmentId, userId });
+    const delRes = await executeMcpTool("delete_attachment", { id: attachmentId, userId }, { userId });
     expect(delRes.success).toBe(true);
     expect(delRes.deletedId).toBe(attachmentId);
   });

@@ -48,12 +48,18 @@ export async function POST(request: NextRequest) {
         });
 
       case "tools/call": {
+        if (!session) {
+          return NextResponse.json(
+            { jsonrpc: "2.0", id, error: { code: -32001, message: "Unauthorized" } },
+            { status: 401 }
+          );
+        }
+
         const toolName = params?.name;
         const args = params?.arguments || {};
-        if (session && !args.userId) args.userId = session.userId;
 
         try {
-          const result = await executeMcpTool(toolName, args);
+          const result = await executeMcpTool(toolName, args, { userId: session.userId });
           return NextResponse.json({
             jsonrpc: "2.0",
             id,
