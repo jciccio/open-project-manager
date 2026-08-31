@@ -15,7 +15,7 @@ export async function PUT(request: NextRequest, { params }: Props) {
   const { id } = await params;
   try {
     const body = await request.json();
-    const res = await updateColumn(id, { name: body.name, order: body.order });
+    const res = await updateColumn(id, { name: body.name, order: body.order }, session.userId);
     if (!res.success) {
       return NextResponse.json({ error: res.error }, { status: 400 });
     }
@@ -33,7 +33,7 @@ export async function DELETE(request: NextRequest, { params }: Props) {
   }
 
   const { id } = await params;
-  const res = await deleteColumn(id);
+  const res = await deleteColumn(id, session.userId);
   if (!res.success) {
     return NextResponse.json({ error: res.error }, { status: 400 });
   }

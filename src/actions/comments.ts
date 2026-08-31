@@ -79,9 +79,9 @@ export async function addComment(
   }
 }
 
-export async function deleteComment(commentId: string) {
+export async function deleteComment(commentId: string, overrideUserId?: string) {
   try {
-    const session = await getSession();
+    const session = overrideUserId ? { userId: overrideUserId } : await getSession();
     if (!session) return { success: false, error: "Unauthorized" };
 
     const comment = await db.comment.findUnique({

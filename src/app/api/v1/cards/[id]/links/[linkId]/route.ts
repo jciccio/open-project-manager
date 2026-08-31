@@ -14,7 +14,7 @@ export async function DELETE(
   const { linkId } = await params;
 
   try {
-    const res = await removeCardLink(linkId);
+    const res = await removeCardLink(linkId, session.userId);
 
     if (!res.success) {
       return NextResponse.json({ error: res.error }, { status: 400 });

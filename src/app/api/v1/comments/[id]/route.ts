@@ -37,7 +37,7 @@ export async function DELETE(request: NextRequest, { params }: Props) {
   }
 
   const { id } = await params;
-  const res = await deleteComment(id);
+  const res = await deleteComment(id, session.userId);
   if (!res.success) {
     return NextResponse.json({ error: res.error }, { status: 400 });
   }
