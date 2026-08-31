@@ -338,58 +338,65 @@ Commit the generated `prisma/migrations/` folder — `migrate deploy` (run autom
 
 ---
 
-## 🚀 Installation & Usage Guide
+## 🚀 Installation & Deployment Guide
 
-### 1. Clone the Repository
+Open Project Manager supports two primary production deployment methods as well as a local development workflow. For a complete, step-by-step tutorial tailored for **Raspberry Pi** (ARM64/ARMv7), home servers, and Linux VPS environments, see the dedicated [🍓 Raspberry Pi & Linux Installation Guide](docs/installation-guide.md).
+
+### Deployment Modes at a Glance
+
+| Mode | Best For | Persistent Storage | Process Management | Memory Footprint |
+|---|---|---|---|---|
+| **🐳 Docker Compose** | Isolated container setups, homelabs, easy updates | Named volume (`opm_data`) or Postgres | Docker Daemon (`restart: unless-stopped`) | ~100–120 MB |
+| **⚙️ Bare-Metal / Standalone** | Minimum overhead on Raspberry Pi / Linux, maximum speed | Local `dev.db` file or Postgres | Systemd (`open-project-manager.service`) or PM2 | **~78 MB** |
+| **💻 Local Development** | Hacking, contributing, extending features | Local `dev.db` file | Next.js dev server (`yarn dev`) | ~150–200 MB |
+
+> 📖 **Full Installation Tutorial**: Follow the complete [Installation Guide (docs/installation-guide.md)](docs/installation-guide.md) for detailed swap setup, Systemd units, PM2 configs, Caddy/Nginx reverse proxy with automatic SSL, and SQLite hot backups.
+
+---
+
+### Quick Start (Local Development)
+
+#### 1. Clone the Repository
 ```bash
 git clone https://github.com/your-username/open-project-manager.git
 cd open-project-manager
 ```
 
-### 2. Install Dependencies
-This project uses **Yarn** for dependency management:
+#### 2. Install Dependencies
 ```bash
 yarn install
 ```
 
-### 3. Configure Environment Variables
+#### 3. Configure Environment Variables
 Create a `.env.local` with a signing secret for auth tokens (the app refuses to start without one):
 ```bash
 echo "JWT_SECRET=$(openssl rand -base64 32)" > .env.local
 ```
 
-To let users sign in through an existing identity provider (Authentik, Keycloak, Authelia, etc.)
-alongside the built-in email/password login, add these four variables. OIDC login is only
-enabled when all four are set:
+To let users sign in through an existing identity provider (Authentik, Keycloak, Authelia, etc.) alongside built-in email/password login:
 ```bash
 OIDC_ISSUER_URL=https://idp.example.com
 OIDC_CLIENT_ID=open-project-manager
 OIDC_CLIENT_SECRET=your-client-secret
 OIDC_REDIRECT_URI=https://opm.example.com/api/v1/auth/oidc/callback
 ```
-Register `OIDC_REDIRECT_URI` as an allowed redirect URI on your IdP client. A user's IdP account
-is linked to an existing email/password account only when the IdP asserts `email_verified: true`
-for that address; otherwise sign-in is rejected rather than silently creating a duplicate account.
 
-### 4. Initialize the SQLite Database
-Synchronize the Prisma v7 schema with your local SQLite database:
+#### 4. Initialize the SQLite Database
 ```bash
 npx prisma db push
 ```
 
-### 5. Seed Sample Projects & Users (Optional)
-Populate the database with sample user accounts, project boards, cards, labels, and comments:
+#### 5. Seed Sample Projects & Users (Optional)
 ```bash
 npx tsx prisma/seed.ts
 ```
 
-### 6. Start the Development Server
-Run the Next.js local development server:
+#### 6. Start the Development Server
 ```bash
 yarn dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your web browser to log in or register a new account!
+Open [http://localhost:3000](http://localhost:3000) in your web browser!
 
 ---
 
