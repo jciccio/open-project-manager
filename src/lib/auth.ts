@@ -51,9 +51,15 @@ export async function createSession(sessionData: UserSession) {
   return token;
 }
 
+// Verifies a plain session JWT. API-token JWTs (carrying `jti`/`type:
+// "api_token"`) are rejected here even if the signature is valid — session
+// verification must never accept an API token, since that would bypass the
+// ApiToken revocation check in verifyBearerToken and let a revoked token
+// stay valid as a cookie until the JWT itself expires.
 export async function verifyToken(token: string): Promise<UserSession | null> {
   try {
-    const { payload } = await jwtVerify(token, JWT_SECRET);
+    const { payload } = await jwtVerify(token, JWT_SECRET, { algorithms: ["HS256"] });
+    if (payload.jti || payload.type === "api_token") return null;
     return {
       userId: payload.userId as string,
       email: payload.email as string,
@@ -71,7 +77,7 @@ export async function verifyToken(token: string): Promise<UserSession | null> {
 async function verifyBearerToken(token: string): Promise<UserSession | null> {
   let payload;
   try {
-    ({ payload } = await jwtVerify(token, JWT_SECRET));
+    ({ payload } = await jwtVerify(token, JWT_SECRET, { algorithms: ["HS256"] }));
   } catch {
     return null;
   }
