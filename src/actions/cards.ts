@@ -645,9 +645,14 @@ export async function reorderCards(items: ReorderItem[]) {
   }
 }
 
-export async function addCardLink(cardId: string, url: string, title?: string) {
+export async function addCardLink(
+  cardId: string,
+  url: string,
+  title?: string,
+  overrideUserId?: string
+) {
   try {
-    const session = await getSession();
+    const session = overrideUserId ? { userId: overrideUserId } : await getSession();
     if (!session) return { success: false, error: "Unauthorized" };
 
     const card = await db.card.findUnique({
@@ -675,9 +680,9 @@ export async function addCardLink(cardId: string, url: string, title?: string) {
   }
 }
 
-export async function removeCardLink(linkId: string) {
+export async function removeCardLink(linkId: string, overrideUserId?: string) {
   try {
-    const session = await getSession();
+    const session = overrideUserId ? { userId: overrideUserId } : await getSession();
     if (!session) return { success: false, error: "Unauthorized" };
 
     const link = await db.cardLink.findUnique({
