@@ -183,6 +183,64 @@ curl -X GET http://localhost:3000/api/v1/cards/CARD_ID/attachments \
 
 ---
 
+## 📥 Importing an Existing Board (Vikunja)
+
+Open Project Manager can pull a whole board — projects, kanban buckets, cards,
+labels, priorities, due dates and comment history — out of another tool through
+the import framework in `src/lib/import/`. A **Vikunja** adapter ships in the box.
+
+Configure the source on the **server** (never in the request, so an API token
+holder cannot point the importer at an arbitrary host):
+
+```bash
+VIKUNJA_URL=http://192.168.50.94:3456/api/v1
+VIKUNJA_API_TOKEN=your-vikunja-read-token
+```
+
+Then trigger it. Always dry-run first — it writes nothing and reports exactly what
+would be created:
+
+```bash
+# Dry run
+curl -X POST http://localhost:3000/api/v1/import \
+  -H "Authorization: Bearer YOUR_OPM_TOKEN" -H "Content-Type: application/json" \
+  -d '{"source": "vikunja", "projectIds": [2], "dryRun": true}'
+
+# Live import (omit projectIds to import every project the source token can see)
+curl -X POST http://localhost:3000/api/v1/import \
+  -H "Authorization: Bearer YOUR_OPM_TOKEN" -H "Content-Type: application/json" \
+  -d '{"source": "vikunja", "projectIds": [2]}'
+```
+
+On the machine that owns the database you can skip the API token entirely and run
+the same import from the command line:
+
+```bash
+VIKUNJA_URL=http://localhost:3456/api/v1 VIKUNJA_API_TOKEN=… \
+  npx tsx scripts/import-vikunja.ts --user you@example.com --project 2 --dry-run
+```
+
+Every imported entity is recorded in `ImportRecord`, so **the import is safe to
+re-run**: previously imported rows come back `skipped` instead of duplicating, and
+a partially failed run is fixed by simply calling it again.
+
+How Vikunja concepts land in OPM:
+
+| Vikunja | Open Project Manager |
+|---|---|
+| Project | Project |
+| Kanban bucket | Column (the view's `done_bucket_id` becomes `isDone`) |
+| Task | Card (done tasks are forced into the done column, keeping `done_at` as `completedAt`) |
+| Priority `0…5` | `NONE, LOW, MEDIUM, HIGH, URGENT, URGENT` |
+| Label (instance-wide) | Project label — only labels the imported tasks actually use |
+| Comment | Comment, keeping the original author and timestamp |
+| HTML description | Markdown (OPM renders descriptions with `react-markdown`) |
+
+Adding another source is one adapter implementing `Importer` (`src/lib/import/types.ts`)
+plus one line in the `SOURCES` registry in `src/app/api/v1/import/route.ts`.
+
+---
+
 ## 🤖 Model Context Protocol (MCP) Integration
 
 Open Project Manager natively supports **Model Context Protocol (MCP)**, allowing external AI models (Claude, GPT-4, Cursor, Antigravity, custom agents) to inspect and manage workspace elements over **Stdio transport** or **REST API endpoints**.

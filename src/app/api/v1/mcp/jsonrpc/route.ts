@@ -21,6 +21,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // JSON-RPC notifications (no `id`, no response expected) — e.g. the
+    // `notifications/initialized` every MCP client sends right after the
+    // handshake. Answering these with an error breaks the connection.
+    if (method.startsWith("notifications/")) {
+      return new NextResponse(null, { status: 202 });
+    }
+
     switch (method) {
       case "initialize":
         return NextResponse.json({

@@ -1,0 +1,25 @@
+# Caddyfile for Open Project Manager
+# Place in /etc/caddy/Caddyfile or run with: caddy run --config deploy/Caddyfile
+#
+# Replace 'opm.example.com' with your actual domain name or local hostname/IP.
+# Caddy will automatically provision and renew TLS certificates via Let's Encrypt / ZeroSSL.
+
+opm.example.com {
+    # Compress responses (gzip / zstd)
+    encode gzip zstd
+
+    # Reverse proxy to Open Project Manager Next.js app
+    reverse_proxy localhost:3000 {
+        # Preserve client IP and headers
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    # Logging
+    log {
+        output file /var/log/caddy/opm_access.log
+        format json
+    }
+}

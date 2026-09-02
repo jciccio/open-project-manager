@@ -124,6 +124,18 @@ describe("runImport", () => {
     expect(mappings.length).toBe(summary.records.length);
   });
 
+  it("preserves the source's completion timestamp on finished cards", async () => {
+    const fixture = baseFixture();
+    fixture.cards["proj-1"][1].completedAt = "2021-06-05T12:00:00.000Z";
+    await runImport(makeFakeImporter(fixture), userId);
+
+    const card = await db.card.findFirst({ where: { title: "Second imported card" } });
+    expect(card!.completedAt?.toISOString()).toBe("2021-06-05T12:00:00.000Z");
+
+    const openCard = await db.card.findFirst({ where: { title: "First imported card" } });
+    expect(openCard!.completedAt).toBeNull();
+  });
+
   it("does not fire webhooks or write Activity rows during import", async () => {
     const importer = makeFakeImporter(baseFixture());
     await runImport(importer, userId);

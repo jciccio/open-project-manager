@@ -35,6 +35,8 @@ export interface ImportCard {
   points?: number;
   owner?: string;
   dueDate?: string;
+  /** When the source marked the card finished. Imported cards keep their original completion time. */
+  completedAt?: string;
   typeSourceId?: string;
   labelSourceIds?: string[];
 }

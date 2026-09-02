@@ -1,0 +1,40 @@
+[Unit]
+Description=Open Project Manager (Self-Hosted Project Management)
+After=network.target
+
+[Service]
+Type=simple
+# User and Group to run the service under (create with: sudo useradd -r -s /bin/false -m opm)
+User=opm
+Group=opm
+
+# Application directory (update to your actual clone path, e.g. /opt/open-project-manager or /home/pi/open-project-manager)
+WorkingDirectory=/opt/open-project-manager
+
+# Environment configuration
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=HOSTNAME=0.0.0.0
+# Next.js standalone server needs static assets & public folder copied next to standalone
+EnvironmentFile=-/opt/open-project-manager/.env
+
+# Execution command using the Next.js standalone bundle (lightweight, optimal for Raspberry Pi)
+ExecStart=/usr/bin/node /opt/open-project-manager/.next/standalone/server.js
+
+# Restart policy
+Restart=always
+RestartSec=5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=open-project-manager
+
+# Security & Sandboxing hardening
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=read-only
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

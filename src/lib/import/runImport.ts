@@ -188,6 +188,7 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
             points: card.points ?? null,
             owner: card.owner ?? null,
             dueDate: card.dueDate ? new Date(card.dueDate) : null,
+            completedAt: card.completedAt ? new Date(card.completedAt) : null,
             typeId: card.typeSourceId ? cardTypeMap.get(card.typeSourceId) ?? null : null,
             labels:
               card.labelSourceIds && card.labelSourceIds.length > 0
