@@ -8,6 +8,7 @@ import {
   unarchiveProject,
   deleteProject,
 } from "../projects";
+import { createCard, addCardLink } from "../cards";
 import { createTestUser, cleanupTestUser } from "@/test/helpers";
 import { createSession, destroySession } from "@/lib/auth";
 
@@ -94,5 +95,22 @@ describe("Projects Server Actions", () => {
 
     const getRes = await getProjectById(projectId);
     expect(getRes.success).toBe(false);
+  });
+
+  it("includes card external links in the project board fetch", async () => {
+    const projectRes = await createProject({ name: "Board With Links" });
+    const projectId = projectRes.data!.id;
+
+    const projectDetails = await getProjectById(projectId);
+    const columnId = projectDetails.data!.columns[0].id;
+
+    const cardRes = await createCard({ projectId, columnId, title: "Card With A Link" });
+    await addCardLink(cardRes.data!.id, "https://example.com", "Example");
+
+    const refetched = await getProjectById(projectId);
+    const card = refetched.data!.columns[0].cards.find((c) => c.id === cardRes.data!.id);
+    expect(card?.links).toBeDefined();
+    expect(card?.links.length).toBe(1);
+    expect(card?.links[0].url).toBe("https://example.com");
   });
 });

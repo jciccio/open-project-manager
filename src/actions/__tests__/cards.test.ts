@@ -209,6 +209,35 @@ describe("Cards Server Actions", () => {
     const lookupRes2 = await getCardByIdentifier(`CTP-${cardRes.data!.number}`);
     expect(lookupRes2.data?.links.length).toBe(0);
   });
+
+  it("clears description, owner, and due date when explicitly set to null", async () => {
+    const cardRes = await createCard({
+      projectId,
+      columnId,
+      title: "Card To Clear",
+      description: "Some description",
+      owner: "Alice",
+      dueDate: "2026-12-01",
+    });
+    const cardId = cardRes.data!.id;
+    expect(cardRes.data?.description).toBe("Some description");
+    expect(cardRes.data?.owner).toBe("Alice");
+    expect(cardRes.data?.dueDate).not.toBeNull();
+
+    const clearRes = await updateCard(cardId, {
+      description: null,
+      owner: null,
+      dueDate: null,
+    });
+    expect(clearRes.success).toBe(true);
+    expect(clearRes.data?.description).toBeNull();
+    expect(clearRes.data?.owner).toBeNull();
+    expect(clearRes.data?.dueDate).toBeNull();
+
+    const untouchedRes = await updateCard(cardId, { title: "Card To Clear (renamed)" });
+    expect(untouchedRes.success).toBe(true);
+    expect(untouchedRes.data?.description).toBeNull();
+  });
 });
 
 

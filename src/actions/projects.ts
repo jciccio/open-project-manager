@@ -80,6 +80,7 @@ export async function getProjectById(id: string, overrideUserId?: string) {
                 activities: {
                   orderBy: { createdAt: "desc" },
                 },
+                links: true,
                 assignees: {
                   include: { user: { select: { id: true, name: true, email: true } } },
                 },

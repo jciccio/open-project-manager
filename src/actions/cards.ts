@@ -123,7 +123,7 @@ export async function updateCard(
   data: {
     columnId?: string;
     title?: string;
-    description?: string;
+    description?: string | null;
     priority?: string;
     points?: number | null;
     owner?: string | null;
