@@ -3,29 +3,6 @@
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 
-export async function recordActivity(data: {
-  cardId: string;
-  actorUserId: string;
-  type: string;
-  fromValue?: string | null;
-  toValue?: string | null;
-}) {
-  try {
-    return await db.activity.create({
-      data: {
-        cardId: data.cardId,
-        actorUserId: data.actorUserId,
-        type: data.type,
-        fromValue: data.fromValue !== undefined ? data.fromValue : null,
-        toValue: data.toValue !== undefined ? data.toValue : null,
-      },
-    });
-  } catch (err) {
-    console.error("Error recording activity:", err);
-    return null;
-  }
-}
-
 export async function getCardActivity(cardId: string, overrideUserId?: string) {
   try {
     const session = overrideUserId ? { userId: overrideUserId } : await getSession();

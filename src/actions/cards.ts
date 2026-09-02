@@ -3,7 +3,7 @@
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
-import { recordActivity } from "./activity";
+import { recordActivity } from "@/lib/activity";
 
 async function verifyProjectOwnership(projectId: string, userId: string) {
   const project = await db.project.findFirst({
