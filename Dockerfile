@@ -22,6 +22,15 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 
+# Selects which schema `prisma generate` reads (prisma.config.ts picks
+# prisma/schema.postgresql.prisma when this is postgresql/postgres, else
+# prisma/schema.prisma) — the generated client's query engine is bound to
+# one provider at generate time, so this must match the DATABASE_PROVIDER
+# the image will actually run under. Defaults to sqlite for docker-compose.yml;
+# docker-compose.postgres.yml passes DATABASE_PROVIDER=postgresql as a build arg.
+ARG DATABASE_PROVIDER=sqlite
+ENV DATABASE_PROVIDER=$DATABASE_PROVIDER
+
 # Prisma v7 client generation and Next.js standalone build
 RUN npx prisma generate
 RUN yarn build
