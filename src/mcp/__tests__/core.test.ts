@@ -429,5 +429,47 @@ describe("MCP Server Core Tools", () => {
 
     await executeMcpTool("delete_project", { id: projectId });
   });
+
+  it("de-duplicates project keys created via MCP for the same user", async () => {
+    const first = await executeMcpTool("create_project", { name: "Alpha Beta", userId });
+    const second = await executeMcpTool("create_project", { name: "Amazing Bicycle", userId });
+    expect(first.project?.key).toBe("AB");
+    expect(second.project?.key).toBe("AB2");
+  });
+
+  it("scopes get_card_by_identifier to the requesting user's own project", async () => {
+    const { user: otherUser } = await createTestUser(`mcp-core-other-${Date.now()}`);
+    try {
+      const mineProj = await executeMcpTool("create_project", { name: "Mine", key: "SAME", userId });
+      const theirsProj = await executeMcpTool("create_project", {
+        name: "Theirs",
+        key: "SAME",
+        userId: otherUser.id,
+      });
+      const mineColId = (mineProj.project as any).columns[0].id;
+      const theirsColId = (theirsProj.project as any).columns[0].id;
+
+      const mineCard = await executeMcpTool("create_card", {
+        projectId: mineProj.project!.id,
+        columnId: mineColId,
+        title: "My Card",
+      });
+      await executeMcpTool("create_card", {
+        projectId: theirsProj.project!.id,
+        columnId: theirsColId,
+        title: "Their Card",
+      });
+
+      const lookup = await executeMcpTool("get_card_by_identifier", {
+        identifier: "SAME-1",
+        userId,
+      });
+      expect(lookup.success).toBe(true);
+      expect(lookup.card?.id).toBe(mineCard.card!.id);
+      expect(lookup.card?.title).toBe("My Card");
+    } finally {
+      await cleanupTestUser(otherUser.id);
+    }
+  });
 });
 

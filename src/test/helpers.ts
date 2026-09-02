@@ -32,10 +32,10 @@ export async function createTestUser(suffix = Date.now().toString()) {
   return { user, token };
 }
 
-import { generateProjectKey } from "../actions/projects";
+import { generateProjectKey } from "../lib/projectKey";
 
 export async function createTestProject(userId: string, name = "Test Project", key?: string) {
-  const projectKey = await generateProjectKey(name, key);
+  const projectKey = await generateProjectKey(name, key, userId);
   return await db.project.create({
     data: {
       userId,

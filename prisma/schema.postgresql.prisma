@@ -51,6 +51,8 @@ model Project {
   labels     Label[]
   cardTypes  CardType[]
   savedViews SavedView[]
+
+  @@unique([userId, key])
 }
 
 model Column {
