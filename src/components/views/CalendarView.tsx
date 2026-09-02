@@ -60,21 +60,27 @@ export default function CalendarView({
     return { scheduledMap: map, unscheduledCards: unscheduled };
   }, [allCards]);
 
-  // Calendar Days calculation
-  const year = currentDate.getFullYear();
-  const month = currentDate.getMonth();
+  // Calendar Days calculation. Due dates are stored and bucketed as UTC
+  // calendar dates (see scheduledMap above), so the grid itself must also
+  // be computed in UTC - mixing local-timezone grid math with UTC-bucketed
+  // due dates puts "today" and due-date cells in two different calendars.
+  const year = currentDate.getUTCFullYear();
+  const month = currentDate.getUTCMonth();
 
-  const firstDayOfMonth = new Date(year, month, 1).getDay();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDayOfMonth = new Date(Date.UTC(year, month, 1)).getUTCDay();
+  const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
 
-  const monthName = currentDate.toLocaleString(locale === "es" ? "es-ES" : "en-US", { month: "long" });
+  const monthName = currentDate.toLocaleString(locale === "es" ? "es-ES" : "en-US", {
+    month: "long",
+    timeZone: "UTC",
+  });
 
   function prevMonth() {
-    setCurrentDate(new Date(year, month - 1, 1));
+    setCurrentDate(new Date(Date.UTC(year, month - 1, 1)));
   }
 
   function nextMonth() {
-    setCurrentDate(new Date(year, month + 1, 1));
+    setCurrentDate(new Date(Date.UTC(year, month + 1, 1)));
   }
 
   return (

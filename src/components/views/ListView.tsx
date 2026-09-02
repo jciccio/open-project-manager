@@ -171,6 +171,7 @@ export default function ListView({
                               {new Date(card.dueDate).toLocaleDateString(undefined, {
                                 month: "short",
                                 day: "numeric",
+                                timeZone: "UTC",
                               })}
                             </span>
                           </div>
