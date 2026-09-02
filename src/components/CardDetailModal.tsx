@@ -148,6 +148,7 @@ export default function CardDetailModal({
 
   const [attachments, setAttachments] = useState<Array<any>>((card as any).attachments || []);
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
 
   const [activities, setActivities] = useState<Array<any>>(card.activities || []);
   const [feedTab, setFeedTab] = useState<"comments" | "activity">("comments");
@@ -182,9 +183,19 @@ export default function CardDetailModal({
     loadActivities();
   }, [card.id]);
 
+  const MAX_ATTACHMENT_MB = 10;
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    setAttachmentError(null);
+
+    if (file.size > MAX_ATTACHMENT_MB * 1024 * 1024) {
+      setAttachmentError(`"${file.name}" is larger than the ${MAX_ATTACHMENT_MB}MB attachment limit.`);
+      e.target.value = "";
+      return;
+    }
 
     setIsUploadingAttachment(true);
     try {
@@ -200,9 +211,12 @@ export default function CardDetailModal({
       if (res.success && res.data) {
         setAttachments((prev) => [res.data, ...prev]);
         onRefresh();
+      } else {
+        setAttachmentError(res.error || "Failed to upload attachment.");
       }
     } catch (err) {
       console.error("Failed to upload attachment:", err);
+      setAttachmentError("Failed to upload attachment.");
     } finally {
       setIsUploadingAttachment(false);
       e.target.value = "";
@@ -858,6 +872,10 @@ export default function CardDetailModal({
                 />
               </label>
             </div>
+
+            {attachmentError && (
+              <p className="text-xs text-rose-600 dark:text-rose-400">{attachmentError}</p>
+            )}
 
             <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
               {attachments && attachments.length > 0 ? (

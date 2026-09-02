@@ -4,9 +4,7 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import fs from "fs";
-import path from "path";
-
-const UPLOADS_DIR = path.join(process.cwd(), "public", "uploads", "attachments");
+import { UPLOADS_DIR, MAX_ATTACHMENT_BYTES, getAttachmentFilePath } from "@/lib/attachmentStorage";
 
 function ensureUploadsDir() {
   if (!fs.existsSync(UPLOADS_DIR)) {
@@ -43,31 +41,41 @@ export async function uploadAttachment(data: {
       return { success: false, error: "Card not found or access denied" };
     }
 
+    if (data.contentBuffer.length > MAX_ATTACHMENT_BYTES) {
+      return {
+        success: false,
+        error: `File exceeds the ${Math.floor(MAX_ATTACHMENT_BYTES / (1024 * 1024))}MB attachment size limit`,
+      };
+    }
+
     ensureUploadsDir();
 
     const sanitizedFilename = data.filename.replace(/[^a-zA-Z0-9._-]/g, "_");
     const uniquePrefix = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
     const storageKey = `${uniquePrefix}-${sanitizedFilename}`;
-    const filePath = path.join(UPLOADS_DIR, storageKey);
+    const filePath = getAttachmentFilePath(storageKey);
 
     fs.writeFileSync(filePath, data.contentBuffer);
-
-    const publicUrl = `/uploads/attachments/${storageKey}`;
 
     const attachment = await db.attachment.create({
       data: {
         cardId: data.cardId,
         filename: data.filename,
         storageKey,
-        url: publicUrl,
+        url: "",
         size: data.contentBuffer.length,
         mimeType: data.mimeType || null,
         uploadedBy: data.uploadedBy || session.userId,
       },
     });
 
+    const updated = await db.attachment.update({
+      where: { id: attachment.id },
+      data: { url: `/api/v1/attachments/${attachment.id}` },
+    });
+
     revalidatePath(`/projects/${card.projectId}`);
-    return { success: true, data: attachment };
+    return { success: true, data: updated };
   } catch (error) {
     console.error("Error uploading attachment:", error);
     return { success: false, error: "Failed to upload attachment" };
@@ -116,7 +124,7 @@ export async function deleteAttachment(attachmentId: string, overrideUserId?: st
 
     await db.attachment.delete({ where: { id: attachmentId } });
 
-    const filePath = path.join(UPLOADS_DIR, attachment.storageKey);
+    const filePath = getAttachmentFilePath(attachment.storageKey);
     if (fs.existsSync(filePath)) {
       try {
         fs.unlinkSync(filePath);

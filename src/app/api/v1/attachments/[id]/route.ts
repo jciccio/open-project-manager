@@ -3,7 +3,7 @@ import { getApiSession } from "@/lib/auth";
 import { deleteAttachment } from "@/actions/attachments";
 import { db } from "@/lib/db";
 import fs from "fs";
-import path from "path";
+import { getAttachmentFilePath, canRenderInline, contentDispositionHeader } from "@/lib/attachmentStorage";
 
 export async function GET(
   request: NextRequest,
@@ -24,17 +24,19 @@ export async function GET(
     return NextResponse.json({ error: "Attachment not found or access denied" }, { status: 404 });
   }
 
-  const filePath = path.join(process.cwd(), "public", "uploads", "attachments", attachment.storageKey);
+  const filePath = getAttachmentFilePath(attachment.storageKey);
 
   if (!fs.existsSync(filePath)) {
     return NextResponse.json({ error: "File not found on disk" }, { status: 404 });
   }
 
+  const inline = canRenderInline(attachment.mimeType);
   const fileStream = fs.readFileSync(filePath);
   return new NextResponse(fileStream, {
     headers: {
-      "Content-Type": attachment.mimeType || "application/octet-stream",
-      "Content-Disposition": `inline; filename="${attachment.filename}"`,
+      "Content-Type": inline ? attachment.mimeType! : "application/octet-stream",
+      "Content-Disposition": contentDispositionHeader(attachment.filename, inline),
+      "X-Content-Type-Options": "nosniff",
     },
   });
 }

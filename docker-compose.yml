@@ -24,6 +24,7 @@ services:
       - NODE_ENV=production
       - PORT=3000
       - DATABASE_URL=file:/app/data/dev.db
+      - UPLOADS_DIR=/app/data/attachments
       - JWT_SECRET=${JWT_SECRET:?Set JWT_SECRET in a .env file — generate one with: openssl rand -base64 32}
       - OIDC_ISSUER_URL=${OIDC_ISSUER_URL:-}
       - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
