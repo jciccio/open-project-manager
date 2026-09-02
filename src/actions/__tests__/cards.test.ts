@@ -188,6 +188,97 @@ describe("Cards Server Actions", () => {
     expect(updateRes.data?.assignees.length).toBe(0);
   });
 
+  it("rejects referenced ids that don't belong to the card's project", async () => {
+    const otherProject = await createProject({ name: "Other Project" });
+    const otherProjectId = otherProject.data!.id;
+    const otherProjectDetails = await getProjectById(otherProjectId);
+    const otherColumnId = otherProjectDetails.data!.columns[0].id;
+    const otherCard = await createCard({ projectId: otherProjectId, columnId: otherColumnId, title: "Foreign Card" });
+    const otherCardId = otherCard.data!.id;
+
+    const badColumnRes = await createCard({ projectId, columnId: otherColumnId, title: "Bad Column" });
+    expect(badColumnRes.success).toBe(false);
+    expect(badColumnRes.error).toBe("Invalid column");
+
+    const badParentRes = await createCard({ projectId, columnId, title: "Bad Parent", parentId: otherCardId });
+    expect(badParentRes.success).toBe(false);
+    expect(badParentRes.error).toBe("Invalid parent card");
+
+    const { createLabel } = await import("../labels");
+    const otherLabel = await createLabel("Other Project Label", "#000000", otherProjectId);
+    const badLabelRes = await createCard({
+      projectId,
+      columnId,
+      title: "Bad Label",
+      labelIds: [otherLabel.data!.id],
+    });
+    expect(badLabelRes.success).toBe(false);
+    expect(badLabelRes.error).toBe("Invalid label");
+
+    const { createCardType } = await import("../cardTypes");
+    const otherType = await createCardType("Other Project Type", otherProjectId);
+    const badTypeRes = await createCard({
+      projectId,
+      columnId,
+      title: "Bad Type",
+      typeId: otherType.data!.id,
+    });
+    expect(badTypeRes.success).toBe(false);
+    expect(badTypeRes.error).toBe("Invalid card type");
+
+    const goodCard = await createCard({ projectId, columnId, title: "Good Card" });
+    const goodCardId = goodCard.data!.id;
+
+    const badMoveColumnUpdate = await updateCard(goodCardId, { columnId: otherColumnId });
+    expect(badMoveColumnUpdate.success).toBe(false);
+    expect(badMoveColumnUpdate.error).toBe("Invalid column");
+
+    const badMoveRes = await moveCard(goodCardId, otherColumnId, 0);
+    expect(badMoveRes.success).toBe(false);
+    expect(badMoveRes.error).toBe("Invalid column");
+
+    const badReorderRes = await reorderCards([{ id: goodCardId, order: 0, columnId: otherColumnId }]);
+    expect(badReorderRes.success).toBe(false);
+    expect(badReorderRes.error).toBe("Invalid column");
+  });
+
+  it("does not wipe existing labels when updateCard is rejected for a bad label id", async () => {
+    const { createLabel } = await import("../labels");
+    const label = await createLabel("Keep Me", "#123456", projectId);
+
+    const cardRes = await createCard({
+      projectId,
+      columnId,
+      title: "Card With Label",
+      labelIds: [label.data!.id],
+    });
+    const cardId = cardRes.data!.id;
+    expect(cardRes.data?.labels.length).toBe(1);
+
+    const badUpdateRes = await updateCard(cardId, { labelIds: ["nonexistent-label-id"] });
+    expect(badUpdateRes.success).toBe(false);
+
+    const lookupRes = await getCardByIdentifier(`CTP-${cardRes.data!.number}`);
+    expect(lookupRes.data?.labels.length).toBe(1);
+    expect(lookupRes.data?.labels[0].label.id).toBe(label.data!.id);
+  });
+
+  it("rejects assigning a card to another user", async () => {
+    const { user: otherUser } = await createTestUser(`cards-other-${Date.now()}`);
+    try {
+      const badAssigneeRes = await createCard({
+        projectId,
+        columnId,
+        title: "Bad Assignee",
+        assigneeIds: [otherUser.id],
+      });
+      expect(badAssigneeRes.success).toBe(false);
+      expect(badAssigneeRes.error).toBe("Cards can only be assigned to yourself");
+    } finally {
+      await cleanupTestUser(otherUser.id);
+    }
+  });
+
   it("adds and removes external links from a card", async () => {
     const cardRes = await createCard({ projectId, columnId, title: "Card With Links" });
     const cardId = cardRes.data!.id;

@@ -22,9 +22,17 @@ export async function addCardRelation(
       where: { id: sourceCardId },
       include: { project: true },
     });
-    const targetCard = await db.card.findUnique({ where: { id: targetCardId } });
+    const targetCard = await db.card.findUnique({
+      where: { id: targetCardId },
+      include: { project: true },
+    });
 
-    if (!sourceCard || !targetCard || sourceCard.project.userId !== userId) {
+    if (
+      !sourceCard ||
+      !targetCard ||
+      sourceCard.project.userId !== userId ||
+      targetCard.project.userId !== userId
+    ) {
       return { success: false, error: "Unauthorized or card not found" };
     }
 
@@ -52,10 +60,16 @@ export async function removeCardRelation(relationId: string, userId: string) {
   try {
     const relation = await db.cardRelation.findUnique({
       where: { id: relationId },
-      include: { sourceCard: { include: { project: true } } },
+      include: {
+        sourceCard: { include: { project: true } },
+        targetCard: { include: { project: true } },
+      },
     });
 
-    if (!relation || relation.sourceCard.project.userId !== userId) {
+    if (
+      !relation ||
+      (relation.sourceCard.project.userId !== userId && relation.targetCard.project.userId !== userId)
+    ) {
       return { success: false, error: "Unauthorized or relation not found" };
     }
 

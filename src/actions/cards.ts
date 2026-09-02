@@ -188,11 +188,25 @@ export async function reorderCards(items: ReorderItem[]) {
         id: { in: cardIds },
         project: { userId: session.userId },
       },
-      select: { id: true },
+      select: { id: true, projectId: true },
     });
 
     if (existingCards.length !== cardIds.length) {
       return { success: false, error: "Unauthorized or card not found" };
+    }
+    const projectIdByCardId = new Map(existingCards.map((c) => [c.id, c.projectId]));
+
+    const columnIds = [...new Set(items.map((i) => i.columnId).filter((id): id is string => !!id))];
+    const columns = await db.column.findMany({
+      where: { id: { in: columnIds } },
+      select: { id: true, projectId: true },
+    });
+    const projectIdByColumnId = new Map(columns.map((c) => [c.id, c.projectId]));
+
+    for (const item of items) {
+      if (item.columnId && projectIdByColumnId.get(item.columnId) !== projectIdByCardId.get(item.id)) {
+        return { success: false, error: "Invalid column" };
+      }
     }
 
     const updates = items.map((item) =>

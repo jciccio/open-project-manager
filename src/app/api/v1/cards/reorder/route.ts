@@ -16,13 +16,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "items array is required" }, { status: 400 });
     }
 
-    const cardIds = items.map((i: any) => i.id);
+    const reorderItems = items as { id: string; order: number; columnId?: string }[];
+
+    const cardIds = reorderItems.map((i) => i.id);
     const existingCards = await db.card.findMany({
       where: {
         id: { in: cardIds },
         project: { userId: session.userId },
       },
-      select: { id: true },
+      select: { id: true, projectId: true },
     });
 
     if (existingCards.length !== cardIds.length) {
@@ -31,8 +33,22 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    const projectIdByCardId = new Map(existingCards.map((c) => [c.id, c.projectId]));
 
-    const updates = items.map((item: any) =>
+    const columnIds = [...new Set(reorderItems.map((i) => i.columnId).filter((id): id is string => !!id))];
+    const columns = await db.column.findMany({
+      where: { id: { in: columnIds } },
+      select: { id: true, projectId: true },
+    });
+    const projectIdByColumnId = new Map(columns.map((c) => [c.id, c.projectId]));
+
+    for (const item of reorderItems) {
+      if (item.columnId && projectIdByColumnId.get(item.columnId) !== projectIdByCardId.get(item.id)) {
+        return NextResponse.json({ error: "Invalid column" }, { status: 400 });
+      }
+    }
+
+    const updates = reorderItems.map((item) =>
       db.card.update({
         where: { id: item.id },
         data: {
