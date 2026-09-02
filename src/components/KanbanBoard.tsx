@@ -19,10 +19,12 @@ import {
   Check,
   Tag,
   X,
+  Pencil,
 } from "lucide-react";
 import Link from "next/link";
 import KanbanColumn from "./KanbanColumn";
 import CardDetailModal from "./CardDetailModal";
+import EditProjectModal from "./EditProjectModal";
 import ListView from "./views/ListView";
 import AnalyticsView from "./views/AnalyticsView";
 import CalendarView from "./views/CalendarView";
@@ -58,6 +60,7 @@ export default function KanbanBoard({ project }: Props) {
   const [newViewName, setNewViewName] = useState("");
   const [newViewIsDefault, setNewViewIsDefault] = useState(false);
   const [savingViewLoading, setSavingViewLoading] = useState(false);
+  const [isEditProjectOpen, setIsEditProjectOpen] = useState(false);
 
   const { t } = useTranslation();
   const router = useRouter();
@@ -270,12 +273,19 @@ export default function KanbanBoard({ project }: Props) {
             <div>
               <div className="flex items-center gap-2.5">
                 <span
-                  className="h-3.5 w-3.5 rounded-full"
+                  className="h-3.5 w-3.5 rounded-full shrink-0"
                   style={{ backgroundColor: project.color || "#6366f1" }}
                 />
                 <h1 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
                   {project.name}
                 </h1>
+                <button
+                  onClick={() => setIsEditProjectOpen(true)}
+                  className="rounded-lg p-1 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                  title={t("projectCard.editTooltip") || "Edit project"}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
                 {project.isArchived && (
                   <span className="rounded-md bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 border border-amber-500/20">
                     {t("projectCard.archivedBadge")}
@@ -607,6 +617,17 @@ export default function KanbanBoard({ project }: Props) {
           columns={project.columns}
           onClose={() => setActiveCard(null)}
           onRefresh={() => window.location.reload()}
+        />
+      )}
+
+      {/* Edit Project Modal */}
+      {isEditProjectOpen && (
+        <EditProjectModal
+          project={project}
+          onClose={() => setIsEditProjectOpen(false)}
+          onUpdateSuccess={() => {
+            router.refresh();
+          }}
         />
       )}
     </div>

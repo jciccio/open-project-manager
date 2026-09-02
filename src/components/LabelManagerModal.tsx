@@ -4,26 +4,17 @@ import { useEffect, useState } from "react";
 import { X, Tag, Plus, Trash2 } from "lucide-react";
 import { getLabels, createLabel, deleteLabel } from "@/actions/labels";
 import { useTranslation } from "./LanguageProvider";
+import ColorPicker from "./ColorPicker";
+import { DEFAULT_PROJECT_COLOR } from "@/lib/colors";
 
 interface Props {
   onClose: () => void;
 }
 
-const PRESET_COLORS = [
-  "#ef4444", // Red
-  "#f97316", // Orange
-  "#f59e0b", // Amber
-  "#10b981", // Emerald
-  "#06b6d4", // Cyan
-  "#3b82f6", // Blue
-  "#8b5cf6", // Purple
-  "#ec4899", // Pink
-];
-
 export default function LabelManagerModal({ onClose }: Props) {
   const [labels, setLabels] = useState<any[]>([]);
   const [name, setName] = useState("");
-  const [color, setColor] = useState(PRESET_COLORS[0]);
+  const [color, setColor] = useState(DEFAULT_PROJECT_COLOR);
   const [loading, setLoading] = useState(false);
   const { t } = useTranslation();
 
@@ -98,22 +89,12 @@ export default function LabelManagerModal({ onClose }: Props) {
             </button>
           </div>
 
-          <div className="flex items-center gap-2 pt-1">
-            <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">{t("labelModal.color")}</span>
-            <div className="flex items-center gap-2">
-              {PRESET_COLORS.map((c) => (
-                <button
-                  type="button"
-                  key={c}
-                  onClick={() => setColor(c)}
-                  className={`h-5 w-5 rounded-full transition-transform ${
-                    color === c ? "scale-125 ring-2 ring-indigo-500" : "opacity-70 hover:opacity-100"
-                  }`}
-                  style={{ backgroundColor: c }}
-                />
-              ))}
-            </div>
-          </div>
+          <ColorPicker
+            value={color}
+            onChange={setColor}
+            label={t("labelModal.color")}
+            size="sm"
+          />
         </form>
 
         {/* Existing Labels */}

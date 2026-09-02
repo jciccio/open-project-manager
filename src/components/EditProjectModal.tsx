@@ -1,21 +1,28 @@
 "use client";
 
 import { useState } from "react";
-import { X, FolderPlus } from "lucide-react";
-import { createProject } from "@/actions/projects";
+import { X, Pencil } from "lucide-react";
+import { updateProject } from "@/actions/projects";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "./LanguageProvider";
 import ColorPicker from "./ColorPicker";
 import { DEFAULT_PROJECT_COLOR } from "@/lib/colors";
 
 interface Props {
+  project: {
+    id: string;
+    name: string;
+    description: string | null;
+    color: string;
+  };
   onClose: () => void;
+  onUpdateSuccess?: (updated: any) => void;
 }
 
-export default function NewProjectModal({ onClose }: Props) {
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [color, setColor] = useState(DEFAULT_PROJECT_COLOR);
+export default function EditProjectModal({ project, onClose, onUpdateSuccess }: Props) {
+  const [name, setName] = useState(project.name);
+  const [description, setDescription] = useState(project.description || "");
+  const [color, setColor] = useState(project.color || DEFAULT_PROJECT_COLOR);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const { t } = useTranslation();
@@ -24,7 +31,7 @@ export default function NewProjectModal({ onClose }: Props) {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) {
-      setError(t("newProjectModal.nameRequired"));
+      setError(t("editProjectModal.nameRequired"));
       return;
     }
 
@@ -32,18 +39,26 @@ export default function NewProjectModal({ onClose }: Props) {
     setError("");
 
     try {
-      const res = await createProject({ name, description, color });
+      const res = await updateProject(project.id, {
+        name: name.trim(),
+        description: description.trim() || undefined,
+        color,
+      });
       setLoading(false);
 
       if (res.success && res.data) {
+        if (onUpdateSuccess) {
+          onUpdateSuccess(res.data);
+        } else {
+          router.refresh();
+        }
         onClose();
-        router.push(`/projects/${res.data.id}`);
       } else {
-        setError(res.error || "Failed to create project");
+        setError(res.error || "Failed to update project");
       }
     } catch (err: any) {
       setLoading(false);
-      setError(err?.message || "Failed to create project");
+      setError(err?.message || "Failed to update project");
     }
   }
 
@@ -52,10 +67,19 @@ export default function NewProjectModal({ onClose }: Props) {
       <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl">
         <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
-              <FolderPlus className="h-5 w-5" />
+            <div
+              className="flex h-9 w-9 items-center justify-center rounded-lg border"
+              style={{
+                backgroundColor: `${color}15`,
+                borderColor: `${color}30`,
+                color: color,
+              }}
+            >
+              <Pencil className="h-5 w-5" />
             </div>
-            <h3 className="text-lg font-bold text-slate-900 dark:text-white">{t("newProjectModal.title")}</h3>
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+              {t("editProjectModal.title")}
+            </h3>
           </div>
           <button
             onClick={onClose}
@@ -74,13 +98,13 @@ export default function NewProjectModal({ onClose }: Props) {
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
           <div>
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-              {t("newProjectModal.nameLabel")} <span className="text-red-500">*</span>
+              {t("editProjectModal.nameLabel")} <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder={t("newProjectModal.namePlaceholder")}
+              placeholder={t("editProjectModal.namePlaceholder")}
               className="w-full rounded-lg bg-slate-100 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 px-3.5 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
               autoFocus
             />
@@ -88,12 +112,12 @@ export default function NewProjectModal({ onClose }: Props) {
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-              {t("newProjectModal.descLabel")}
+              {t("editProjectModal.descLabel")}
             </label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder={t("newProjectModal.descPlaceholder")}
+              placeholder={t("editProjectModal.descPlaceholder")}
               rows={3}
               className="w-full rounded-lg bg-slate-100 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 px-3.5 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             />
@@ -102,7 +126,7 @@ export default function NewProjectModal({ onClose }: Props) {
           <ColorPicker
             value={color}
             onChange={setColor}
-            label={t("newProjectModal.colorLabel")}
+            label={t("editProjectModal.colorLabel")}
           />
 
           <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
@@ -118,7 +142,7 @@ export default function NewProjectModal({ onClose }: Props) {
               disabled={loading}
               className="rounded-lg bg-indigo-600 px-5 py-2 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 transition-all shadow-md shadow-indigo-600/20"
             >
-              {loading ? t("newProjectModal.creating") : t("newProjectModal.create")}
+              {loading ? t("editProjectModal.saving") : t("editProjectModal.save")}
             </button>
           </div>
         </form>

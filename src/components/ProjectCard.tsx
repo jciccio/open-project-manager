@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { FolderKanban, Layers, CreditCard, Trash2, ArrowRight, Archive, ArchiveRestore } from "lucide-react";
+import { FolderKanban, Layers, CreditCard, Trash2, ArrowRight, Archive, ArchiveRestore, Pencil } from "lucide-react";
 import { deleteProject, archiveProject, unarchiveProject } from "@/actions/projects";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "./LanguageProvider";
+import EditProjectModal from "./EditProjectModal";
 
 interface Props {
   project: {
@@ -25,6 +26,7 @@ interface Props {
 
 export default function ProjectCard({ project, onDeleteSuccess }: Props) {
   const [loading, setLoading] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
   const { t } = useTranslation();
   const router = useRouter();
 
@@ -101,6 +103,18 @@ export default function ProjectCard({ project, onDeleteSuccess }: Props) {
 
           <div className="flex items-center gap-1">
             <button
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setIsEditOpen(true);
+              }}
+              disabled={loading}
+              className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+              title={t("projectCard.editTooltip") || "Edit project"}
+            >
+              <Pencil className="h-4 w-4" />
+            </button>
+            <button
               onClick={handleArchiveToggle}
               disabled={loading}
               className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
@@ -148,6 +162,20 @@ export default function ProjectCard({ project, onDeleteSuccess }: Props) {
           <ArrowRight className="h-3.5 w-3.5" />
         </Link>
       </div>
+
+      {isEditOpen && (
+        <EditProjectModal
+          project={project}
+          onClose={() => setIsEditOpen(false)}
+          onUpdateSuccess={() => {
+            if (onDeleteSuccess) {
+              onDeleteSuccess();
+            } else {
+              router.refresh();
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
