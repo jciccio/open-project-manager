@@ -3,7 +3,9 @@ import { db } from "@/lib/db";
 import { createProject } from "@/actions/projects";
 import { createCard, updateCard, moveCard, archiveCard, unarchiveCard } from "@/actions/cards";
 import { addComment } from "@/actions/comments";
+import * as activityActions from "@/actions/activity";
 import { getCardActivity } from "@/actions/activity";
+import { recordActivity } from "@/lib/activity";
 
 describe("Card Activity / Audit Trail Actions", () => {
   let userId: string;
@@ -125,5 +127,19 @@ describe("Card Activity / Audit Trail Actions", () => {
     expect(types).toContain("card_created");
     expect(types).toContain("moved");
     expect(types).toContain("comment_added");
+  });
+
+  it("does not expose recordActivity as a Server Action", async () => {
+    expect((activityActions as Record<string, unknown>).recordActivity).toBeUndefined();
+  });
+
+  it("recordActivity in src/lib/activity writes a row directly", async () => {
+    const cardRes = await createCard({ projectId, columnId: col1Id, title: "Direct Record Task" }, userId);
+    const cardId = cardRes.data!.id;
+
+    await recordActivity({ cardId, actorUserId: userId, type: "custom_event", toValue: "done" });
+
+    const actRes = await getCardActivity(cardId, userId);
+    expect(actRes.data!.map((a) => a.type)).toContain("custom_event");
   });
 });
