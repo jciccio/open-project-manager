@@ -62,11 +62,19 @@ export async function createTestCard(
   columnId: string,
   title = "Test Card"
 ) {
+  const maxCard = await db.card.findFirst({
+    where: { projectId },
+    orderBy: { number: "desc" },
+    select: { number: true },
+  });
+  const number = maxCard ? maxCard.number + 1 : 1;
+
   return await db.card.create({
     data: {
       projectId,
       columnId,
       title,
+      number,
       description: "Card details for automated testing",
       priority: "MEDIUM",
       points: 5,

@@ -1,7 +1,14 @@
 import { db } from "../src/lib/db";
+import { DEFAULT_CARD_TYPES } from "../src/lib/cardTypeDefaults";
 import bcrypt from "bcryptjs";
 
 async function main() {
+  if (process.env.NODE_ENV === "production" && process.env.SEED_FORCE !== "1") {
+    throw new Error(
+      "Refusing to run the seed script against a production database. Set SEED_FORCE=1 to override."
+    );
+  }
+
   console.log("Seeding database with default user accounts...");
 
   // Clean existing data
@@ -57,8 +64,11 @@ async function main() {
           { name: "Backlog", order: 0 },
           { name: "To Do", order: 1 },
           { name: "In Progress", order: 2 },
-          { name: "Done", order: 3 },
+          { name: "Done", order: 3, isDone: true },
         ],
+      },
+      cardTypes: {
+        create: DEFAULT_CARD_TYPES,
       },
     },
     include: {
@@ -78,6 +88,7 @@ async function main() {
       columnId: inProgressCol.id,
       title: "Design Modern Kanban Board Interface",
       description: "Implement drag-and-drop column layout with customizable cards, badges, and filters.",
+      number: 1,
       priority: "HIGH",
       points: 5,
       owner: "Jose Ciccio",
@@ -106,6 +117,7 @@ async function main() {
       columnId: todoCol.id,
       title: "User Authentication & Data Isolation",
       description: "Implement bcrypt password hashing, session cookies, and route protection.",
+      number: 2,
       priority: "URGENT",
       points: 8,
       owner: "Alex Rivera",
@@ -130,8 +142,11 @@ async function main() {
         create: [
           { name: "Ideas", order: 0 },
           { name: "Active", order: 1 },
-          { name: "Completed", order: 2 },
+          { name: "Completed", order: 2, isDone: true },
         ],
+      },
+      cardTypes: {
+        create: DEFAULT_CARD_TYPES,
       },
     },
   });

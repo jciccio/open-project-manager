@@ -78,6 +78,7 @@ async function runTests() {
         projectId: project.id,
         columnId: column.id,
         title: "Test Task Card",
+        number: 1,
         priority: "HIGH",
         points: 8,
         owner: "Automation Bot",
