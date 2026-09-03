@@ -1,9 +1,18 @@
 "use server";
 
+import { z } from "zod";
+import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { createSession, destroySession, getSession, signApiToken } from "@/lib/auth";
 import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
+import { getClientIp } from "@/lib/clientIp";
+import { checkLoginRateLimit, recordLoginFailure, recordLoginSuccess } from "@/lib/loginRateLimit";
+
+const loginSchema = z.object({
+  email: z.string().trim().min(1),
+  password: z.string().min(1),
+});
 
 export async function registerUser(formData: {
   name: string;
@@ -60,10 +69,20 @@ export async function registerUser(formData: {
 
 export async function loginUser(formData: { email: string; password: string }) {
   try {
-    const { email, password } = formData;
-
-    if (!email.trim() || !password) {
+    const parsed = loginSchema.safeParse(formData);
+    if (!parsed.success) {
       return { success: false, error: "Email and password are required." };
+    }
+    const { email, password } = parsed.data;
+
+    const ip = getClientIp(await headers());
+    const rateLimit = checkLoginRateLimit(email, ip);
+    if (!rateLimit.allowed) {
+      const minutes = Math.ceil((rateLimit.retryAfterSeconds ?? 900) / 60);
+      return {
+        success: false,
+        error: `Too many login attempts. Try again in ${minutes} minute${minutes === 1 ? "" : "s"}.`,
+      };
     }
 
     const user = await db.user.findUnique({
@@ -71,13 +90,17 @@ export async function loginUser(formData: { email: string; password: string }) {
     });
 
     if (!user || !user.passwordHash) {
+      recordLoginFailure(email, ip);
       return { success: false, error: "Invalid email or password." };
     }
 
     const isValidPassword = await bcrypt.compare(password, user.passwordHash);
     if (!isValidPassword) {
+      recordLoginFailure(email, ip);
       return { success: false, error: "Invalid email or password." };
     }
+
+    recordLoginSuccess(email);
 
     await createSession({
       userId: user.id,

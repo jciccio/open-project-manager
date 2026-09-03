@@ -13,6 +13,7 @@ import { createSession, verifyToken, getApiSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { cleanupTestUser } from "@/test/helpers";
 import { NextRequest } from "next/server";
+import { resetLoginRateLimit } from "@/lib/loginRateLimit";
 
 describe("Auth Server Actions", () => {
   let createdUserId: string | null = null;
@@ -244,6 +245,34 @@ describe("Auth Server Actions", () => {
 
     const loginRes = await loginUser({ email: oidcOnlyEmail, password: "BrandNewPassword123!" });
     expect(loginRes.success).toBe(true);
+  });
+
+  it("locks out login after repeated failed attempts against the same email", async () => {
+    resetLoginRateLimit();
+    const lockoutEmail = `lockout-action-${Date.now()}@example.com`;
+    const regRes = await registerUser({
+      name: "Lockout User",
+      email: lockoutEmail,
+      password: testPass,
+    });
+    if (regRes.data) createdUserId = regRes.data.userId;
+
+    for (let i = 0; i < 5; i++) {
+      const res = await loginUser({ email: lockoutEmail, password: "wrong-password" });
+      expect(res.success).toBe(false);
+    }
+
+    const lockedRes = await loginUser({ email: lockoutEmail, password: testPass });
+    expect(lockedRes.success).toBe(false);
+    expect(lockedRes.error).toMatch(/too many login attempts/i);
+
+    resetLoginRateLimit();
+  });
+
+  it("rejects a non-string email without crashing", async () => {
+    const res = await loginUser({ email: { injected: true } as unknown as string, password: "x" });
+    expect(res.success).toBe(false);
+    expect(res.error).toBe("Email and password are required.");
   });
 });
 
