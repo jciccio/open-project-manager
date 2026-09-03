@@ -74,7 +74,7 @@ model Card {
   column      Column    @relation(fields: [columnId], references: [id], onDelete: Cascade)
   title       String
   description String?
-  number      Int       @default(1)
+  number      Int
   priority    String    @default("NONE")
   points      Int?
   owner       String?
