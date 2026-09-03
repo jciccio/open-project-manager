@@ -1,21 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { db } from "@/lib/db";
 import bcrypt from "bcryptjs";
 import { SignJWT } from "jose";
+import { JWT_SECRET } from "@/lib/env";
+import { getClientIp } from "@/lib/clientIp";
+import { checkLoginRateLimit, recordLoginFailure, recordLoginSuccess } from "@/lib/loginRateLimit";
 
-const JWT_SECRET = Uint8Array.from(
-  Buffer.from(process.env.JWT_SECRET || "opm-open-project-manager-secret-key-2026")
-);
+const loginSchema = z.object({
+  email: z.string().trim().min(1),
+  password: z.string().min(1),
+});
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { email, password } = body;
+    const body = await request.json().catch(() => null);
+    const parsed = loginSchema.safeParse(body);
 
-    if (!email || !password) {
+    if (!parsed.success) {
       return NextResponse.json(
         { error: "Email and password are required" },
         { status: 400 }
+      );
+    }
+
+    const { email, password } = parsed.data;
+    const ip = getClientIp(request.headers);
+
+    const rateLimit = checkLoginRateLimit(email, ip);
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many login attempts. Please try again later." },
+        { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds ?? 900) } }
       );
     }
 
@@ -24,6 +40,7 @@ export async function POST(request: NextRequest) {
     });
 
     if (!user || !user.passwordHash) {
+      recordLoginFailure(email, ip);
       return NextResponse.json(
         { error: "Invalid email or password" },
         { status: 401 }
@@ -32,11 +49,14 @@ export async function POST(request: NextRequest) {
 
     const isValid = await bcrypt.compare(password, user.passwordHash);
     if (!isValid) {
+      recordLoginFailure(email, ip);
       return NextResponse.json(
         { error: "Invalid email or password" },
         { status: 401 }
       );
     }
+
+    recordLoginSuccess(email);
 
     const token = await new SignJWT({
       userId: user.id,
