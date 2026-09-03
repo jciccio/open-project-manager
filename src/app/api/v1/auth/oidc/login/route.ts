@@ -25,9 +25,13 @@ export async function GET() {
   });
 
   const response = NextResponse.redirect(authorizationUrl);
+  const isSecure =
+    process.env.COOKIE_SECURE === "false"
+      ? false
+      : process.env.NODE_ENV === "production";
   const cookieOptions = {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: isSecure,
     sameSite: "lax" as const,
     path: "/",
     maxAge: OIDC_COOKIE_MAX_AGE,

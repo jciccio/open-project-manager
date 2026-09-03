@@ -419,24 +419,50 @@ pg_dump -U postgres -h localhost -d opm -F c -b -v -f "opm-postgres-$(date +%Y%m
 
 ### Upgrading Open Project Manager (Bare-Metal)
 
-To upgrade your bare-metal installation when a new version is released:
+#### Method A: Automated Update Script (Recommended)
+
+Open Project Manager includes a dedicated update utility at `deploy/update.sh` that automatically takes an atomic SQLite backup, checks out the tag/branch, deploys Prisma migrations, compiles the standalone build within memory limits, syncs assets, and restarts the service:
 
 ```bash
 cd /opt/open-project-manager
 
-# 1. Pull latest code
-git pull origin main
+# 1. View available remote tags and current deployed version
+./deploy/update.sh --list
 
-# 2. Install dependencies & apply database migrations
-yarn install --frozen-lockfile
+# 2. Run update to a specific tag (e.g. 0.2.0) or main
+./deploy/update.sh 0.2.0
+# Or: ./deploy/update.sh main
+```
+
+#### Method B: Manual Step-by-Step Update
+
+If performing updates manually:
+
+```bash
+cd /opt/open-project-manager
+
+# 1. Backup SQLite database and environment configuration
+mkdir -p backups
+sqlite3 dev.db ".backup 'backups/dev.db.$(date +%Y%m%d_%H%M%S).bak'"
+cp .env "backups/.env.$(date +%Y%m%d_%H%M%S).bak"
+
+# 2. Fetch tags and checkout target version
+git fetch --tags origin
+git checkout <TAG_OR_BRANCH>
+
+# 3. Install dependencies & apply database migrations
+yarn install --frozen-lockfile --network-timeout 300000
+npx prisma generate
 npx prisma migrate deploy
 
-# 3. Rebuild Next.js standalone bundle
+# 4. Rebuild Next.js standalone bundle (memory-safe for Raspberry Pi)
 NODE_OPTIONS="--max-old-space-size=2048" yarn build
 cp -r public .next/standalone/
 cp -r .next/static .next/standalone/.next/
+cp .env .next/standalone/.env
+ln -sf /opt/open-project-manager/dev.db .next/standalone/dev.db
 
-# 4. Restart service
+# 5. Restart service
 sudo systemctl restart open-project-manager
 # (Or if using PM2: pm2 restart open-project-manager)
 ```

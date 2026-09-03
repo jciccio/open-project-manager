@@ -13,7 +13,8 @@
     "test:coverage": "vitest run --coverage",
     "benchmark": "npx tsx scripts/benchmark-memory.ts",
     "load-test": "npx tsx scripts/load-test.ts",
-    "mcp": "npx tsx scripts/mcp-server.ts"
+    "mcp": "npx tsx scripts/mcp-server.ts",
+    "update": "./deploy/update.sh"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

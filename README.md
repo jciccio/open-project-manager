@@ -193,7 +193,7 @@ Configure the source on the **server** (never in the request, so an API token
 holder cannot point the importer at an arbitrary host):
 
 ```bash
-VIKUNJA_URL=http://192.168.50.94:3456/api/v1
+VIKUNJA_URL=http://localhost:3456/api/v1  # Or http://<your-vikunja-host>:3456/api/v1
 VIKUNJA_API_TOKEN=your-vikunja-read-token
 ```
 
@@ -469,8 +469,39 @@ Open [http://localhost:3000](http://localhost:3000) in your web browser!
 | `yarn load-test` | Runs high-concurrency stress test (1,500 operations) & measures RAM spikes |
 | `yarn build` | Compiles the production build |
 | `yarn start` | Starts the production server |
+| `yarn update` | Runs the automated update utility (`deploy/update.sh`) to fetch tags, backup SQLite, and upgrade |
 | `npx prisma db push` | Applies schema changes to SQLite (`dev.db`) |
 | `npx prisma studio` | Opens Prisma GUI to inspect and edit SQLite records visually |
+
+---
+
+## 🔄 Upgrading & Updating Open Project Manager
+
+Open Project Manager includes an automated update utility in `deploy/update.sh` (or `yarn update`) designed for zero-downtime and zero data loss on Linux servers, Raspberry Pis, and homelabs.
+
+### 1. View Available Tags & Releases
+```bash
+./deploy/update.sh --list
+```
+This fetches upstream git tags and displays your currently running version alongside newer releases.
+
+### 2. Update to a Specific Tag or Latest Main
+```bash
+# Update to a specific release tag (e.g. 0.2.0):
+./deploy/update.sh 0.2.0
+
+# Or update to latest commits on main:
+./deploy/update.sh main
+```
+
+### What the Update Script Does:
+1. **Zero Data-Loss Snapshot**: Creates an atomic SQLite hot backup (`dev.db.<timestamp>.bak`) and archives `.env` into `backups/` before touching any code.
+2. **Tag Checkout**: Fetches and checks out the requested git tag or branch.
+3. **Dependency Sync**: Runs `yarn install --frozen-lockfile` with network timeout resilience.
+4. **Database Migrations**: Deploys pending Prisma schema migrations to `dev.db`.
+5. **Memory-Safe Standalone Build**: Enforces swap availability and passes `NODE_OPTIONS="--max-old-space-size=2048"` to compile safely on 1GB RAM hardware without memory exhaustion.
+6. **Asset Sync & Service Restart**: Synchronizes standalone public/static assets and automatically restarts the systemd service (`open-project-manager.service`).
+7. **Health Verification & Auto-Rollback**: Verifies local HTTP response; automatically reverts git state and database backup if any build or migration error occurs.
 
 ---
 

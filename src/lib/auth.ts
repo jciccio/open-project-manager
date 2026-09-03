@@ -39,10 +39,15 @@ export async function signApiToken(sessionData: UserSession, tokenId: string) {
 export async function createSession(sessionData: UserSession) {
   const token = await signToken(sessionData, SESSION_DURATION);
 
+  const isSecure =
+    process.env.COOKIE_SECURE === "false"
+      ? false
+      : process.env.NODE_ENV === "production";
+
   const cookieStore = await cookies();
   cookieStore.set(SESSION_COOKIE_NAME, token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: isSecure,
     sameSite: "lax",
     path: "/",
     maxAge: SESSION_DURATION,

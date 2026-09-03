@@ -9,7 +9,7 @@ import type {
 } from "./types";
 
 export interface VikunjaImporterConfig {
-  /** e.g. "http://192.168.50.94:3456/api/v1" — trailing slash optional. */
+  /** e.g. "http://localhost:3456/api/v1" or "https://vikunja.example.com/api/v1" — trailing slash optional. */
   baseUrl: string;
   /** Vikunja API token (Bearer). Needs read scopes on projects, tasks, labels and comments. */
   token: string;
