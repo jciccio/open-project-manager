@@ -241,6 +241,24 @@ plus one line in the `SOURCES` registry in `src/app/api/v1/import/route.ts`.
 
 ---
 
+## ⚡ AI Assistant Skills (`/opm` for Claude Code & Antigravity)
+
+Open Project Manager provides a standardized skill bundle and `/opm` slash commands for **Claude Code** and **Antigravity**. You can manage tasks, transition cards across Kanban columns, and drive feature development directly from your coding assistant:
+
+```bash
+# Install skills into your project
+yarn install-skills
+```
+
+- `/opm list`: View project columns and tasks.
+- `/opm move <card> <column>`: Move cards between columns (e.g. Backlog -> To Do -> In Progress -> Done).
+- `/opm develop <card>`: Automatically assign task, move to In Progress, load requirements, and guide code implementation.
+- `/opm comment <card> <message>`: Add comments and status notes directly from the assistant.
+
+See the comprehensive [AI Assistant Skills Guide](docs/skills.md) for full setup instructions and connection modes.
+
+---
+
 ## 🤖 Model Context Protocol (MCP) Integration
 
 Open Project Manager natively supports **Model Context Protocol (MCP)**, allowing external AI models (Claude, GPT-4, Cursor, Antigravity, custom agents) to inspect and manage workspace elements over **Stdio transport** or **REST API endpoints**.
@@ -470,6 +488,7 @@ Open [http://localhost:3000](http://localhost:3000) in your web browser!
 | `yarn build` | Compiles the production build |
 | `yarn start` | Starts the production server |
 | `yarn update` | Runs the automated update utility (`deploy/update.sh`) to fetch tags, backup SQLite, and upgrade |
+| `yarn install-skills` | Installs Open Project Manager skills and `/opm` commands for Claude Code and Antigravity |
 | `npx prisma db push` | Applies schema changes to SQLite (`dev.db`) |
 | `npx prisma studio` | Opens Prisma GUI to inspect and edit SQLite records visually |
 

@@ -14,7 +14,8 @@
     "benchmark": "npx tsx scripts/benchmark-memory.ts",
     "load-test": "npx tsx scripts/load-test.ts",
     "mcp": "npx tsx scripts/mcp-server.ts",
-    "update": "./deploy/update.sh"
+    "update": "./deploy/update.sh",
+    "install-skills": "npx tsx scripts/install-skills.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
