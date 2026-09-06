@@ -5,6 +5,7 @@ import { X, User, Mail, Lock, CheckCircle2, Key, Copy, Eye, EyeOff, Check, Trash
 import { updateUserProfile, listApiTokens, createApiToken, revokeApiToken } from "@/actions/auth";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "./LanguageProvider";
+import ErrorBanner from "./ErrorBanner";
 
 interface Props {
   user: {
@@ -40,50 +41,82 @@ export default function UserProfileModal({ user, onClose }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
+  const [tokenError, setTokenError] = useState("");
+  const [revokingId, setRevokingId] = useState<string | null>(null);
 
   const { t } = useTranslation();
   const router = useRouter();
 
   useEffect(() => {
-    listApiTokens().then((res) => {
-      if (res.success && res.tokens) setTokens(res.tokens);
-    });
+    listApiTokens()
+      .then((res) => {
+        if (res.success && res.tokens) setTokens(res.tokens);
+      })
+      .catch(() => setTokenError("Failed to load API tokens."));
   }, []);
 
   async function handleGenerateToken() {
     if (!newTokenName.trim()) return;
     setTokenLoading(true);
-    const res = await createApiToken(newTokenName.trim());
-    setTokenLoading(false);
-    if (res.success && res.token) {
-      setApiToken(res.token.secret);
-      setNewTokenName("");
-      setShowToken(false);
-      const listRes = await listApiTokens();
-      if (listRes.success && listRes.tokens) setTokens(listRes.tokens);
+    setTokenError("");
+    try {
+      const res = await createApiToken(newTokenName.trim());
+      if (res.success && res.token) {
+        setApiToken(res.token.secret);
+        setNewTokenName("");
+        setShowToken(false);
+        const listRes = await listApiTokens();
+        if (listRes.success && listRes.tokens) setTokens(listRes.tokens);
+      } else {
+        setTokenError(res.error || "Failed to generate token.");
+      }
+    } catch {
+      setTokenError("Failed to generate token.");
+    } finally {
+      setTokenLoading(false);
     }
   }
 
   async function handleRevokeToken(token: ApiTokenSummary) {
     if (!confirm(t("profileModal.confirmRevokeToken", { name: token.name }))) return;
-    const res = await revokeApiToken(token.id);
-    if (res.success) {
-      setTokens((prev) => prev.filter((t) => t.id !== token.id));
+    setRevokingId(token.id);
+    setTokenError("");
+    try {
+      const res = await revokeApiToken(token.id);
+      if (res.success) {
+        setTokens((prev) => prev.filter((t) => t.id !== token.id));
+      } else {
+        setTokenError(res.error || "Failed to revoke token.");
+      }
+    } catch {
+      setTokenError("Failed to revoke token.");
+    } finally {
+      setRevokingId(null);
     }
   }
 
   function handleCopyToken() {
     if (!apiToken) return;
-    navigator.clipboard.writeText(apiToken);
-    setCopiedToken(true);
-    setTimeout(() => setCopiedToken(false), 2000);
+    if (!navigator.clipboard) {
+      setTokenError("Clipboard access is unavailable on this connection.");
+      return;
+    }
+    navigator.clipboard.writeText(apiToken).then(() => {
+      setCopiedToken(true);
+      setTimeout(() => setCopiedToken(false), 2000);
+    });
   }
 
   function handleCopyHeader() {
     if (!apiToken) return;
-    navigator.clipboard.writeText(`Authorization: Bearer ${apiToken}`);
-    setCopiedHeader(true);
-    setTimeout(() => setCopiedHeader(false), 2000);
+    if (!navigator.clipboard) {
+      setTokenError("Clipboard access is unavailable on this connection.");
+      return;
+    }
+    navigator.clipboard.writeText(`Authorization: Bearer ${apiToken}`).then(() => {
+      setCopiedHeader(true);
+      setTimeout(() => setCopiedHeader(false), 2000);
+    });
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -97,25 +130,29 @@ export default function UserProfileModal({ user, onClose }: Props) {
     setError("");
     setSuccessMsg("");
 
-    const res = await updateUserProfile({
-      name,
-      email,
-      currentPassword: currentPassword || undefined,
-      newPassword: newPassword || undefined,
-    });
+    try {
+      const res = await updateUserProfile({
+        name,
+        email,
+        currentPassword: currentPassword || undefined,
+        newPassword: newPassword || undefined,
+      });
 
-    setLoading(false);
-
-    if (res.success) {
-      setSuccessMsg(t("profileModal.success"));
-      setCurrentPassword("");
-      setNewPassword("");
-      router.refresh();
-      setTimeout(() => {
-        onClose();
-      }, 1000);
-    } else {
-      setError(res.error || "Failed to update profile.");
+      if (res.success) {
+        setSuccessMsg(t("profileModal.success"));
+        setCurrentPassword("");
+        setNewPassword("");
+        router.refresh();
+        setTimeout(() => {
+          onClose();
+        }, 1000);
+      } else {
+        setError(res.error || "Failed to update profile.");
+      }
+    } catch {
+      setError("Failed to update profile.");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -139,11 +176,7 @@ export default function UserProfileModal({ user, onClose }: Props) {
           </button>
         </div>
 
-        {error && (
-          <div className="rounded-xl bg-red-500/10 border border-red-500/20 p-3 text-xs font-semibold text-red-600 dark:text-red-400 text-center">
-            {error}
-          </div>
-        )}
+        {error && <ErrorBanner message={error} />}
 
         {successMsg && (
           <div className="flex items-center justify-center gap-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 p-3 text-xs font-semibold text-emerald-600 dark:text-emerald-400 text-center">
@@ -232,6 +265,8 @@ export default function UserProfileModal({ user, onClose }: Props) {
                 </p>
               </div>
             </div>
+
+            {tokenError && <ErrorBanner message={tokenError} />}
 
             <div className="flex items-center gap-2">
               <input
@@ -328,8 +363,9 @@ export default function UserProfileModal({ user, onClose }: Props) {
                       <button
                         type="button"
                         onClick={() => handleRevokeToken(token)}
+                        disabled={revokingId === token.id}
                         title={t("profileModal.revoke")}
-                        className="shrink-0 rounded-lg p-1.5 text-red-500 hover:bg-red-500/10 transition-colors"
+                        className="shrink-0 rounded-lg p-1.5 text-red-500 hover:bg-red-500/10 transition-colors disabled:opacity-50"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
