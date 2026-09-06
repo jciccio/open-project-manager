@@ -3,7 +3,7 @@
 import { db } from "@/lib/db";
 import { createSession, destroySession, getSession, signApiToken } from "@/lib/auth";
 import bcrypt from "bcryptjs";
-import { revalidatePath } from "next/cache";
+import { safeRevalidatePath } from "@/lib/revalidate";
 
 export async function registerUser(formData: {
   name: string;
@@ -50,7 +50,7 @@ export async function registerUser(formData: {
       name: user.name,
     });
 
-    revalidatePath("/");
+    safeRevalidatePath("/");
     return { success: true, data: { userId: user.id, email: user.email, name: user.name } };
   } catch (error) {
     console.error("Registration error:", error);
@@ -85,7 +85,7 @@ export async function loginUser(formData: { email: string; password: string }) {
       name: user.name,
     });
 
-    revalidatePath("/");
+    safeRevalidatePath("/");
     return { success: true, data: { userId: user.id, email: user.email, name: user.name } };
   } catch (error) {
     console.error("Login error:", error);
@@ -95,7 +95,7 @@ export async function loginUser(formData: { email: string; password: string }) {
 
 export async function logoutUser() {
   await destroySession();
-  revalidatePath("/");
+  safeRevalidatePath("/");
   return { success: true };
 }
 
@@ -178,7 +178,7 @@ export async function updateUserProfile(data: {
       name: updatedUser.name,
     });
 
-    revalidatePath("/");
+    safeRevalidatePath("/");
     return {
       success: true,
       data: {

@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { revalidatePath } from "next/cache";
+import { safeRevalidatePath } from "@/lib/revalidate";
 import { recordActivity } from "./activity";
 
 async function verifyProjectOwnership(projectId: string, userId: string) {
@@ -110,7 +110,7 @@ export async function createCard(
       toValue: card.title,
     });
 
-    revalidatePath(`/projects/${data.projectId}`);
+    safeRevalidatePath(`/projects/${data.projectId}`);
     return { success: true, data: card };
   } catch (error) {
     console.error("Error creating card:", error);
@@ -350,7 +350,7 @@ export async function updateCard(
       }
     }
 
-    revalidatePath(`/projects/${existingCard.projectId}`);
+    safeRevalidatePath(`/projects/${existingCard.projectId}`);
     return { success: true, data: card };
   } catch (error) {
     console.error(`Error updating card ${id}:`, error);
@@ -399,7 +399,7 @@ export async function moveCard(
       });
     }
 
-    revalidatePath(`/projects/${card.projectId}`);
+    safeRevalidatePath(`/projects/${card.projectId}`);
     return { success: true, data: card };
   } catch (error) {
     console.error(`Error moving card ${cardId}:`, error);
@@ -425,7 +425,7 @@ export async function deleteCard(id: string, overrideUserId?: string) {
       where: { id },
     });
 
-    revalidatePath(`/projects/${existingCard.projectId}`);
+    safeRevalidatePath(`/projects/${existingCard.projectId}`);
     return { success: true };
   } catch (error) {
     console.error(`Error deleting card ${id}:`, error);
@@ -524,8 +524,8 @@ export async function archiveCard(id: string) {
       type: "archived",
     });
 
-    revalidatePath(`/projects/${card.projectId}`);
-    revalidatePath("/archived");
+    safeRevalidatePath(`/projects/${card.projectId}`);
+    safeRevalidatePath("/archived");
     return { success: true, data: updated };
   } catch (error) {
     console.error(`Error archiving card ${id}:`, error);
@@ -559,8 +559,8 @@ export async function unarchiveCard(id: string) {
       type: "unarchived",
     });
 
-    revalidatePath(`/projects/${card.projectId}`);
-    revalidatePath("/archived");
+    safeRevalidatePath(`/projects/${card.projectId}`);
+    safeRevalidatePath("/archived");
     return { success: true, data: updated };
   } catch (error) {
     console.error(`Error unarchiving card ${id}:`, error);
@@ -619,7 +619,7 @@ export async function reorderCards(items: ReorderItem[]) {
         id: { in: cardIds },
         project: { userId: session.userId },
       },
-      select: { id: true },
+      select: { id: true, projectId: true },
     });
 
     if (existingCards.length !== cardIds.length) {
@@ -637,7 +637,10 @@ export async function reorderCards(items: ReorderItem[]) {
     );
 
     await db.$transaction(updates);
-    revalidatePath("/");
+    const projectIds = new Set(existingCards.map((c) => c.projectId));
+    for (const projectId of projectIds) {
+      safeRevalidatePath(`/projects/${projectId}`);
+    }
     return { success: true };
   } catch (error) {
     console.error("Error reordering cards:", error);
@@ -672,7 +675,7 @@ export async function addCardLink(
       },
     });
 
-    revalidatePath(`/projects/${card.projectId}`);
+    safeRevalidatePath(`/projects/${card.projectId}`);
     return { success: true, data: link };
   } catch (error) {
     console.error("Error adding card link:", error);
@@ -695,7 +698,7 @@ export async function removeCardLink(linkId: string, overrideUserId?: string) {
     }
 
     await db.cardLink.delete({ where: { id: linkId } });
-    revalidatePath(`/projects/${link.card.projectId}`);
+    safeRevalidatePath(`/projects/${link.card.projectId}`);
     return { success: true };
   } catch (error) {
     console.error("Error removing card link:", error);
