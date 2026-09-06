@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import { recordActivity } from "./activity";
+import { nextCardNumber, withCardNumberRetry } from "@/lib/cardNumbering";
 
 async function verifyProjectOwnership(projectId: string, userId: string) {
   const project = await db.project.findFirst({
@@ -47,61 +48,57 @@ export async function createCard(
 
     const newOrder = lastCard ? lastCard.order + ORDER_GAP : ORDER_GAP;
 
-    const maxCard = await db.card.findFirst({
-      where: { projectId: data.projectId },
-      orderBy: { number: "desc" },
-      select: { number: true },
-    });
-    const nextNumber = maxCard ? maxCard.number + 1 : 1;
-
     const targetColumn = await db.column.findUnique({ where: { id: data.columnId } });
     const completedAt = targetColumn?.isDone ? new Date() : null;
 
-    const card = await db.card.create({
-      data: {
-        projectId: data.projectId,
-        columnId: data.columnId,
-        title: data.title.trim(),
-        description: data.description,
-        number: nextNumber,
-        priority: data.priority || "NONE",
-        points: data.points ?? null,
-        owner: data.owner || null,
-        dueDate: data.dueDate ? new Date(data.dueDate) : null,
-        completedAt,
-        order: newOrder,
-        parentId: data.parentId || null,
-        typeId: data.typeId || null,
-        labels:
-          data.labelIds && data.labelIds.length > 0
-            ? {
-                create: data.labelIds.map((labelId) => ({ labelId })),
-              }
-            : undefined,
-        assignees:
-          data.assigneeIds && data.assigneeIds.length > 0
-            ? {
-                create: data.assigneeIds.map((userId) => ({ userId })),
-              }
-            : undefined,
-      },
-      include: {
-        type: true,
-        labels: {
-          include: { label: true },
+    const firstAttemptNumber = await nextCardNumber(data.projectId);
+    const card = await withCardNumberRetry(data.projectId, firstAttemptNumber, (number) =>
+      db.card.create({
+        data: {
+          projectId: data.projectId,
+          columnId: data.columnId,
+          title: data.title.trim(),
+          description: data.description,
+          number,
+          priority: data.priority || "NONE",
+          points: data.points ?? null,
+          owner: data.owner || null,
+          dueDate: data.dueDate ? new Date(data.dueDate) : null,
+          completedAt,
+          order: newOrder,
+          parentId: data.parentId || null,
+          typeId: data.typeId || null,
+          labels:
+            data.labelIds && data.labelIds.length > 0
+              ? {
+                  create: data.labelIds.map((labelId) => ({ labelId })),
+                }
+              : undefined,
+          assignees:
+            data.assigneeIds && data.assigneeIds.length > 0
+              ? {
+                  create: data.assigneeIds.map((userId) => ({ userId })),
+                }
+              : undefined,
         },
-        comments: true,
-        activities: {
-          orderBy: { createdAt: "desc" },
+        include: {
+          type: true,
+          labels: {
+            include: { label: true },
+          },
+          comments: true,
+          activities: {
+            orderBy: { createdAt: "desc" },
+          },
+          assignees: {
+            include: { user: { select: { id: true, name: true, email: true } } },
+          },
+          parent: { select: { id: true, number: true, title: true } },
+          children: { select: { id: true, number: true, title: true, completedAt: true } },
+          links: true,
         },
-        assignees: {
-          include: { user: { select: { id: true, name: true, email: true } } },
-        },
-        parent: { select: { id: true, number: true, title: true } },
-        children: { select: { id: true, number: true, title: true, completedAt: true } },
-        links: true,
-      },
-    });
+      })
+    );
 
     await recordActivity({
       cardId: card.id,

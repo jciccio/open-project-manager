@@ -9,6 +9,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { db } from "@/lib/db";
 import { DEFAULT_CARD_TYPES } from "@/lib/cardTypeDefaults";
+import { nextCardNumber, withCardNumberRetry } from "@/lib/cardNumbering";
 
 const DEFAULT_LIST_CARDS_LIMIT = 100;
 
@@ -977,45 +978,41 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       });
       if (lastCard) order = lastCard.order + ORDER_GAP;
 
-      const maxCard = await db.card.findFirst({
-        where: { projectId: args.projectId },
-        orderBy: { number: "desc" },
-        select: { number: true },
-      });
-      const nextNumber = maxCard ? maxCard.number + 1 : 1;
-
       const targetCol = await db.column.findUnique({ where: { id: args.columnId } });
       const completedAt = targetCol?.isDone ? new Date() : null;
 
-      const card = await db.card.create({
-        data: {
-          projectId: args.projectId,
-          columnId: args.columnId,
-          title: args.title.trim(),
-          description: args.description || null,
-          number: nextNumber,
-          priority: args.priority || "NONE",
-          points: typeof args.points === "number" ? args.points : null,
-          owner: args.owner || null,
-          dueDate: args.dueDate ? new Date(args.dueDate) : null,
-          completedAt,
-          order,
-          parentId: args.parentId || null,
-          typeId: args.typeId || null,
-          assignees:
-            args.assigneeIds && args.assigneeIds.length > 0
-              ? {
-                  create: args.assigneeIds.map((userId: string) => ({ userId })),
-                }
-              : undefined,
-        },
-        include: {
-          type: true,
-          assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
-          parent: { select: { id: true, number: true, title: true } },
-          children: { select: { id: true, number: true, title: true, completedAt: true } },
-        },
-      });
+      const firstAttemptNumber = await nextCardNumber(args.projectId);
+      const card = await withCardNumberRetry(args.projectId, firstAttemptNumber, (number) =>
+        db.card.create({
+          data: {
+            projectId: args.projectId,
+            columnId: args.columnId,
+            title: args.title.trim(),
+            description: args.description || null,
+            number,
+            priority: args.priority || "NONE",
+            points: typeof args.points === "number" ? args.points : null,
+            owner: args.owner || null,
+            dueDate: args.dueDate ? new Date(args.dueDate) : null,
+            completedAt,
+            order,
+            parentId: args.parentId || null,
+            typeId: args.typeId || null,
+            assignees:
+              args.assigneeIds && args.assigneeIds.length > 0
+                ? {
+                    create: args.assigneeIds.map((userId: string) => ({ userId })),
+                  }
+                : undefined,
+          },
+          include: {
+            type: true,
+            assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
+            parent: { select: { id: true, number: true, title: true } },
+            children: { select: { id: true, number: true, title: true, completedAt: true } },
+          },
+        })
+      );
       return { success: true, card };
     }
 
