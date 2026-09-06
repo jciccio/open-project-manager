@@ -208,7 +208,11 @@ export async function updateProject(
 
     const project = await db.project.update({
       where: { id },
-      data,
+      data: {
+        name: data.name,
+        description: data.description,
+        color: data.color,
+      },
     });
 
     safeRevalidatePath("/");

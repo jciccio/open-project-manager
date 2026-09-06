@@ -71,7 +71,11 @@ export async function updateColumn(
 
     const updated = await db.column.update({
       where: { id },
-      data,
+      data: {
+        name: data.name,
+        order: data.order,
+        isDone: data.isDone,
+      },
     });
 
     if (data.isDone !== undefined && data.isDone !== column.isDone) {
