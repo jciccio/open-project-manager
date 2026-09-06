@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { revalidatePath } from "next/cache";
+import { safeRevalidatePath } from "@/lib/revalidate";
 
 export async function getLabels(projectId?: string, overrideUserId?: string) {
   try {
@@ -52,7 +52,8 @@ export async function createLabel(name: string, color?: string, projectId?: stri
       },
     });
 
-    revalidatePath("/");
+    safeRevalidatePath("/");
+    if (projectId) safeRevalidatePath(`/projects/${projectId}`);
     return { success: true, data: label };
   } catch (error) {
     console.error("Error creating label:", error);
@@ -88,7 +89,8 @@ export async function deleteLabel(id: string, overrideUserId?: string) {
       where: { id },
     });
 
-    revalidatePath("/");
+    safeRevalidatePath("/");
+    if (label.projectId) safeRevalidatePath(`/projects/${label.projectId}`);
     return { success: true };
   } catch (error) {
     console.error(`Error deleting label ${id}:`, error);

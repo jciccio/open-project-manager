@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { revalidatePath } from "next/cache";
+import { safeRevalidatePath } from "@/lib/revalidate";
 import { DEFAULT_CARD_TYPES } from "@/lib/cardTypeDefaults";
 
 export async function getProjects(isArchived = false, overrideUserId?: string) {
@@ -132,14 +132,6 @@ export async function generateProjectKey(name: string, requestedKey?: string): P
   }
   const clean = name.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
   return clean.slice(0, 4) || "PROJ";
-}
-
-function safeRevalidatePath(path: string) {
-  try {
-    revalidatePath(path);
-  } catch {
-    // Ignore cache revalidation errors outside request context
-  }
 }
 
 export async function createProject(
