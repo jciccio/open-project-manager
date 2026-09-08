@@ -5,11 +5,20 @@ async function main() {
   console.log("Seeding database with default user accounts...");
 
   // Clean existing data
+  await db.activity.deleteMany();
   await db.comment.deleteMany();
   await db.cardLabel.deleteMany();
+  await db.cardAssignee.deleteMany();
+  await db.cardLink.deleteMany();
+  await db.cardRelation.deleteMany();
+  await db.attachment.deleteMany();
   await db.label.deleteMany();
   await db.card.deleteMany();
   await db.column.deleteMany();
+  await db.savedView.deleteMany();
+  await db.cardType.deleteMany();
+  await db.importRecord.deleteMany();
+  await db.apiToken.deleteMany();
   await db.project.deleteMany();
   await db.user.deleteMany();
 
@@ -60,9 +69,17 @@ async function main() {
           { name: "Done", order: 3 },
         ],
       },
+      cardTypes: {
+        create: [
+          { name: "Task", icon: "CheckSquare", color: "#6366f1" },
+          { name: "Bug", icon: "Bug", color: "#ef4444" },
+          { name: "Feature", icon: "Sparkles", color: "#10b981" },
+        ],
+      },
     },
     include: {
       columns: true,
+      cardTypes: true,
     },
   });
 
@@ -71,11 +88,16 @@ async function main() {
   const inProgressCol = proj1.columns.find((c) => c.name === "In Progress")!;
   const doneCol = proj1.columns.find((c) => c.name === "Done")!;
 
+  const featureType = proj1.cardTypes.find((t) => t.name === "Feature");
+  const taskType = proj1.cardTypes.find((t) => t.name === "Task");
+
   // Card 1
   await db.card.create({
     data: {
       projectId: proj1.id,
       columnId: inProgressCol.id,
+      number: 1,
+      typeId: featureType?.id,
       title: "Design Modern Kanban Board Interface",
       description: "Implement drag-and-drop column layout with customizable cards, badges, and filters.",
       priority: "HIGH",
@@ -104,6 +126,8 @@ async function main() {
     data: {
       projectId: proj1.id,
       columnId: todoCol.id,
+      number: 2,
+      typeId: taskType?.id,
       title: "User Authentication & Data Isolation",
       description: "Implement bcrypt password hashing, session cookies, and route protection.",
       priority: "URGENT",
@@ -131,6 +155,13 @@ async function main() {
           { name: "Ideas", order: 0 },
           { name: "Active", order: 1 },
           { name: "Completed", order: 2 },
+        ],
+      },
+      cardTypes: {
+        create: [
+          { name: "Task", icon: "CheckSquare", color: "#6366f1" },
+          { name: "Bug", icon: "Bug", color: "#ef4444" },
+          { name: "Feature", icon: "Sparkles", color: "#10b981" },
         ],
       },
     },
