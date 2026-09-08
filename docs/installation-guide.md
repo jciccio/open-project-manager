@@ -173,6 +173,9 @@ The default `docker-compose.yml` runs a one-shot migration service (`prisma migr
 ```bash
 # Start in the background
 docker compose up -d
+
+# (Optional) Seed demo user accounts and sample project boards
+docker compose run --rm migrate npx tsx prisma/seed.ts
 ```
 
 Check status and logs:
@@ -191,6 +194,9 @@ For production setups using an integrated PostgreSQL 16 database:
 ```bash
 # Start PostgreSQL and Open Project Manager
 docker compose -f docker-compose.postgres.yml up -d
+
+# (Optional) Seed demo user accounts and sample project boards
+docker compose -f docker-compose.postgres.yml run --rm migrate npx tsx prisma/seed.ts
 ```
 
 View logs:

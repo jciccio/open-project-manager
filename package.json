@@ -15,7 +15,11 @@
     "load-test": "npx tsx scripts/load-test.ts",
     "mcp": "npx tsx scripts/mcp-server.ts",
     "update": "./deploy/update.sh",
-    "install-skills": "npx tsx scripts/install-skills.ts"
+    "install-skills": "npx tsx scripts/install-skills.ts",
+    "db:seed": "npx tsx prisma/seed.ts"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

@@ -95,7 +95,7 @@ yarn load-test
 
 ## 🔑 Demo Login Credentials
 
-When database seeding is executed (`npx tsx prisma/seed.ts`), sample accounts are created:
+When database seeding is executed (`yarn db:seed` locally, or `docker compose run --rm migrate npx tsx prisma/seed.ts` in Docker), sample accounts are created:
 
 | Account | Email | Password | Isolated Project |
 |---|---|---|---|
@@ -350,6 +350,9 @@ echo "JWT_SECRET=$(openssl rand -base64 32)" > .env
 # Build and launch container
 docker compose up -d
 
+# (Optional) Seed demo user accounts and sample project boards
+docker compose run --rm migrate npx tsx prisma/seed.ts
+
 # View logs
 docker compose logs -f
 
@@ -370,6 +373,9 @@ echo "JWT_SECRET=$(openssl rand -base64 32)" > .env
 
 # Build and launch application alongside Postgres 16
 docker compose -f docker-compose.postgres.yml up -d
+
+# (Optional) Seed demo user accounts and sample project boards
+docker compose -f docker-compose.postgres.yml run --rm migrate npx tsx prisma/seed.ts
 
 # View logs
 docker compose -f docker-compose.postgres.yml logs -f
@@ -489,6 +495,7 @@ Open [http://localhost:3000](http://localhost:3000) in your web browser!
 | `yarn start` | Starts the production server |
 | `yarn update` | Runs the automated update utility (`deploy/update.sh`) to fetch tags, backup SQLite, and upgrade |
 | `yarn install-skills` | Installs Open Project Manager skills and `/opm` commands for Claude Code and Antigravity |
+| `yarn db:seed` | Seeds sample user accounts and project boards into the database |
 | `npx prisma db push` | Applies schema changes to SQLite (`dev.db`) |
 | `npx prisma studio` | Opens Prisma GUI to inspect and edit SQLite records visually |
 
