@@ -1,4 +1,4 @@
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { NextRequest } from "next/server";
 import { SignJWT, jwtVerify } from "jose";
 import { db } from "@/lib/db";
@@ -14,6 +14,30 @@ export interface UserSession {
   userId: string;
   email: string;
   name: string;
+}
+
+export async function determineCookieSecurity(): Promise<boolean> {
+  if (process.env.COOKIE_SECURE === "false") return false;
+  if (process.env.COOKIE_SECURE === "true") return true;
+
+  if (process.env.NODE_ENV !== "production") return false;
+
+  // In production, detect plain HTTP access (e.g. LAN IP like http://192.168.x.x:3000)
+  // Browsers reject cookies with the `Secure` attribute when sent over non-HTTPS connections.
+  try {
+    const headerList = await headers();
+    const proto = headerList.get("x-forwarded-proto");
+    const referer = headerList.get("referer");
+    const origin = headerList.get("origin");
+
+    if (proto === "http") return false;
+    if (referer && referer.startsWith("http://")) return false;
+    if (origin && origin.startsWith("http://")) return false;
+  } catch {
+    // headers() might be unavailable outside request context
+  }
+
+  return true;
 }
 
 export async function signToken(sessionData: UserSession, durationSeconds = 30 * 24 * 60 * 60) {
@@ -38,11 +62,7 @@ export async function signApiToken(sessionData: UserSession, tokenId: string) {
 
 export async function createSession(sessionData: UserSession) {
   const token = await signToken(sessionData, SESSION_DURATION);
-
-  const isSecure =
-    process.env.COOKIE_SECURE === "false"
-      ? false
-      : process.env.NODE_ENV === "production";
+  const isSecure = await determineCookieSecurity();
 
   const cookieStore = await cookies();
   cookieStore.set(SESSION_COOKIE_NAME, token, {

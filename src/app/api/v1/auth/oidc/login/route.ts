@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import * as client from "openid-client";
 import { getOidcConfig, getOidcRedirectUri, isOidcConfigured } from "@/lib/oidc";
+import { determineCookieSecurity } from "@/lib/auth";
 
 const OIDC_COOKIE_MAX_AGE = 600; // 10 minutes — long enough to complete a login redirect
 
@@ -25,10 +26,7 @@ export async function GET() {
   });
 
   const response = NextResponse.redirect(authorizationUrl);
-  const isSecure =
-    process.env.COOKIE_SECURE === "false"
-      ? false
-      : process.env.NODE_ENV === "production";
+  const isSecure = await determineCookieSecurity();
   const cookieOptions = {
     httpOnly: true,
     secure: isSecure,
