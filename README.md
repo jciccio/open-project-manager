@@ -557,6 +557,17 @@ open-project-manager/
 
 ---
 
+## 💖 Donations
+
+Open Project Manager is an independent open-source project. If you find it useful and would like to support its ongoing development, maintenance, and future features, contributions are deeply appreciated!
+
+[![](https://www.paypalobjects.com/en_US/i/btn/btn_donateCC_LG.gif)](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=2MSMEVFF9P33N)
+
+You can also follow me on Patreon:
+https://patreon.com/Jacware
+
+---
+
 ## 📄 License
 
 MIT License. Free and open source for personal and commercial use.
