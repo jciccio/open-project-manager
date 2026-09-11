@@ -448,6 +448,7 @@ cd open-project-manager
 ```bash
 yarn install
 ```
+*(This automatically runs `npx prisma generate` via `postinstall` to generate the Prisma Client).*
 
 #### 3. Configure Environment Variables
 Create a `.env.local` with a signing secret for auth tokens (the app refuses to start without one):
@@ -486,16 +487,17 @@ Open [http://localhost:3000](http://localhost:3000) in your web browser!
 
 | Command | Description |
 |---|---|
-| `yarn dev` | Starts the Next.js development server on port 3000 |
+| `yarn dev` | Generates Prisma client and starts the Next.js development server on port 3000 |
 | `yarn mcp` | Runs the Model Context Protocol (MCP) server on stdio |
 | `yarn test` | Executes automated integration test suite |
 | `yarn benchmark` | Profiles baseline Node.js process RAM and SQLite DB metrics |
 | `yarn load-test` | Runs high-concurrency stress test (1,500 operations) & measures RAM spikes |
-| `yarn build` | Compiles the production build |
+| `yarn build` | Generates Prisma client and compiles the production build |
 | `yarn start` | Starts the production server |
 | `yarn update` | Runs the automated update utility (`deploy/update.sh`) to fetch tags, backup SQLite, and upgrade |
 | `yarn install-skills` | Installs Open Project Manager skills and `/opm` commands for Claude Code and Antigravity |
 | `yarn db:seed` | Seeds sample user accounts and project boards into the database |
+| `npx prisma generate` | Generates the Prisma Client into `node_modules/@prisma/client` |
 | `npx prisma db push` | Applies schema changes to SQLite (`dev.db`) |
 | `npx prisma studio` | Opens Prisma GUI to inspect and edit SQLite records visually |
 
