@@ -1,6 +1,6 @@
 "use client";
 
-import { MessageSquare, Calendar, Zap, Link2, ShieldAlert } from "lucide-react";
+import { MessageSquare, Calendar, Zap, Link2, ShieldAlert, CheckSquare, CornerDownRight } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useTranslation } from "./LanguageProvider";
 import { CardTypeIcon } from "./cardTypeIcons";
@@ -17,6 +17,19 @@ interface Props {
     points: number | null;
     owner: string | null;
     dueDate: Date | string | null;
+    parentId?: string | null;
+    parent?: {
+      id: string;
+      number?: number;
+      title?: string;
+    } | null;
+    children?: Array<{
+      id: string;
+      number?: number;
+      title?: string;
+      completedAt?: Date | string | null;
+      column?: { isDone?: boolean };
+    }>;
     labels: Array<{
       label: {
         id: string;
@@ -81,6 +94,15 @@ export default function TaskCard({ card, onClick }: Props) {
             {card.project?.key ? `${card.project.key}-${card.number}` : `#${card.number}`}
           </span>
         )}
+        {card.parent && (
+          <span
+            className="inline-flex items-center gap-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 text-[10px] font-medium"
+            title={`Subtask of: ${card.parent.title}`}
+          >
+            <CornerDownRight className="h-2.5 w-2.5 text-indigo-500" />
+            <span>{card.parent.number ? `#${card.parent.number}` : "Subtask"}</span>
+          </span>
+        )}
         {card.labels &&
           card.labels.length > 0 &&
           card.labels.map(({ label }) => (
@@ -120,6 +142,35 @@ export default function TaskCard({ card, onClick }: Props) {
           >
             {card.description}
           </ReactMarkdown>
+        </div>
+      )}
+
+      {/* Subtask Progress on Card */}
+      {card.children && card.children.length > 0 && (
+        <div className="mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-800/60">
+          <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400 mb-1">
+            <span className="flex items-center gap-1 font-medium">
+              <CheckSquare className="h-3 w-3 text-indigo-500" />
+              <span>
+                {card.children.filter((c) => c.completedAt || c.column?.isDone).length}/{card.children.length} subtasks
+              </span>
+            </span>
+            <span className="font-semibold">
+              {Math.round(
+                (card.children.filter((c) => c.completedAt || c.column?.isDone).length / card.children.length) * 100
+              )}%
+            </span>
+          </div>
+          <div className="w-full bg-slate-100 dark:bg-slate-800 h-1 rounded-full overflow-hidden">
+            <div
+              className="bg-indigo-500 h-full rounded-full transition-all duration-300"
+              style={{
+                width: `${Math.round(
+                  (card.children.filter((c) => c.completedAt || c.column?.isDone).length / card.children.length) * 100
+                )}%`,
+              }}
+            />
+          </div>
         </div>
       )}
 

@@ -2,7 +2,7 @@ import Header from "@/components/Header";
 import KanbanBoard from "@/components/KanbanBoard";
 import { getProjectById } from "@/actions/projects";
 import { getSession } from "@/lib/auth";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 export const revalidate = 0;
 
@@ -15,6 +15,9 @@ interface Props {
 export default async function ProjectBoardPage({ params }: Props) {
   const { id } = await params;
   const session = await getSession();
+  if (!session) {
+    redirect("/login");
+  }
   const res = await getProjectById(id);
 
   if (!res.success || !res.data) {

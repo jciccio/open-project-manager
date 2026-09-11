@@ -39,6 +39,19 @@ export async function createCard(
       return { success: false, error: "Card title is required" };
     }
 
+    if (data.parentId) {
+      const parentCard = await db.card.findUnique({
+        where: { id: data.parentId },
+        select: { id: true, projectId: true, parentId: true },
+      });
+      if (!parentCard || parentCard.projectId !== data.projectId) {
+        return { success: false, error: "Parent card not found in this project" };
+      }
+      if (parentCard.parentId) {
+        return { success: false, error: "Subtasks cannot be nested under another subtask" };
+      }
+    }
+
     const ORDER_GAP = 10000;
     const lastCard = await db.card.findFirst({
       where: { columnId: data.columnId },
@@ -140,10 +153,6 @@ export async function updateCard(
     const session = overrideUserId ? { userId: overrideUserId } : await getSession();
     if (!session) return { success: false, error: "Unauthorized" };
 
-    if (data.parentId === id) {
-      return { success: false, error: "A card cannot be its own parent" };
-    }
-
     const existingCard = await db.card.findUnique({
       where: { id },
       include: {
@@ -157,6 +166,28 @@ export async function updateCard(
 
     if (!existingCard || existingCard.project.userId !== session.userId) {
       return { success: false, error: "Unauthorized" };
+    }
+
+    if (data.parentId !== undefined && data.parentId !== null && data.parentId !== "") {
+      if (data.parentId === id) {
+        return { success: false, error: "A card cannot be its own parent" };
+      }
+
+      const childCount = await db.card.count({ where: { parentId: id } });
+      if (childCount > 0) {
+        return { success: false, error: "A card with subtasks cannot be made a subtask" };
+      }
+
+      const targetParent = await db.card.findUnique({
+        where: { id: data.parentId },
+        select: { id: true, projectId: true, parentId: true },
+      });
+      if (!targetParent || targetParent.projectId !== existingCard.projectId) {
+        return { success: false, error: "Parent card not found in this project" };
+      }
+      if (targetParent.parentId) {
+        return { success: false, error: "Subtasks cannot be nested under another subtask" };
+      }
     }
 
     let targetColumn = null;

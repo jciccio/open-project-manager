@@ -3,7 +3,7 @@
 A lightweight, fast, and self-hosted project management web application inspired by Vikunja. Built with **Next.js 15+ (App Router)**, **TypeScript**, **Tailwind CSS**, and **SQLite / PostgreSQL + Prisma ORM (v7)**.
 
 [![CircleCI](https://img.shields.io/circleci/build/github/jciccio/open-project-manager/main?logo=circleci)](https://circleci.com/gh/jciccio/open-project-manager)
-[![Tests](https://img.shields.io/badge/tests-55%20passed-emerald?logo=vitest)](https://github.com/jciccio/open-project-manager)
+[![Tests](https://img.shields.io/badge/tests-162%20passed-emerald?logo=vitest)](https://github.com/jciccio/open-project-manager)
 [![Downloads](https://img.shields.io/github/downloads/jciccio/open-project-manager/total?logo=github&label=downloads)](https://github.com/jciccio/open-project-manager/releases)
 [![Docker](https://img.shields.io/badge/docker-ready-2496ED?logo=docker&logoColor=white)](https://github.com/jciccio/open-project-manager)
 [![MCP Native](https://img.shields.io/badge/MCP-native-7C3AED)](https://github.com/jciccio/open-project-manager)
@@ -37,6 +37,12 @@ A lightweight, fast, and self-hosted project management web application inspired
   - **Assignees & Owners**: Assign team members to cards.
   - **Labels**: Tag cards with project-scoped or global color-coded labels (e.g. Frontend, Backend, Bug).
   - **Due Dates & Completion Timestamps**: Set deadlines and automatically track completion timestamps when cards reach done columns.
+- ✅ **Subtasks & Hierarchical Task Management**:
+  - Break larger cards down into actionable subtasks directly within the Card Detail Modal.
+  - Quick-add subtasks inline and toggle status with interactive completion checkboxes.
+  - Visual progress tracking with completion ratios and progress bars on both the detail modal and Kanban cards.
+  - Parent card breadcrumbs and click-through navigation to jump between parent and child tasks, with instant detachment.
+  - Kanban board filter toggle to show or hide subtasks from column lanes to prevent board clutter.
 - 🔗 **Card Dependencies & Relations**: Connect cards with `BLOCKS`, `BLOCKED_BY`, and `RELATES_TO` relationship links.
 - 📎 **File Attachments**: Upload, stream, list, and delete card attachments (documents, images, logs) via UI, REST API, and base64 MCP tools.
 - 📄 **Card Cursoring & Pagination**: Cursor-based pagination (`limit` & `cursor`) for large project card listings.

@@ -140,7 +140,28 @@ export async function getSession(): Promise<UserSession | null> {
 
     if (!token) return null;
 
-    return await verifyToken(token);
+    const session = await verifyToken(token);
+    if (!session) return null;
+
+    const user = await db.user.findUnique({
+      where: { id: session.userId },
+      select: { id: true, email: true, name: true },
+    });
+
+    if (!user) {
+      try {
+        cookieStore.delete(SESSION_COOKIE_NAME);
+      } catch {
+        // cookies() delete may be ignored in read-only render contexts
+      }
+      return null;
+    }
+
+    return {
+      userId: user.id,
+      email: user.email,
+      name: user.name,
+    };
   } catch (error) {
     return null;
   }
@@ -151,15 +172,29 @@ export async function getApiSession(request: NextRequest): Promise<UserSession |
   const authHeader = request.headers.get("authorization");
   if (authHeader && authHeader.startsWith("Bearer ")) {
     const bearerToken = authHeader.substring(7).trim();
-    const user = await verifyBearerToken(bearerToken);
-    if (user) return user;
+    const session = await verifyBearerToken(bearerToken);
+    if (session) {
+      const user = await db.user.findUnique({
+        where: { id: session.userId },
+        select: { id: true, email: true, name: true },
+      });
+      if (user) return session;
+      return null;
+    }
   }
 
   // 2. Check request cookie
   const cookieToken = request.cookies.get(SESSION_COOKIE_NAME)?.value;
   if (cookieToken) {
-    const user = await verifyToken(cookieToken);
-    if (user) return user;
+    const session = await verifyToken(cookieToken);
+    if (session) {
+      const user = await db.user.findUnique({
+        where: { id: session.userId },
+        select: { id: true, email: true, name: true },
+      });
+      if (user) return session;
+      return null;
+    }
   }
 
   // 3. Fallback to server cookies()

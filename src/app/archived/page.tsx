@@ -3,11 +3,16 @@ import ArchivedClient from "./ArchivedClient";
 import { getProjects } from "@/actions/projects";
 import { getArchivedCards } from "@/actions/cards";
 import { getSession } from "@/lib/auth";
+import { redirect } from "next/navigation";
 
 export const revalidate = 0;
 
 export default async function ArchivedProjectsPage() {
   const session = await getSession();
+  if (!session) {
+    redirect("/login");
+  }
+
   const pRes = await getProjects(true);
   const cRes = await getArchivedCards();
 

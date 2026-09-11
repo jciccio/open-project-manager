@@ -11,6 +11,8 @@ RUN adduser --system --uid 1001 nextjs
 FROM base AS deps
 RUN apk add --no-cache libc6-compat python3 make g++
 COPY package.json yarn.lock ./
+COPY prisma ./prisma
+COPY prisma.config.ts ./
 RUN yarn install --frozen-lockfile
 
 # 3. Builder stage

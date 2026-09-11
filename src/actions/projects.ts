@@ -103,6 +103,38 @@ export async function getProjectById(id: string, overrideUserId?: string) {
                     },
                   },
                 },
+                parent: {
+                  select: {
+                    id: true,
+                    number: true,
+                    title: true,
+                    columnId: true,
+                  },
+                },
+                children: {
+                  where: { isArchived: false },
+                  orderBy: { order: "asc" },
+                  select: {
+                    id: true,
+                    number: true,
+                    title: true,
+                    dueDate: true,
+                    completedAt: true,
+                    columnId: true,
+                    column: {
+                      select: {
+                        id: true,
+                        name: true,
+                        isDone: true,
+                      },
+                    },
+                    assignees: {
+                      include: {
+                        user: { select: { id: true, name: true, email: true } },
+                      },
+                    },
+                  },
+                },
               },
             },
           },

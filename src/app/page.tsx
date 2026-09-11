@@ -2,11 +2,16 @@ import Header from "@/components/Header";
 import DashboardClient from "@/components/DashboardClient";
 import { getProjects } from "@/actions/projects";
 import { getSession } from "@/lib/auth";
+import { redirect } from "next/navigation";
 
 export const revalidate = 0;
 
 export default async function DashboardPage() {
   const session = await getSession();
+  if (!session) {
+    redirect("/login");
+  }
+
   const res = await getProjects(false);
   const projects = res.success && res.data ? res.data : [];
   const archivedCount = res.archivedCount || 0;

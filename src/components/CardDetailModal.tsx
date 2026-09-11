@@ -24,8 +24,11 @@ import {
   Activity as ActivityIcon,
   ArrowRight,
   Clock,
+  CheckSquare,
+  CornerDownRight,
+  Unlink,
 } from "lucide-react";
-import { updateCard, deleteCard, archiveCard, getCardByIdentifier, addCardLink, removeCardLink } from "@/actions/cards";
+import { createCard, updateCard, deleteCard, archiveCard, getCardByIdentifier, addCardLink, removeCardLink } from "@/actions/cards";
 import { getProjectById } from "@/actions/projects";
 import { addComment, updateComment, deleteComment } from "@/actions/comments";
 import { getCardActivity } from "@/actions/activity";
@@ -54,6 +57,29 @@ interface Props {
     completedAt?: Date | string | null;
     typeId?: string | null;
     type?: { id: string; name: string; icon: string; color: string } | null;
+    parentId?: string | null;
+    parent?: {
+      id: string;
+      number?: number;
+      title: string;
+      columnId?: string;
+    } | null;
+    children?: Array<{
+      id: string;
+      number?: number;
+      title: string;
+      completedAt?: Date | string | null;
+      dueDate?: Date | string | null;
+      columnId: string;
+      column?: {
+        id: string;
+        name: string;
+        isDone?: boolean;
+      };
+      assignees?: Array<{
+        user: { id: string; name: string; email: string };
+      }>;
+    }>;
     labels: Array<{
       label: {
         id: string;
@@ -89,6 +115,7 @@ interface Props {
   }>;
   onClose: () => void;
   onRefresh: () => void;
+  onOpenCard?: (cardId: string) => void;
 }
 
 export default function CardDetailModal({
@@ -96,6 +123,7 @@ export default function CardDetailModal({
   columns,
   onClose,
   onRefresh,
+  onOpenCard,
 }: Props) {
   const [title, setTitle] = useState(card.title);
   const [description, setDescription] = useState(card.description || "");
@@ -112,6 +140,15 @@ export default function CardDetailModal({
     card.labels ? card.labels.map((l) => l.label.id) : []
   );
   const [typeId, setTypeId] = useState<string>(card.typeId || card.type?.id || "");
+
+  // Subtask & Parent state
+  const [subtasks, setSubtasks] = useState<Array<any>>(card.children || []);
+  const [parentCard, setParentCard] = useState<any>(card.parent || null);
+  const [isAddingSubtask, setIsAddingSubtask] = useState(false);
+  const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
+  const [isSubmittingSubtask, setIsSubmittingSubtask] = useState(false);
+  const [subtaskError, setSubtaskError] = useState("");
+  const [subtaskLoadingId, setSubtaskLoadingId] = useState<string | null>(null);
 
   const [availableLabels, setAvailableLabels] = useState<
     Array<{ id: string; name: string; color: string }>
@@ -250,7 +287,103 @@ export default function CardDetailModal({
     loadCardTypes();
     loadRelations();
     loadProjectCards();
+
+    setTitle(card.title);
+    setDescription(card.description || "");
+    setColumnId(card.columnId);
+    setPriority(card.priority);
+    setPoints(card.points !== null && card.points !== undefined ? String(card.points) : "");
+    setOwner(card.owner || "");
+    setDueDate(card.dueDate ? new Date(card.dueDate).toISOString().split("T")[0] : "");
+    setSelectedLabelIds(card.labels ? card.labels.map((l) => l.label.id) : []);
+    setTypeId(card.typeId || card.type?.id || "");
+    setSubtasks(card.children || []);
+    setParentCard(card.parent || null);
+    setIsAddingSubtask(false);
+    setNewSubtaskTitle("");
+    setSubtaskError("");
   }, [card.id, card.projectId]);
+
+  async function handleCreateSubtask(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newSubtaskTitle.trim() || isSubmittingSubtask) return;
+
+    setIsSubmittingSubtask(true);
+    setSubtaskError("");
+
+    const defaultColumnId = columns[0]?.id || card.columnId;
+    const res = await createCard({
+      projectId: card.projectId,
+      columnId: defaultColumnId,
+      title: newSubtaskTitle.trim(),
+      parentId: card.id,
+    });
+
+    setIsSubmittingSubtask(false);
+
+    if (res.success && res.data) {
+      setSubtasks((prev) => [...prev, res.data]);
+      setNewSubtaskTitle("");
+      setIsAddingSubtask(false);
+      onRefresh();
+    } else {
+      setSubtaskError(res.error || "Failed to create subtask");
+    }
+  }
+
+  async function handleToggleSubtaskStatus(subtaskId: string, isCurrentlyDone: boolean) {
+    setSubtaskLoadingId(subtaskId);
+    const doneCol = columns.find((c) => c.isDone) || columns[columns.length - 1];
+    const todoCol = columns.find((c) => !c.isDone) || columns[0];
+    const targetCol = isCurrentlyDone ? todoCol : doneCol;
+
+    if (!targetCol) {
+      setSubtaskLoadingId(null);
+      return;
+    }
+
+    const res = await updateCard(subtaskId, {
+      columnId: targetCol.id,
+    });
+
+    setSubtaskLoadingId(null);
+
+    if (res.success && res.data) {
+      setSubtasks((prev) =>
+        prev.map((s) =>
+          s.id === subtaskId
+            ? {
+                ...s,
+                columnId: targetCol.id,
+                completedAt: targetCol.isDone ? new Date() : null,
+                column: { id: targetCol.id, name: targetCol.name, isDone: targetCol.isDone },
+              }
+            : s
+        )
+      );
+      onRefresh();
+    }
+  }
+
+  async function handleDetachSubtask(subtaskId: string) {
+    const res = await updateCard(subtaskId, {
+      parentId: null,
+    });
+    if (res.success) {
+      setSubtasks((prev) => prev.filter((s) => s.id !== subtaskId));
+      onRefresh();
+    }
+  }
+
+  async function handleDetachParent() {
+    const res = await updateCard(card.id, {
+      parentId: null,
+    });
+    if (res.success) {
+      setParentCard(null);
+      onRefresh();
+    }
+  }
 
   async function handleSave() {
     setIsSaving(true);
@@ -461,6 +594,33 @@ export default function CardDetailModal({
 
         {/* Content Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-5">
+          {/* Parent Card Breadcrumb */}
+          {parentCard && (
+            <div className="flex items-center justify-between px-3.5 py-2 rounded-xl bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200/70 dark:border-indigo-800/50 text-xs">
+              <div className="flex items-center gap-2 overflow-hidden">
+                <CornerDownRight className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
+                <span className="text-slate-500 dark:text-slate-400 font-medium shrink-0">Subtask of:</span>
+                <button
+                  type="button"
+                  onClick={() => onOpenCard?.(parentCard.id)}
+                  className="font-bold text-indigo-600 dark:text-indigo-400 hover:underline truncate"
+                  title={parentCard.title}
+                >
+                  {parentCard.number ? `#${parentCard.number} ` : ""}{parentCard.title}
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={handleDetachParent}
+                className="text-[11px] font-semibold text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 flex items-center gap-1 shrink-0 ml-2 transition-colors"
+                title="Detach this subtask from its parent"
+              >
+                <Unlink className="h-3 w-3" />
+                <span>Detach</span>
+              </button>
+            </div>
+          )}
+
           {/* Title */}
           <div>
             <input
@@ -631,6 +791,164 @@ export default function CardDetailModal({
               })}
             </div>
           </div>
+
+          {/* Subtasks Section */}
+          {!parentCard && (
+            <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <CheckSquare className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                  <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+                    Subtasks ({subtasks.filter((s) => s.completedAt || s.column?.isDone).length}/{subtasks.length})
+                  </h4>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsAddingSubtask(!isAddingSubtask)}
+                  className="inline-flex items-center gap-1 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 px-2.5 py-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition-colors"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>Add Subtask</span>
+                </button>
+              </div>
+
+              {/* Progress Bar when subtasks exist */}
+              {subtasks.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                    <span>
+                      {subtasks.filter((s) => s.completedAt || s.column?.isDone).length} of {subtasks.length} completed
+                    </span>
+                    <span>
+                      {Math.round(
+                        (subtasks.filter((s) => s.completedAt || s.column?.isDone).length / subtasks.length) * 100
+                      )}%
+                    </span>
+                  </div>
+                  <div className="w-full bg-slate-200 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden mt-1">
+                    <div
+                      className="bg-indigo-600 dark:bg-indigo-500 h-full rounded-full transition-all duration-300"
+                      style={{
+                        width: `${Math.round(
+                          (subtasks.filter((s) => s.completedAt || s.column?.isDone).length / subtasks.length) * 100
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Inline Add Subtask Form */}
+              {isAddingSubtask && (
+                <form onSubmit={handleCreateSubtask} className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      placeholder="What needs to be done?..."
+                      value={newSubtaskTitle}
+                      onChange={(e) => setNewSubtaskTitle(e.target.value)}
+                      autoFocus
+                      className="flex-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    />
+                    <button
+                      type="submit"
+                      disabled={isSubmittingSubtask || !newSubtaskTitle.trim()}
+                      className="rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 transition-colors shrink-0 disabled:opacity-50"
+                    >
+                      {isSubmittingSubtask ? "Adding..." : "Add"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsAddingSubtask(false);
+                        setNewSubtaskTitle("");
+                        setSubtaskError("");
+                      }}
+                      className="rounded-lg p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                  {subtaskError && (
+                    <p className="text-[11px] text-rose-500 font-semibold">{subtaskError}</p>
+                  )}
+                </form>
+              )}
+
+              {/* Subtasks List */}
+              {subtasks.length > 0 && (
+                <div className="space-y-1.5">
+                  {subtasks.map((subtask) => {
+                    const isDone = !!(subtask.completedAt || subtask.column?.isDone);
+                    return (
+                      <div
+                        key={subtask.id}
+                        className="group flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/80 dark:border-slate-700/60 transition-colors text-xs"
+                      >
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <button
+                            type="button"
+                            disabled={subtaskLoadingId === subtask.id}
+                            onClick={() => handleToggleSubtaskStatus(subtask.id, isDone)}
+                            className={`h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
+                              isDone
+                                ? "bg-emerald-500 border-emerald-500 text-white"
+                                : "border-slate-300 dark:border-slate-600 hover:border-indigo-500 bg-white dark:bg-slate-900"
+                            }`}
+                          >
+                            {isDone && <Check className="h-3 w-3 stroke-[3]" />}
+                          </button>
+
+                          {subtask.number && (
+                            <span className="font-mono text-[10px] text-slate-400 shrink-0">
+                              #{subtask.number}
+                            </span>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => onOpenCard?.(subtask.id)}
+                            className={`truncate text-left font-medium hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors ${
+                              isDone
+                                ? "line-through text-slate-400 dark:text-slate-500"
+                                : "text-slate-800 dark:text-slate-200"
+                            }`}
+                            title={subtask.title}
+                          >
+                            {subtask.title}
+                          </button>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          {subtask.column && (
+                            <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold bg-slate-200/70 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
+                              {subtask.column.name}
+                            </span>
+                          )}
+
+                          {subtask.dueDate && (
+                            <span className="text-[10px] text-slate-400 flex items-center gap-0.5">
+                              <Calendar className="h-3 w-3" />
+                              {new Date(subtask.dueDate).toLocaleDateString(undefined, { month: "numeric", day: "numeric" })}
+                            </span>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => handleDetachSubtask(subtask.id)}
+                            className="opacity-0 group-hover:opacity-100 p-1 rounded text-slate-400 hover:text-rose-500 transition-opacity"
+                            title="Detach subtask from this card"
+                          >
+                            <Unlink className="h-3 w-3" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Card Relations Dependencies Section */}
           <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
