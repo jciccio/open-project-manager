@@ -46,6 +46,124 @@ A lightweight, fast, and self-hosted project management web application inspired
 
 ---
 
+## ⚡ Quick Start & Installation Guide
+
+Get Open Project Manager up and running in under 2 minutes. You can run it effortlessly with **Docker Compose** (recommended for testing or self-hosting) or set up **Local Development** to contribute and customize code.
+
+---
+
+### 📦 Prerequisites & Required Downloads
+
+Make sure you have the necessary tools installed for your preferred setup method:
+
+| Tool | Required For | Recommended Version | Download / Installation Link |
+|---|---|---|---|
+| **[Docker Desktop](https://www.docker.com/products/docker-desktop/)** or Docker Engine + Compose | Docker Setup | v24+ / Compose v2+ | [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/) |
+| **[Node.js](https://nodejs.org/)** | Local Development | v18.x or v20.x+ (LTS) | [nodejs.org](https://nodejs.org/) |
+| **[Yarn](https://yarnpkg.com/)** or **npm** | Local Development | `yarn` v1.22+ or `npm` v9+ | `npm install -g yarn` |
+| **[Git](https://git-scm.com/)** | Both | Any modern version | [git-scm.com](https://git-scm.com/) |
+| **OpenSSL** | Both (Token Generation) | Preinstalled on macOS/Linux | Windows: Included with Git Bash |
+
+---
+
+### 🐳 Option 1: Docker Compose (Fastest & Recommended)
+
+Docker Compose provides a fully isolated, zero-dependency environment with automatic SQLite database migrations and persistent volume storage.
+
+#### Step 1: Clone the Repository
+```bash
+git clone https://github.com/jciccio/open-project-manager.git
+cd open-project-manager
+```
+
+#### Step 2: Configure Environment Secret
+Create a `.env` file containing a secure random secret for JWT authentication. **The application refuses to start without this**:
+```bash
+# macOS / Linux / Git Bash:
+echo "JWT_SECRET=$(openssl rand -base64 32)" > .env
+```
+*(On Windows PowerShell without OpenSSL, generate any 32+ character random string and put `JWT_SECRET=your-random-32-char-secret-string` into `.env`)*
+
+#### Step 3: Launch Containers
+```bash
+docker compose up -d
+```
+> **How it works**: Docker Compose automatically runs the `migrate` service first (`prisma migrate deploy` against the `opm_data` volume) to initialize the SQLite database schema, then starts the web server.
+
+#### Step 4: Seed Sample Data & Demo Accounts
+Run the seed script inside the migrator container to populate initial demo accounts, columns, cards, and labels:
+```bash
+docker compose run --rm migrate npx tsx prisma/seed.ts
+```
+
+#### Step 5: Access the Application
+Open **[http://localhost:3000](http://localhost:3000)** in your browser!
+
+```bash
+# View live container logs:
+docker compose logs -f
+
+# Stop containers:
+docker compose down
+```
+
+> 💡 **Prefer PostgreSQL?** Run `docker compose -f docker-compose.postgres.yml up -d` and seed with `docker compose -f docker-compose.postgres.yml run --rm migrate npx tsx prisma/seed.ts`. See the [Docker Deployment](#-docker-deployment) section below for details.
+
+---
+
+### 💻 Option 2: Local Development (Node.js & Yarn)
+
+Follow these steps if you want to run the code locally, contribute features, or modify components.
+
+#### Step 1: Clone Repository & Install Dependencies
+```bash
+git clone https://github.com/jciccio/open-project-manager.git
+cd open-project-manager
+yarn install
+# (or: npm install)
+```
+
+#### Step 2: Configure Environment Secret
+Create your `.env.local` configuration file with a generated JWT secret:
+```bash
+echo "JWT_SECRET=$(openssl rand -base64 32)" > .env.local
+```
+*(Optional: see `.env.example` to configure OIDC / Single Sign-On or PostgreSQL)*
+
+#### Step 3: Initialize the SQLite Database
+Apply the Prisma database schema to your local SQLite file (`dev.db`):
+```bash
+npx prisma db push
+```
+
+#### Step 4: Seed Demo Accounts & Sample Projects
+Populate the database with sample boards, cards, labels, and default credentials:
+```bash
+yarn db:seed
+# (or: npx tsx prisma/seed.ts)
+```
+
+#### Step 5: Start the Development Server
+```bash
+yarn dev
+```
+Open **[http://localhost:3000](http://localhost:3000)** in your browser with hot reloading enabled!
+
+---
+
+### 🔑 Demo Login Credentials
+
+Once seeded (via either Docker or Local development), you can log in with the following pre-configured accounts:
+
+| Account | Email | Password | Isolated Project / Role |
+|---|---|---|---|
+| **Admin Account** | `admin@example.com` | `password123` | Open Project Manager MVP |
+| **Jose Account** | `jose@example.com` | `password123` | Jose's Autonomous Systems |
+
+> ℹ️ You can also register a brand-new custom account directly from the login page (`/login`).
+
+---
+
 ## 📊 System Benchmarks & Memory Load Testing
 
 Open Project Manager is profiled using Node process memory inspecting APIs (`process.memoryUsage()`) and real-time stress testing.
@@ -83,24 +201,6 @@ yarn benchmark
 # 3. Execute high-concurrency memory load & throughput stress test (1,500 ops)
 yarn load-test
 ```
-
----
-
-## 🛠️ Prerequisites
-
-- **Node.js**: v18.x or higher
-- **Yarn**: `v1.22.x` or higher (or `npm`)
-
----
-
-## 🔑 Demo Login Credentials
-
-When database seeding is executed (`yarn db:seed` locally, or `docker compose run --rm migrate npx tsx prisma/seed.ts` in Docker), sample accounts are created:
-
-| Account | Email | Password | Isolated Project |
-|---|---|---|---|
-| Admin Account | `admin@example.com` | `password123` | Open Project Manager MVP |
-| Jose Account | `jose@example.com` | `password123` | Jose's Autonomous Systems |
 
 ---
 
@@ -422,7 +522,10 @@ Commit the generated `prisma/migrations/` folder — `migrate deploy` (run autom
 
 ## 🚀 Installation & Deployment Guide
 
-Open Project Manager supports two primary production deployment methods as well as a local development workflow. For a complete, step-by-step tutorial tailored for **Raspberry Pi** (ARM64/ARMv7), home servers, and Linux VPS environments, see the dedicated [🍓 Raspberry Pi & Linux Installation Guide](docs/installation-guide.md).
+Open Project Manager supports two primary production deployment methods as well as a local development workflow.
+
+- **⚡ Quick Start**: If you are setting up Open Project Manager for the first time, follow the [⚡ Quick Start & Installation Guide](#-quick-start--installation-guide) at the beginning of this document for Docker and local instructions.
+- **🍓 Dedicated Raspberry Pi & Linux Guide**: For an exhaustive, step-by-step tutorial covering **Raspberry Pi** (ARM64/ARMv7), home servers, and Linux VPS environments (including swap configuration, Systemd units, PM2, Caddy/Nginx reverse proxy with SSL, and SQLite hot backups), see the dedicated [🍓 Raspberry Pi & Linux Installation Guide](docs/installation-guide.md).
 
 ### Deployment Modes at a Glance
 
@@ -433,53 +536,6 @@ Open Project Manager supports two primary production deployment methods as well 
 | **💻 Local Development** | Hacking, contributing, extending features | Local `dev.db` file | Next.js dev server (`yarn dev`) | ~150–200 MB |
 
 > 📖 **Full Installation Tutorial**: Follow the complete [Installation Guide (docs/installation-guide.md)](docs/installation-guide.md) for detailed swap setup, Systemd units, PM2 configs, Caddy/Nginx reverse proxy with automatic SSL, and SQLite hot backups.
-
----
-
-### Quick Start (Local Development)
-
-#### 1. Clone the Repository
-```bash
-git clone https://github.com/your-username/open-project-manager.git
-cd open-project-manager
-```
-
-#### 2. Install Dependencies
-```bash
-yarn install
-```
-*(This automatically runs `npx prisma generate` via `postinstall` to generate the Prisma Client).*
-
-#### 3. Configure Environment Variables
-Create a `.env.local` with a signing secret for auth tokens (the app refuses to start without one):
-```bash
-echo "JWT_SECRET=$(openssl rand -base64 32)" > .env.local
-```
-
-To let users sign in through an existing identity provider (Authentik, Keycloak, Authelia, etc.) alongside built-in email/password login:
-```bash
-OIDC_ISSUER_URL=https://idp.example.com
-OIDC_CLIENT_ID=open-project-manager
-OIDC_CLIENT_SECRET=your-client-secret
-OIDC_REDIRECT_URI=https://opm.example.com/api/v1/auth/oidc/callback
-```
-
-#### 4. Initialize the SQLite Database
-```bash
-npx prisma db push
-```
-
-#### 5. Seed Sample Projects & Users (Optional)
-```bash
-npx tsx prisma/seed.ts
-```
-
-#### 6. Start the Development Server
-```bash
-yarn dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) in your web browser!
 
 ---
 
