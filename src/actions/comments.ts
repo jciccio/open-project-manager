@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { revalidatePath } from "next/cache";
+import { safeRevalidatePath } from "@/lib/revalidate";
 import { recordActivity } from "./activity";
 
 export async function listComments(cardId: string, overrideUserId?: string) {
@@ -71,7 +71,7 @@ export async function addComment(
       toValue: content.trim().slice(0, 100),
     });
 
-    revalidatePath(`/projects/${card.projectId}`);
+    safeRevalidatePath(`/projects/${card.projectId}`);
     return { success: true, data: comment };
   } catch (error) {
     console.error("Error adding comment:", error);
@@ -99,7 +99,7 @@ export async function deleteComment(commentId: string, overrideUserId?: string) 
       where: { id: commentId },
     });
 
-    revalidatePath(`/projects/${comment.card.projectId}`);
+    safeRevalidatePath(`/projects/${comment.card.projectId}`);
     return { success: true };
   } catch (error) {
     console.error(`Error deleting comment ${commentId}:`, error);
@@ -138,7 +138,7 @@ export async function updateComment(
       },
     });
 
-    revalidatePath(`/projects/${comment.card.projectId}`);
+    safeRevalidatePath(`/projects/${comment.card.projectId}`);
     return { success: true, data: updatedComment };
   } catch (error) {
     console.error(`Error updating comment ${commentId}:`, error);
