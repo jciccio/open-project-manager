@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Zap, Calendar, User, MessageSquare } from "lucide-react";
 import { moveCard } from "@/actions/cards";
 import { useTranslation } from "../LanguageProvider";
+import ErrorBanner from "../ErrorBanner";
 
 interface Props {
   project: any;
@@ -30,20 +31,33 @@ export default function ListView({
   typeFilter = "ALL",
 }: Props) {
   const [movingCardId, setMovingCardId] = useState<string | null>(null);
+  const [error, setError] = useState("");
   const { t } = useTranslation();
 
   async function handleColumnChange(cardId: string, newColumnId: string) {
     setMovingCardId(cardId);
-    const targetCol = project.columns.find((c: any) => c.id === newColumnId);
-    const newOrder = targetCol?.cards ? targetCol.cards.length : 0;
+    setError("");
+    try {
+      const targetCol = project.columns.find((c: any) => c.id === newColumnId);
+      const newOrder = targetCol?.cards ? targetCol.cards.length : 0;
 
-    await moveCard(cardId, newColumnId, newOrder);
-    setMovingCardId(null);
-    onRefresh();
+      const res = await moveCard(cardId, newColumnId, newOrder);
+      if (res.success) {
+        onRefresh();
+      } else {
+        setError(res.error || "Failed to move card.");
+      }
+    } catch {
+      setError("Failed to move card.");
+    } finally {
+      setMovingCardId(null);
+    }
   }
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
+      {error && <ErrorBanner message={error} />}
+
       {project.columns.map((col: any) => {
         const filteredCards = (col.cards || []).filter((card: any) => {
           const matchesSearch =
