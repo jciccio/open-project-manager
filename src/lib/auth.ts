@@ -1,4 +1,4 @@
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { NextRequest } from "next/server";
 import { SignJWT, jwtVerify } from "jose";
 import { db } from "@/lib/db";
@@ -14,6 +14,30 @@ export interface UserSession {
   userId: string;
   email: string;
   name: string;
+}
+
+export async function determineCookieSecurity(): Promise<boolean> {
+  if (process.env.COOKIE_SECURE === "false") return false;
+  if (process.env.COOKIE_SECURE === "true") return true;
+
+  if (process.env.NODE_ENV !== "production") return false;
+
+  // In production, detect plain HTTP access (e.g. LAN IP like http://192.168.x.x:3000)
+  // Browsers reject cookies with the `Secure` attribute when sent over non-HTTPS connections.
+  try {
+    const headerList = await headers();
+    const proto = headerList.get("x-forwarded-proto");
+    const referer = headerList.get("referer");
+    const origin = headerList.get("origin");
+
+    if (proto === "http") return false;
+    if (referer && referer.startsWith("http://")) return false;
+    if (origin && origin.startsWith("http://")) return false;
+  } catch {
+    // headers() might be unavailable outside request context
+  }
+
+  return true;
 }
 
 export async function signToken(sessionData: UserSession, durationSeconds = 30 * 24 * 60 * 60) {
@@ -38,11 +62,12 @@ export async function signApiToken(sessionData: UserSession, tokenId: string) {
 
 export async function createSession(sessionData: UserSession) {
   const token = await signToken(sessionData, SESSION_DURATION);
+  const isSecure = await determineCookieSecurity();
 
   const cookieStore = await cookies();
   cookieStore.set(SESSION_COOKIE_NAME, token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: isSecure,
     sameSite: "lax",
     path: "/",
     maxAge: SESSION_DURATION,
@@ -115,7 +140,28 @@ export async function getSession(): Promise<UserSession | null> {
 
     if (!token) return null;
 
-    return await verifyToken(token);
+    const session = await verifyToken(token);
+    if (!session) return null;
+
+    const user = await db.user.findUnique({
+      where: { id: session.userId },
+      select: { id: true, email: true, name: true },
+    });
+
+    if (!user) {
+      try {
+        cookieStore.delete(SESSION_COOKIE_NAME);
+      } catch {
+        // cookies() delete may be ignored in read-only render contexts
+      }
+      return null;
+    }
+
+    return {
+      userId: user.id,
+      email: user.email,
+      name: user.name,
+    };
   } catch (error) {
     return null;
   }
@@ -126,15 +172,29 @@ export async function getApiSession(request: NextRequest): Promise<UserSession |
   const authHeader = request.headers.get("authorization");
   if (authHeader && authHeader.startsWith("Bearer ")) {
     const bearerToken = authHeader.substring(7).trim();
-    const user = await verifyBearerToken(bearerToken);
-    if (user) return user;
+    const session = await verifyBearerToken(bearerToken);
+    if (session) {
+      const user = await db.user.findUnique({
+        where: { id: session.userId },
+        select: { id: true, email: true, name: true },
+      });
+      if (user) return session;
+      return null;
+    }
   }
 
   // 2. Check request cookie
   const cookieToken = request.cookies.get(SESSION_COOKIE_NAME)?.value;
   if (cookieToken) {
-    const user = await verifyToken(cookieToken);
-    if (user) return user;
+    const session = await verifyToken(cookieToken);
+    if (session) {
+      const user = await db.user.findUnique({
+        where: { id: session.userId },
+        select: { id: true, email: true, name: true },
+      });
+      if (user) return session;
+      return null;
+    }
   }
 
   // 3. Fallback to server cookies()
