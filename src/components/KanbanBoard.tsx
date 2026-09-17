@@ -19,10 +19,13 @@ import {
   Check,
   Tag,
   X,
+  Pencil,
+  ListTree,
 } from "lucide-react";
 import Link from "next/link";
 import KanbanColumn from "./KanbanColumn";
 import CardDetailModal from "./CardDetailModal";
+import EditProjectModal from "./EditProjectModal";
 import ListView from "./views/ListView";
 import AnalyticsView from "./views/AnalyticsView";
 import CalendarView from "./views/CalendarView";
@@ -50,6 +53,7 @@ export default function KanbanBoard({ project }: Props) {
   const [searchQuery, setSearchQuery] = useState("");
   const [priorityFilter, setPriorityFilter] = useState<string>("ALL");
   const [typeFilter, setTypeFilter] = useState<string>("ALL");
+  const [hideSubtasks, setHideSubtasks] = useState(false);
 
   // Saved Views State
   const [savedViews, setSavedViews] = useState<any[]>(project.savedViews || []);
@@ -58,6 +62,7 @@ export default function KanbanBoard({ project }: Props) {
   const [newViewName, setNewViewName] = useState("");
   const [newViewIsDefault, setNewViewIsDefault] = useState(false);
   const [savingViewLoading, setSavingViewLoading] = useState(false);
+  const [isEditProjectOpen, setIsEditProjectOpen] = useState(false);
 
   const { t } = useTranslation();
   const router = useRouter();
@@ -79,6 +84,7 @@ export default function KanbanBoard({ project }: Props) {
       if (filters.query !== undefined) setSearchQuery(filters.query);
       if (filters.priority !== undefined) setPriorityFilter(filters.priority);
       if (filters.typeId !== undefined) setTypeFilter(filters.typeId);
+      if (filters.hideSubtasks !== undefined) setHideSubtasks(filters.hideSubtasks);
       if (filters.viewMode && ["kanban", "list", "analytics", "calendar"].includes(filters.viewMode)) {
         setViewMode(filters.viewMode);
       }
@@ -93,6 +99,7 @@ export default function KanbanBoard({ project }: Props) {
       setSearchQuery("");
       setPriorityFilter("ALL");
       setTypeFilter("ALL");
+      setHideSubtasks(false);
       return;
     }
     const target = savedViews.find((v) => v.id === viewId);
@@ -110,6 +117,7 @@ export default function KanbanBoard({ project }: Props) {
       query: searchQuery,
       priority: priorityFilter,
       typeId: typeFilter,
+      hideSubtasks,
       viewMode,
     };
 
@@ -213,9 +221,13 @@ export default function KanbanBoard({ project }: Props) {
     }
   }
 
-  // Filter cards by search, priority & type for Kanban view
+  // Filter cards by search, priority, type & subtask visibility for Kanban view
   const columnsWithFilteredCards = project.columns.map((col: any) => {
     const filteredCards = (col.cards || []).filter((card: any) => {
+      if (hideSubtasks && card.parentId) {
+        return false;
+      }
+
       const matchesSearch =
         searchQuery === "" ||
         card.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -270,12 +282,19 @@ export default function KanbanBoard({ project }: Props) {
             <div>
               <div className="flex items-center gap-2.5">
                 <span
-                  className="h-3.5 w-3.5 rounded-full"
+                  className="h-3.5 w-3.5 rounded-full shrink-0"
                   style={{ backgroundColor: project.color || "#6366f1" }}
                 />
                 <h1 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
                   {project.name}
                 </h1>
+                <button
+                  onClick={() => setIsEditProjectOpen(true)}
+                  className="rounded-lg p-1 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                  title={t("projectCard.editTooltip") || "Edit project"}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
                 {project.isArchived && (
                   <span className="rounded-md bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 border border-amber-500/20">
                     {t("projectCard.archivedBadge")}
@@ -428,6 +447,21 @@ export default function KanbanBoard({ project }: Props) {
                     </select>
                   </div>
                 )}
+
+                {/* Hide / Show Subtasks Filter Button */}
+                <button
+                  type="button"
+                  onClick={() => setHideSubtasks(!hideSubtasks)}
+                  className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold transition-all ${
+                    hideSubtasks
+                      ? "bg-indigo-50 dark:bg-indigo-500/20 border-indigo-300 dark:border-indigo-500/40 text-indigo-700 dark:text-indigo-300"
+                      : "bg-white dark:bg-slate-800/80 border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                  }`}
+                  title={hideSubtasks ? "Subtasks are hidden from board columns" : "Subtasks are visible on board columns"}
+                >
+                  <ListTree className="h-3.5 w-3.5" />
+                  <span>{hideSubtasks ? "Subtasks Hidden" : "Hide Subtasks"}</span>
+                </button>
               </>
             )}
           </div>
@@ -607,6 +641,26 @@ export default function KanbanBoard({ project }: Props) {
           columns={project.columns}
           onClose={() => setActiveCard(null)}
           onRefresh={() => window.location.reload()}
+          onOpenCard={(cardId) => {
+            for (const col of project.columns) {
+              const found = (col.cards || []).find((c: any) => c.id === cardId);
+              if (found) {
+                setActiveCard(found);
+                return;
+              }
+            }
+          }}
+        />
+      )}
+
+      {/* Edit Project Modal */}
+      {isEditProjectOpen && (
+        <EditProjectModal
+          project={project}
+          onClose={() => setIsEditProjectOpen(false)}
+          onUpdateSuccess={() => {
+            router.refresh();
+          }}
         />
       )}
     </div>

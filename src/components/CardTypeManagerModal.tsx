@@ -5,23 +5,15 @@ import { X, Layers, Plus, Trash2, Pencil, Check } from "lucide-react";
 import { getCardTypes, createCardType, updateCardType, deleteCardType } from "@/actions/cardTypes";
 import { useTranslation } from "./LanguageProvider";
 import { CARD_TYPE_ICON_NAMES, CardTypeIcon } from "./cardTypeIcons";
+import ColorPicker from "./ColorPicker";
+import ErrorBanner from "./ErrorBanner";
+import { DEFAULT_PROJECT_COLOR, PROJECT_COLORS } from "@/lib/colors";
 
 interface Props {
   projectId: string;
   onClose: () => void;
   onChange?: () => void;
 }
-
-const PRESET_COLORS = [
-  "#ef4444", // Red
-  "#f97316", // Orange
-  "#f59e0b", // Amber
-  "#10b981", // Emerald
-  "#06b6d4", // Cyan
-  "#3b82f6", // Blue
-  "#8b5cf6", // Purple
-  "#ec4899", // Pink
-];
 
 interface CardTypeRecord {
   id: string;
@@ -34,8 +26,11 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
   const [cardTypes, setCardTypes] = useState<CardTypeRecord[]>([]);
   const [name, setName] = useState("");
   const [icon, setIcon] = useState(CARD_TYPE_ICON_NAMES[0]);
-  const [color, setColor] = useState(PRESET_COLORS[0]);
+  const [color, setColor] = useState(DEFAULT_PROJECT_COLOR);
   const [loading, setLoading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [error, setError] = useState("");
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
@@ -49,9 +44,13 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
   }, [projectId]);
 
   async function fetchCardTypes() {
-    const res = await getCardTypes(projectId);
-    if (res.success && res.data) {
-      setCardTypes(res.data);
+    try {
+      const res = await getCardTypes(projectId);
+      if (res.success && res.data) {
+        setCardTypes(res.data);
+      }
+    } catch {
+      setError("Failed to load card types.");
     }
   }
 
@@ -60,21 +59,38 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
     if (!name.trim()) return;
 
     setLoading(true);
-    const res = await createCardType(name.trim(), projectId, icon, color);
-    setLoading(false);
-
-    if (res.success) {
-      setName("");
-      fetchCardTypes();
-      onChange?.();
+    setError("");
+    try {
+      const res = await createCardType(name.trim(), projectId, icon, color);
+      if (res.success) {
+        setName("");
+        await fetchCardTypes();
+        onChange?.();
+      } else {
+        setError(res.error || "Failed to create card type.");
+      }
+    } catch {
+      setError("Failed to create card type.");
+    } finally {
+      setLoading(false);
     }
   }
 
   async function handleDelete(id: string) {
-    const res = await deleteCardType(id);
-    if (res.success) {
-      fetchCardTypes();
-      onChange?.();
+    setDeletingId(id);
+    setError("");
+    try {
+      const res = await deleteCardType(id);
+      if (res.success) {
+        await fetchCardTypes();
+        onChange?.();
+      } else {
+        setError(res.error || "Failed to delete card type.");
+      }
+    } catch {
+      setError("Failed to delete card type.");
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -87,11 +103,21 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
 
   async function handleSaveEdit(id: string) {
     if (!editingName.trim()) return;
-    const res = await updateCardType(id, { name: editingName.trim(), icon: editingIcon, color: editingColor });
-    if (res.success) {
-      setEditingId(null);
-      fetchCardTypes();
-      onChange?.();
+    setSavingId(id);
+    setError("");
+    try {
+      const res = await updateCardType(id, { name: editingName.trim(), icon: editingIcon, color: editingColor });
+      if (res.success) {
+        setEditingId(null);
+        await fetchCardTypes();
+        onChange?.();
+      } else {
+        setError(res.error || "Failed to update card type.");
+      }
+    } catch {
+      setError("Failed to update card type.");
+    } finally {
+      setSavingId(null);
     }
   }
 
@@ -112,6 +138,8 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
             <X className="h-5 w-5" />
           </button>
         </div>
+
+        {error && <ErrorBanner message={error} />}
 
         {/* Create Form */}
         <form onSubmit={handleCreate} className="space-y-3 bg-slate-50 dark:bg-slate-950/50 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
@@ -155,28 +183,18 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
             </div>
           </div>
 
-          <div className="flex items-center gap-2 pt-1">
-            <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">{t("cardTypeModal.color")}</span>
-            <div className="flex items-center gap-2">
-              {PRESET_COLORS.map((c) => (
-                <button
-                  type="button"
-                  key={c}
-                  onClick={() => setColor(c)}
-                  className={`h-5 w-5 rounded-full transition-transform ${
-                    color === c ? "scale-125 ring-2 ring-indigo-500" : "opacity-70 hover:opacity-100"
-                  }`}
-                  style={{ backgroundColor: c }}
-                />
-              ))}
-            </div>
-          </div>
+          <ColorPicker
+            value={color}
+            onChange={setColor}
+            label={t("cardTypeModal.color")}
+            size="sm"
+          />
         </form>
 
         {/* Existing Card Types */}
         <div className="space-y-2">
           <h4 className="text-xs font-bold text-slate-900 dark:text-white">{t("cardTypeModal.existing")}</h4>
-          <div className="max-h-56 overflow-y-auto space-y-1.5 pr-1">
+          <div className="max-h-64 overflow-y-auto space-y-1.5 pr-1">
             {cardTypes.length > 0 ? (
               cardTypes.map((ct) => {
                 const isEditing = editingId === ct.id;
@@ -186,43 +204,41 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
                     className="flex items-center justify-between rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 px-3 py-2 text-xs"
                   >
                     {isEditing ? (
-                      <div className="flex flex-1 items-center gap-2">
-                        <input
-                          type="text"
-                          value={editingName}
-                          onChange={(e) => setEditingName(e.target.value)}
-                          className="flex-1 rounded-md bg-white dark:bg-slate-900 border border-indigo-500 px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none"
-                          autoFocus
-                        />
-                        <div className="flex items-center gap-1">
-                          {PRESET_COLORS.map((c) => (
+                      <div className="flex flex-col gap-2 flex-1">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={editingName}
+                            onChange={(e) => setEditingName(e.target.value)}
+                            className="flex-1 rounded-md bg-white dark:bg-slate-900 border border-indigo-500 px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none"
+                            autoFocus
+                          />
+                          <div className="flex items-center gap-1">
                             <button
                               type="button"
-                              key={c}
-                              onClick={() => setEditingColor(c)}
-                              className={`h-4 w-4 rounded-full transition-transform ${
-                                editingColor === c ? "scale-125 ring-2 ring-indigo-500" : "opacity-70 hover:opacity-100"
-                              }`}
-                              style={{ backgroundColor: c }}
-                            />
-                          ))}
+                              onClick={() => handleSaveEdit(ct.id)}
+                              disabled={savingId === ct.id}
+                              className="p-1 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 rounded-md disabled:opacity-50"
+                              title="Save"
+                            >
+                              <Check className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingId(null)}
+                              disabled={savingId === ct.id}
+                              className="p-1 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-md disabled:opacity-50"
+                              title="Cancel"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => handleSaveEdit(ct.id)}
-                          className="p-1 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 rounded-md"
-                          title="Save"
-                        >
-                          <Check className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setEditingId(null)}
-                          className="p-1 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-md"
-                          title="Cancel"
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </button>
+                        <ColorPicker
+                          value={editingColor}
+                          onChange={setEditingColor}
+                          size="sm"
+                        />
                       </div>
                     ) : (
                       <>
@@ -242,7 +258,8 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
                           </button>
                           <button
                             onClick={() => handleDelete(ct.id)}
-                            className="p-1 text-slate-400 hover:text-red-500 transition-colors"
+                            disabled={deletingId === ct.id}
+                            className="p-1 text-slate-400 hover:text-red-500 transition-colors disabled:opacity-50"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>

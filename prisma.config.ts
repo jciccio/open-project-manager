@@ -2,8 +2,10 @@ import "dotenv/config";
 import { defineConfig } from "prisma/config";
 
 const rawUrl = process.env["DATABASE_URL"] || "";
+const providerEnv = process.env["DATABASE_PROVIDER"]?.toLowerCase();
 const isPostgres =
-  process.env["DATABASE_PROVIDER"] === "postgresql" ||
+  providerEnv === "postgresql" ||
+  providerEnv === "postgres" ||
   rawUrl.startsWith("postgresql://") ||
   rawUrl.startsWith("postgres://");
 

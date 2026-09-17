@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { db } from "@/lib/db";
-import { generateProjectKey } from "@/actions/projects";
+import { generateProjectKey } from "@/lib/projectKey";
 import type {
   Importer,
   ImportEntityType,
@@ -91,7 +91,7 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
       "project",
       projectRec.sourceId,
       async () => {
-        const key = await generateProjectKey(projectRec.name, projectRec.key);
+        const key = await generateProjectKey(projectRec.name, projectRec.key, ctx.userId);
         const project = await db.project.create({
           data: {
             userId: ctx.userId,
@@ -188,6 +188,7 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
             points: card.points ?? null,
             owner: card.owner ?? null,
             dueDate: card.dueDate ? new Date(card.dueDate) : null,
+            completedAt: card.completedAt ? new Date(card.completedAt) : null,
             typeId: card.typeSourceId ? cardTypeMap.get(card.typeSourceId) ?? null : null,
             labels:
               card.labelSourceIds && card.labelSourceIds.length > 0

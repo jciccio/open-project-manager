@@ -19,7 +19,7 @@ export async function POST(
       return NextResponse.json({ error: "Missing url" }, { status: 400 });
     }
 
-    const res = await addCardLink(cardId, body.url, body.title);
+    const res = await addCardLink(cardId, body.url, body.title, session.userId);
 
     if (!res.success) {
       return NextResponse.json({ error: res.error }, { status: 400 });
