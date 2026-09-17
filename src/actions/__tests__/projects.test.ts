@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import * as projectActions from "../projects";
 import {
   createProject,
   getProjects,
@@ -8,10 +9,17 @@ import {
   unarchiveProject,
   deleteProject,
 } from "../projects";
+import { generateProjectKey } from "@/lib/projectKey";
 import { createTestUser, cleanupTestUser } from "@/test/helpers";
 import { createSession, destroySession } from "@/lib/auth";
+import { db } from "@/lib/db";
 
 describe("Projects Server Actions", () => {
+  it("does not expose generateProjectKey as a Server Action", () => {
+    expect((projectActions as Record<string, unknown>).generateProjectKey).toBeUndefined();
+  });
+
+
   let userId: string;
   let userEmail: string;
   let userName: string;
@@ -94,5 +102,47 @@ describe("Projects Server Actions", () => {
 
     const getRes = await getProjectById(projectId);
     expect(getRes.success).toBe(false);
+  });
+
+  it("de-duplicates auto-generated project keys for the same user", async () => {
+    const first = await createProject({ name: "Alpha Beta" });
+    const second = await createProject({ name: "Amazing Bicycle" });
+    const third = await createProject({ name: "Another Boat" });
+
+    expect(first.data?.key).toBe("AB");
+    expect(second.data?.key).toBe("AB2");
+    expect(third.data?.key).toBe("AB3");
+  });
+
+  it("falls back to a name-derived key when a requested key sanitizes to empty", async () => {
+    const res = await createProject({ name: "Dashes Only Project", key: "---" });
+    expect(res.success).toBe(true);
+    expect(res.data?.key).toBe("DOP");
+  });
+
+  it("rejects a duplicate key at the database level even if the app-level check is bypassed", async () => {
+    const first = await createProject({ name: "Collision One", key: "DUP" });
+    expect(first.data?.key).toBe("DUP");
+
+    await expect(
+      db.project.create({
+        data: { userId, name: "Collision Two", key: "DUP" },
+      })
+    ).rejects.toThrow();
+  });
+
+  it("allows two different users to independently use the same project key", async () => {
+    const { user: otherUser } = await createTestUser(`projects-action-other-${Date.now()}`);
+    try {
+      const mineKey = await generateProjectKey("Shared Name", undefined, userId);
+      const theirsKey = await generateProjectKey("Shared Name", undefined, otherUser.id);
+      expect(mineKey).toBe(theirsKey);
+
+      const mine = await db.project.create({ data: { userId, name: "Shared Name", key: mineKey } });
+      const theirs = await db.project.create({ data: { userId: otherUser.id, name: "Shared Name", key: theirsKey } });
+      expect(mine.key).toBe(theirs.key);
+    } finally {
+      await cleanupTestUser(otherUser.id);
+    }
   });
 });

@@ -6,6 +6,7 @@ import { getCardTypes, createCardType, updateCardType, deleteCardType } from "@/
 import { useTranslation } from "./LanguageProvider";
 import { CARD_TYPE_ICON_NAMES, CardTypeIcon } from "./cardTypeIcons";
 import ColorPicker from "./ColorPicker";
+import ErrorBanner from "./ErrorBanner";
 import { DEFAULT_PROJECT_COLOR, PROJECT_COLORS } from "@/lib/colors";
 
 interface Props {
@@ -27,6 +28,9 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
   const [icon, setIcon] = useState(CARD_TYPE_ICON_NAMES[0]);
   const [color, setColor] = useState(DEFAULT_PROJECT_COLOR);
   const [loading, setLoading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [error, setError] = useState("");
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
@@ -40,9 +44,13 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
   }, [projectId]);
 
   async function fetchCardTypes() {
-    const res = await getCardTypes(projectId);
-    if (res.success && res.data) {
-      setCardTypes(res.data);
+    try {
+      const res = await getCardTypes(projectId);
+      if (res.success && res.data) {
+        setCardTypes(res.data);
+      }
+    } catch {
+      setError("Failed to load card types.");
     }
   }
 
@@ -51,21 +59,38 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
     if (!name.trim()) return;
 
     setLoading(true);
-    const res = await createCardType(name.trim(), projectId, icon, color);
-    setLoading(false);
-
-    if (res.success) {
-      setName("");
-      fetchCardTypes();
-      onChange?.();
+    setError("");
+    try {
+      const res = await createCardType(name.trim(), projectId, icon, color);
+      if (res.success) {
+        setName("");
+        await fetchCardTypes();
+        onChange?.();
+      } else {
+        setError(res.error || "Failed to create card type.");
+      }
+    } catch {
+      setError("Failed to create card type.");
+    } finally {
+      setLoading(false);
     }
   }
 
   async function handleDelete(id: string) {
-    const res = await deleteCardType(id);
-    if (res.success) {
-      fetchCardTypes();
-      onChange?.();
+    setDeletingId(id);
+    setError("");
+    try {
+      const res = await deleteCardType(id);
+      if (res.success) {
+        await fetchCardTypes();
+        onChange?.();
+      } else {
+        setError(res.error || "Failed to delete card type.");
+      }
+    } catch {
+      setError("Failed to delete card type.");
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -78,11 +103,21 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
 
   async function handleSaveEdit(id: string) {
     if (!editingName.trim()) return;
-    const res = await updateCardType(id, { name: editingName.trim(), icon: editingIcon, color: editingColor });
-    if (res.success) {
-      setEditingId(null);
-      fetchCardTypes();
-      onChange?.();
+    setSavingId(id);
+    setError("");
+    try {
+      const res = await updateCardType(id, { name: editingName.trim(), icon: editingIcon, color: editingColor });
+      if (res.success) {
+        setEditingId(null);
+        await fetchCardTypes();
+        onChange?.();
+      } else {
+        setError(res.error || "Failed to update card type.");
+      }
+    } catch {
+      setError("Failed to update card type.");
+    } finally {
+      setSavingId(null);
     }
   }
 
@@ -103,6 +138,8 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
             <X className="h-5 w-5" />
           </button>
         </div>
+
+        {error && <ErrorBanner message={error} />}
 
         {/* Create Form */}
         <form onSubmit={handleCreate} className="space-y-3 bg-slate-50 dark:bg-slate-950/50 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
@@ -180,7 +217,8 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
                             <button
                               type="button"
                               onClick={() => handleSaveEdit(ct.id)}
-                              className="p-1 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 rounded-md"
+                              disabled={savingId === ct.id}
+                              className="p-1 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 rounded-md disabled:opacity-50"
                               title="Save"
                             >
                               <Check className="h-3.5 w-3.5" />
@@ -188,7 +226,8 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
                             <button
                               type="button"
                               onClick={() => setEditingId(null)}
-                              className="p-1 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-md"
+                              disabled={savingId === ct.id}
+                              className="p-1 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-md disabled:opacity-50"
                               title="Cancel"
                             >
                               <X className="h-3.5 w-3.5" />
@@ -219,7 +258,8 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
                           </button>
                           <button
                             onClick={() => handleDelete(ct.id)}
-                            className="p-1 text-slate-400 hover:text-red-500 transition-colors"
+                            disabled={deletingId === ct.id}
+                            className="p-1 text-slate-400 hover:text-red-500 transition-colors disabled:opacity-50"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>

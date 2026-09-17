@@ -32,8 +32,13 @@ export default function Header({ user, archivedCount = 0 }: Props) {
 
   async function handleLogout() {
     setLoggingOut(true);
-    await logoutUser();
-    window.location.href = "/login";
+    try {
+      await logoutUser();
+      window.location.href = "/login";
+    } catch (err) {
+      console.error("Logout failed:", err);
+      setLoggingOut(false);
+    }
   }
 
   function toggleLanguage() {
