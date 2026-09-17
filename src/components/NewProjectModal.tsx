@@ -5,24 +5,17 @@ import { X, FolderPlus } from "lucide-react";
 import { createProject } from "@/actions/projects";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "./LanguageProvider";
+import ColorPicker from "./ColorPicker";
+import { DEFAULT_PROJECT_COLOR } from "@/lib/colors";
 
 interface Props {
   onClose: () => void;
 }
 
-const COLOR_OPTIONS = [
-  "#6366f1", // Indigo
-  "#ec4899", // Pink
-  "#3b82f6", // Blue
-  "#10b981", // Emerald
-  "#f59e0b", // Amber
-  "#8b5cf6", // Purple
-];
-
 export default function NewProjectModal({ onClose }: Props) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [color, setColor] = useState(COLOR_OPTIONS[0]);
+  const [color, setColor] = useState(DEFAULT_PROJECT_COLOR);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const { t } = useTranslation();
@@ -106,24 +99,11 @@ export default function NewProjectModal({ onClose }: Props) {
             />
           </div>
 
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
-              {t("newProjectModal.colorLabel")}
-            </label>
-            <div className="flex items-center gap-3">
-              {COLOR_OPTIONS.map((c) => (
-                <button
-                  type="button"
-                  key={c}
-                  onClick={() => setColor(c)}
-                  className={`h-8 w-8 rounded-full border-2 transition-all ${
-                    color === c ? "border-indigo-600 dark:border-white scale-110 shadow-lg" : "border-transparent opacity-80 hover:opacity-100"
-                  }`}
-                  style={{ backgroundColor: c }}
-                />
-              ))}
-            </div>
-          </div>
+          <ColorPicker
+            value={color}
+            onChange={setColor}
+            label={t("newProjectModal.colorLabel")}
+          />
 
           <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
             <button

@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { revalidatePath } from "next/cache";
+import { safeRevalidatePath } from "@/lib/revalidate";
 
 async function verifyProjectOwnership(projectId: string, userId: string) {
   const project = await db.project.findFirst({
@@ -34,7 +34,7 @@ export async function createColumn(projectId: string, name: string, isDone: bool
       },
     });
 
-    revalidatePath(`/projects/${projectId}`);
+    safeRevalidatePath(`/projects/${projectId}`);
     return { success: true, data: column };
   } catch (error) {
     console.error("Error creating column:", error);
@@ -59,7 +59,11 @@ export async function updateColumn(
 
     const updated = await db.column.update({
       where: { id },
-      data,
+      data: {
+        name: data.name,
+        order: data.order,
+        isDone: data.isDone,
+      },
     });
 
     if (data.isDone !== undefined && data.isDone !== column.isDone) {
@@ -76,7 +80,7 @@ export async function updateColumn(
       }
     }
 
-    revalidatePath(`/projects/${column.projectId}`);
+    safeRevalidatePath(`/projects/${column.projectId}`);
     return { success: true, data: updated };
   } catch (error) {
     console.error(`Error updating column ${id}:`, error);
@@ -98,7 +102,7 @@ export async function reorderColumns(projectId: string, orderedColumnIds: string
     );
 
     await db.$transaction(updates);
-    revalidatePath(`/projects/${projectId}`);
+    safeRevalidatePath(`/projects/${projectId}`);
     return { success: true };
   } catch (error) {
     console.error("Error reordering columns:", error);
@@ -121,7 +125,7 @@ export async function deleteColumn(id: string, userId: string) {
       where: { id },
     });
 
-    revalidatePath(`/projects/${column.projectId}`);
+    safeRevalidatePath(`/projects/${column.projectId}`);
     return { success: true };
   } catch (error) {
     console.error(`Error deleting column ${id}:`, error);

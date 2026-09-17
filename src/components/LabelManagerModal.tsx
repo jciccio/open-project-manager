@@ -4,27 +4,21 @@ import { useEffect, useState } from "react";
 import { X, Tag, Plus, Trash2 } from "lucide-react";
 import { getLabels, createLabel, deleteLabel } from "@/actions/labels";
 import { useTranslation } from "./LanguageProvider";
+import ColorPicker from "./ColorPicker";
+import ErrorBanner from "./ErrorBanner";
+import { DEFAULT_PROJECT_COLOR } from "@/lib/colors";
 
 interface Props {
   onClose: () => void;
 }
 
-const PRESET_COLORS = [
-  "#ef4444", // Red
-  "#f97316", // Orange
-  "#f59e0b", // Amber
-  "#10b981", // Emerald
-  "#06b6d4", // Cyan
-  "#3b82f6", // Blue
-  "#8b5cf6", // Purple
-  "#ec4899", // Pink
-];
-
 export default function LabelManagerModal({ onClose }: Props) {
   const [labels, setLabels] = useState<any[]>([]);
   const [name, setName] = useState("");
-  const [color, setColor] = useState(PRESET_COLORS[0]);
+  const [color, setColor] = useState(DEFAULT_PROJECT_COLOR);
   const [loading, setLoading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [error, setError] = useState("");
   const { t } = useTranslation();
 
   useEffect(() => {
@@ -32,9 +26,13 @@ export default function LabelManagerModal({ onClose }: Props) {
   }, []);
 
   async function fetchLabels() {
-    const res = await getLabels();
-    if (res.success && res.data) {
-      setLabels(res.data);
+    try {
+      const res = await getLabels();
+      if (res.success && res.data) {
+        setLabels(res.data);
+      }
+    } catch {
+      setError("Failed to load labels.");
     }
   }
 
@@ -43,19 +41,36 @@ export default function LabelManagerModal({ onClose }: Props) {
     if (!name.trim()) return;
 
     setLoading(true);
-    const res = await createLabel(name.trim(), color);
-    setLoading(false);
-
-    if (res.success) {
-      setName("");
-      fetchLabels();
+    setError("");
+    try {
+      const res = await createLabel(name.trim(), color);
+      if (res.success) {
+        setName("");
+        await fetchLabels();
+      } else {
+        setError(res.error || "Failed to create label.");
+      }
+    } catch {
+      setError("Failed to create label.");
+    } finally {
+      setLoading(false);
     }
   }
 
   async function handleDelete(id: string) {
-    const res = await deleteLabel(id);
-    if (res.success) {
-      fetchLabels();
+    setDeletingId(id);
+    setError("");
+    try {
+      const res = await deleteLabel(id);
+      if (res.success) {
+        await fetchLabels();
+      } else {
+        setError(res.error || "Failed to delete label.");
+      }
+    } catch {
+      setError("Failed to delete label.");
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -76,6 +91,8 @@ export default function LabelManagerModal({ onClose }: Props) {
             <X className="h-5 w-5" />
           </button>
         </div>
+
+        {error && <ErrorBanner message={error} />}
 
         {/* Create Form */}
         <form onSubmit={handleCreate} className="space-y-3 bg-slate-50 dark:bg-slate-950/50 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
@@ -98,22 +115,12 @@ export default function LabelManagerModal({ onClose }: Props) {
             </button>
           </div>
 
-          <div className="flex items-center gap-2 pt-1">
-            <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">{t("labelModal.color")}</span>
-            <div className="flex items-center gap-2">
-              {PRESET_COLORS.map((c) => (
-                <button
-                  type="button"
-                  key={c}
-                  onClick={() => setColor(c)}
-                  className={`h-5 w-5 rounded-full transition-transform ${
-                    color === c ? "scale-125 ring-2 ring-indigo-500" : "opacity-70 hover:opacity-100"
-                  }`}
-                  style={{ backgroundColor: c }}
-                />
-              ))}
-            </div>
-          </div>
+          <ColorPicker
+            value={color}
+            onChange={setColor}
+            label={t("labelModal.color")}
+            size="sm"
+          />
         </form>
 
         {/* Existing Labels */}
@@ -134,7 +141,8 @@ export default function LabelManagerModal({ onClose }: Props) {
                   </span>
                   <button
                     onClick={() => handleDelete(lbl.id)}
-                    className="p-1 text-slate-400 hover:text-red-500 transition-colors"
+                    disabled={deletingId === lbl.id}
+                    className="p-1 text-slate-400 hover:text-red-500 transition-colors disabled:opacity-50"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
