@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { reorderCards } from "@/actions/cards";
 
 export async function POST(request: NextRequest) {
   const session = await getApiSession(request);
@@ -16,36 +16,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "items array is required" }, { status: 400 });
     }
 
-    const cardIds = items.map((i: any) => i.id);
-    const existingCards = await db.card.findMany({
-      where: {
-        id: { in: cardIds },
-        project: { userId: session.userId },
-      },
-      select: { id: true },
-    });
-
-    if (existingCards.length !== cardIds.length) {
+    const res = await reorderCards(items, session.userId);
+    if (!res.success) {
       return NextResponse.json(
-        { error: "Unauthorized or card not found" },
+        { error: res.error || "Unauthorized or card not found" },
         { status: 400 }
       );
     }
-
-    const updates = items.map((item: any) =>
-      db.card.update({
-        where: { id: item.id },
-        data: {
-          order: item.order,
-          ...(item.columnId ? { columnId: item.columnId } : {}),
-        },
-      })
-    );
-
-    await db.$transaction(updates);
 
     return NextResponse.json({ success: true });
   } catch (err) {
     return NextResponse.json({ error: "Invalid JSON payload" }, { status: 400 });
   }
 }
+

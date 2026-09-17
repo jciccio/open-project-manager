@@ -726,7 +726,12 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     case "list_projects": {
       const isArchived = args.isArchived ?? false;
       const where: any = { isArchived };
-      if (args.userId) where.userId = args.userId;
+      if (args.userId) {
+        where.OR = [
+          { userId: args.userId },
+          { members: { some: { userId: args.userId } } },
+        ];
+      }
       const projects = await db.project.findMany({
         where,
         orderBy: { createdAt: "desc" },
@@ -770,6 +775,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
           key: projectKey,
           description: args.description || null,
           color: args.color || "#6366f1",
+          visibility: args.visibility || "PRIVATE",
           columns: {
             create: [
               { name: "Backlog", order: 0 },
@@ -781,8 +787,14 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
           cardTypes: {
             create: DEFAULT_CARD_TYPES,
           },
+          members: {
+            create: {
+              userId,
+              role: "OWNER",
+            },
+          },
         },
-        include: { columns: true, cardTypes: true },
+        include: { columns: true, cardTypes: true, members: true },
       });
       return { success: true, project };
     }

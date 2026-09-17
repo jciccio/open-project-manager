@@ -21,11 +21,15 @@ import {
   X,
   Pencil,
   ListTree,
+  Users,
+  Lock,
+  Globe,
 } from "lucide-react";
 import Link from "next/link";
 import KanbanColumn from "./KanbanColumn";
 import CardDetailModal from "./CardDetailModal";
 import EditProjectModal from "./EditProjectModal";
+import ProjectMembersModal from "./ProjectMembersModal";
 import ListView from "./views/ListView";
 import AnalyticsView from "./views/AnalyticsView";
 import CalendarView from "./views/CalendarView";
@@ -63,6 +67,7 @@ export default function KanbanBoard({ project }: Props) {
   const [newViewIsDefault, setNewViewIsDefault] = useState(false);
   const [savingViewLoading, setSavingViewLoading] = useState(false);
   const [isEditProjectOpen, setIsEditProjectOpen] = useState(false);
+  const [isMembersModalOpen, setIsMembersModalOpen] = useState(false);
 
   const { t } = useTranslation();
   const router = useRouter();
@@ -301,6 +306,60 @@ export default function KanbanBoard({ project }: Props) {
                 >
                   <Pencil className="h-3.5 w-3.5" />
                 </button>
+                <span
+                  className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider border ${
+                    project.visibility === "INTERNAL"
+                      ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
+                      : "bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20"
+                  }`}
+                  title={project.visibility === "INTERNAL" ? "Internal project" : "Private project"}
+                >
+                  {project.visibility === "INTERNAL" ? (
+                    <Globe className="h-2.5 w-2.5" />
+                  ) : (
+                    <Lock className="h-2.5 w-2.5" />
+                  )}
+                  <span>{project.visibility === "INTERNAL" ? "Internal" : "Private"}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsMembersModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-slate-200/80 dark:bg-slate-800/80 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors"
+                  title="Manage project members and access"
+                >
+                  <Users className="h-3.5 w-3.5 text-indigo-500" />
+                  <span>Members</span>
+                  {project.members && project.members.length > 0 && (
+                    <span className="rounded-full bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 px-1.5 py-0.2 text-[10px] font-bold">
+                      {project.members.length}
+                    </span>
+                  )}
+                </button>
+                {project.members && project.members.length > 0 && (
+                  <div
+                    className="flex -space-x-1.5 overflow-hidden items-center cursor-pointer"
+                    onClick={() => setIsMembersModalOpen(true)}
+                    title="View members"
+                  >
+                    {project.members.slice(0, 4).map((m: any) => {
+                      const initial = (m.user?.name || m.user?.email || "?")[0].toUpperCase();
+                      return (
+                        <div
+                          key={m.id || m.userId}
+                          className="inline-flex h-6 w-6 rounded-full ring-2 ring-white dark:ring-slate-900 bg-indigo-600 text-white font-bold text-[10px] items-center justify-center shadow-xs"
+                          title={`${m.user?.name || m.user?.email} (${m.role})`}
+                        >
+                          {initial}
+                        </div>
+                      );
+                    })}
+                    {project.members.length > 4 && (
+                      <span className="inline-flex h-6 w-6 rounded-full ring-2 ring-white dark:ring-slate-900 bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-bold text-[10px] items-center justify-center">
+                        +{project.members.length - 4}
+                      </span>
+                    )}
+                  </div>
+                )}
                 {project.isArchived && (
                   <span className="rounded-md bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 border border-amber-500/20">
                     {t("projectCard.archivedBadge")}
@@ -645,6 +704,7 @@ export default function KanbanBoard({ project }: Props) {
         <CardDetailModal
           card={activeCard}
           columns={project.columns}
+          members={project.members}
           onClose={() => setActiveCardId(null)}
           onRefresh={() => router.refresh()}
           onOpenCard={(cardId) => setActiveCardId(cardId)}
@@ -657,6 +717,17 @@ export default function KanbanBoard({ project }: Props) {
           project={project}
           onClose={() => setIsEditProjectOpen(false)}
           onUpdateSuccess={() => {
+            router.refresh();
+          }}
+        />
+      )}
+
+      {/* Project Members & Access Modal */}
+      {isMembersModalOpen && (
+        <ProjectMembersModal
+          project={project}
+          onClose={() => setIsMembersModalOpen(false)}
+          onMembersChange={() => {
             router.refresh();
           }}
         />

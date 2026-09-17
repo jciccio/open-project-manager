@@ -7,6 +7,7 @@ import { safeRevalidatePath } from "@/lib/revalidate";
 import { DEFAULT_CARD_TYPES } from "@/lib/cardTypeDefaults";
 import { triggerWebhooks } from "@/lib/webhooks";
 import { generateProjectKey } from "@/lib/projectKey";
+import { getProjectAccess } from "@/lib/permissions";
 
 export async function getProjects(isArchived = false, overrideUserId?: string) {
   try {
@@ -17,15 +18,25 @@ export async function getProjects(isArchived = false, overrideUserId?: string) {
 
     const projects = await db.project.findMany({
       where: {
-        userId: session.userId,
+        OR: [
+          { userId: session.userId },
+          { members: { some: { userId: session.userId } } },
+        ],
         isArchived,
       },
       orderBy: { createdAt: "desc" },
       include: {
+        members: {
+          select: {
+            userId: true,
+            role: true,
+          },
+        },
         _count: {
           select: {
             cards: true,
             columns: true,
+            members: true,
           },
         },
       },
@@ -33,7 +44,10 @@ export async function getProjects(isArchived = false, overrideUserId?: string) {
 
     const archivedCount = await db.project.count({
       where: {
-        userId: session.userId,
+        OR: [
+          { userId: session.userId },
+          { members: { some: { userId: session.userId } } },
+        ],
         isArchived: true,
       },
     });
@@ -52,12 +66,20 @@ export async function getProjectById(id: string, overrideUserId?: string) {
       return { success: false, error: "Unauthorized" };
     }
 
-    const project = await db.project.findFirst({
-      where: {
-        id,
-        userId: session.userId,
-      },
+    const access = await getProjectAccess(id, session.userId, "VIEWER");
+    if (!access.hasAccess) {
+      return { success: false, error: "Project not found or access denied" };
+    }
+
+    const project = await db.project.findUnique({
+      where: { id },
       include: {
+        members: {
+          include: {
+            user: { select: { id: true, name: true, email: true } },
+          },
+          orderBy: { createdAt: "asc" },
+        },
         savedViews: {
           orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
         },
@@ -150,7 +172,7 @@ export async function getProjectById(id: string, overrideUserId?: string) {
       return { success: false, error: "Project not found or access denied" };
     }
 
-    return { success: true, data: project };
+    return { success: true, data: { ...project, currentUserRole: access.role } };
   } catch (error) {
     console.error(`Error fetching project ${id}:`, error);
     return { success: false, error: "Failed to fetch project details" };
@@ -159,7 +181,7 @@ export async function getProjectById(id: string, overrideUserId?: string) {
 
 
 export async function createProject(
-  data: { name: string; description?: string; color?: string; key?: string },
+  data: { name: string; description?: string; color?: string; key?: string; visibility?: string },
   overrideUserId?: string
 ) {
   try {
@@ -181,6 +203,7 @@ export async function createProject(
         key: projectKey,
         description: data.description,
         color: data.color || "#6366f1",
+        visibility: data.visibility || "PRIVATE",
         columns: {
           create: [
             { name: "Backlog", order: 0, isDone: false },
@@ -191,6 +214,12 @@ export async function createProject(
         },
         cardTypes: {
           create: DEFAULT_CARD_TYPES,
+        },
+        members: {
+          create: {
+            userId: session.userId,
+            role: "OWNER",
+          },
         },
       },
     });
@@ -218,7 +247,7 @@ export async function createProject(
 
 export async function updateProject(
   id: string,
-  data: { name?: string; description?: string; color?: string },
+  data: { name?: string; description?: string; color?: string; visibility?: string },
   overrideUserId?: string
 ) {
   try {
@@ -227,12 +256,13 @@ export async function updateProject(
       return { success: false, error: "Unauthorized" };
     }
 
-    const existing = await db.project.findFirst({
-      where: { id, userId: session.userId },
-    });
-
-    if (!existing) {
+    const access = await getProjectAccess(id, session.userId, "ADMIN");
+    if (!access.hasAccess) {
       return { success: false, error: "Project not found or access denied" };
+    }
+
+    if (data.visibility !== undefined && !access.isOwner) {
+      return { success: false, error: "Only the project owner can change project visibility" };
     }
 
     const project = await db.project.update({
@@ -261,11 +291,8 @@ export async function archiveProject(id: string, overrideUserId?: string) {
       return { success: false, error: "Unauthorized" };
     }
 
-    const existing = await db.project.findFirst({
-      where: { id, userId: session.userId },
-    });
-
-    if (!existing) {
+    const access = await getProjectAccess(id, session.userId, "ADMIN");
+    if (!access.hasAccess) {
       return { success: false, error: "Project not found or access denied" };
     }
 
@@ -291,11 +318,8 @@ export async function unarchiveProject(id: string, overrideUserId?: string) {
       return { success: false, error: "Unauthorized" };
     }
 
-    const existing = await db.project.findFirst({
-      where: { id, userId: session.userId },
-    });
-
-    if (!existing) {
+    const access = await getProjectAccess(id, session.userId, "ADMIN");
+    if (!access.hasAccess) {
       return { success: false, error: "Project not found or access denied" };
     }
 
@@ -321,11 +345,8 @@ export async function deleteProject(id: string, overrideUserId?: string) {
       return { success: false, error: "Unauthorized" };
     }
 
-    const existing = await db.project.findFirst({
-      where: { id, userId: session.userId },
-    });
-
-    if (!existing) {
+    const access = await getProjectAccess(id, session.userId, "OWNER");
+    if (!access.hasAccess) {
       return { success: false, error: "Project not found or access denied" };
     }
 

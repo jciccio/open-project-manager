@@ -3,13 +3,7 @@
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { safeRevalidatePath } from "@/lib/revalidate";
-
-async function verifyProjectOwnership(projectId: string, userId: string) {
-  const project = await db.project.findFirst({
-    where: { id: projectId, userId },
-  });
-  return !!project;
-}
+import { verifyProjectAccess } from "@/lib/permissions";
 
 export async function createColumn(
   projectId: string,
@@ -19,7 +13,7 @@ export async function createColumn(
 ) {
   try {
     const session = overrideUserId ? { userId: overrideUserId } : await getSession();
-    if (!session || !(await verifyProjectOwnership(projectId, session.userId))) {
+    if (!session || !(await verifyProjectAccess(projectId, session.userId, "ADMIN"))) {
       return { success: false, error: "Unauthorized" };
     }
 
@@ -65,7 +59,7 @@ export async function updateColumn(
       include: { project: true },
     });
 
-    if (!column || column.project.userId !== session.userId) {
+    if (!column || !(await verifyProjectAccess(column.projectId, session.userId, "ADMIN"))) {
       return { success: false, error: "Unauthorized" };
     }
 
@@ -107,7 +101,7 @@ export async function reorderColumns(
 ) {
   try {
     const session = overrideUserId ? { userId: overrideUserId } : await getSession();
-    if (!session || !(await verifyProjectOwnership(projectId, session.userId))) {
+    if (!session || !(await verifyProjectAccess(projectId, session.userId, "ADMIN"))) {
       return { success: false, error: "Unauthorized" };
     }
 
@@ -137,7 +131,7 @@ export async function deleteColumn(id: string, overrideUserId?: string) {
       include: { project: true },
     });
 
-    if (!column || column.project.userId !== session.userId) {
+    if (!column || !(await verifyProjectAccess(column.projectId, session.userId, "ADMIN"))) {
       return { success: false, error: "Unauthorized" };
     }
 
@@ -152,3 +146,4 @@ export async function deleteColumn(id: string, overrideUserId?: string) {
     return { success: false, error: "Failed to delete column" };
   }
 }
+

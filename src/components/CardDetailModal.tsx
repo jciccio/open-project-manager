@@ -36,6 +36,10 @@ import { uploadAttachment, listAttachments, deleteAttachment } from "@/actions/a
 import { getLabels } from "@/actions/labels";
 import { getCardTypes } from "@/actions/cardTypes";
 import { addCardRelation, removeCardRelation, getCardRelations } from "@/actions/relations";
+import { getProjectMembers } from "@/actions/members";
+
+// Sentinel <option> value for an owner name that predates project members.
+const LEGACY_OWNER = "__legacy_owner__";
 import { useTranslation } from "./LanguageProvider";
 import MarkdownEditor from "./MarkdownEditor";
 import CardTypeManagerModal from "./CardTypeManagerModal";
@@ -107,11 +111,21 @@ interface Props {
       url: string;
       title: string | null;
     }>;
+    assignees?: Array<{
+      userId?: string;
+      user: { id: string; name: string; email: string };
+    }>;
   };
   columns: Array<{
     id: string;
     name: string;
     isDone?: boolean;
+  }>;
+  members?: Array<{
+    id?: string;
+    userId: string;
+    role: string;
+    user: { id: string; name: string; email: string };
   }>;
   onClose: () => void;
   onRefresh: () => void;
@@ -121,10 +135,18 @@ interface Props {
 export default function CardDetailModal({
   card,
   columns,
+  members,
   onClose,
   onRefresh,
   onOpenCard,
 }: Props) {
+  const [projectMembers, setProjectMembers] = useState<Array<any>>(members || []);
+  const [selectedAssigneeId, setSelectedAssigneeId] = useState<string>(() => {
+    if (card.assignees && card.assignees.length > 0) {
+      return card.assignees[0].user?.id || (card.assignees[0] as any).userId || "";
+    }
+    return "";
+  });
   const [title, setTitle] = useState(card.title);
   const [description, setDescription] = useState(card.description || "");
   const [columnId, setColumnId] = useState(card.columnId);
@@ -298,10 +320,22 @@ export default function CardDetailModal({
       }
     }
 
+    async function loadMembers() {
+      if (members && members.length > 0) {
+        setProjectMembers(members);
+        return;
+      }
+      const mRes = await getProjectMembers(card.projectId);
+      if (mRes.success && mRes.data) {
+        setProjectMembers(mRes.data);
+      }
+    }
+
     loadLabels();
     loadCardTypes();
     loadRelations();
     loadProjectCards();
+    loadMembers();
 
     setTitle(card.title);
     setDescription(card.description || "");
@@ -309,6 +343,10 @@ export default function CardDetailModal({
     setPriority(card.priority);
     setPoints(card.points !== null && card.points !== undefined ? String(card.points) : "");
     setOwner(card.owner || "");
+    const initAssignee = (card as any).assignees && (card as any).assignees.length > 0
+      ? (card as any).assignees[0].user?.id || (card as any).assignees[0].userId || ""
+      : "";
+    setSelectedAssigneeId(initAssignee);
     setDueDate(card.dueDate ? new Date(card.dueDate).toISOString().split("T")[0] : "");
     setSelectedLabelIds(card.labels ? card.labels.map((l) => l.label.id) : []);
     setTypeId(card.typeId || card.type?.id || "");
@@ -317,7 +355,7 @@ export default function CardDetailModal({
     setIsAddingSubtask(false);
     setNewSubtaskTitle("");
     setSubtaskError("");
-  }, [card.id, card.projectId]);
+  }, [card.id, card.projectId, members]);
 
   async function handleCreateSubtask(e: React.FormEvent) {
     e.preventDefault();
@@ -400,16 +438,35 @@ export default function CardDetailModal({
     }
   }
 
+  // An owner string carried over from before project members existed: it names
+  // nobody in the member list, so it has no id to select by.
+  const hasLegacyOwner =
+    !!owner &&
+    !selectedAssigneeId &&
+    !projectMembers.some(
+      (m) => m.user?.name === owner || m.user?.email === owner || m.userId === owner
+    );
+
   async function handleSave() {
     setIsSaving(true);
     const parsedPoints = points.trim() === "" ? null : parseInt(points, 10);
+    const selectedMember = projectMembers.find(
+      (m) => (m.user?.id || m.userId) === selectedAssigneeId
+    );
+    // null clears the field, undefined leaves it unchanged (updateCard in
+    // src/actions/cards.ts) - so an emptied owner box must send null.
+    const computedOwner = selectedMember
+      ? (selectedMember.user?.name || selectedMember.user?.email || "")
+      : (owner.trim() || null);
+
     const res = await updateCard(card.id, {
       title: title.trim(),
       description: description.trim() || null,
       columnId,
       priority,
       points: isNaN(parsedPoints as number) ? null : parsedPoints,
-      owner: owner.trim() || null,
+      owner: computedOwner,
+      assigneeIds: selectedAssigneeId ? [selectedAssigneeId] : [],
       dueDate: dueDate || null,
       typeId: typeId || "",
       labelIds: selectedLabelIds,
@@ -743,13 +800,34 @@ export default function CardDetailModal({
                   <User className="h-3 w-3 text-blue-500 dark:text-blue-400" />
                   <span>{t("cardModal.owner")}</span>
                 </label>
-                <input
-                  type="text"
-                  value={owner}
-                  onChange={(e) => setOwner(e.target.value)}
-                  placeholder={t("cardModal.assigneePlaceholder")}
-                  className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
-                />
+                <select
+                  value={selectedAssigneeId || (hasLegacyOwner ? LEGACY_OWNER : "")}
+                  onChange={(e) => {
+                    const newId = e.target.value;
+                    // Re-picking the legacy name is a no-op; every other choice
+                    // (including Unassigned) replaces it, which is what lets a
+                    // legacy owner be cleared at all.
+                    if (newId === LEGACY_OWNER) return;
+                    setSelectedAssigneeId(newId);
+                    const mem = projectMembers.find((m) => (m.user?.id || m.userId) === newId);
+                    setOwner(mem ? (mem.user?.name || mem.user?.email || "") : "");
+                  }}
+                  className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none cursor-pointer"
+                >
+                  <option value="">{t("cardModal.unassigned") || "Unassigned"}</option>
+                  {projectMembers.map((m) => {
+                    const uid = m.user?.id || m.userId;
+                    const uName = m.user?.name || m.user?.email || uid;
+                    return (
+                      <option key={uid} value={uid}>
+                        {uName} ({m.role})
+                      </option>
+                    );
+                  })}
+                  {hasLegacyOwner && (
+                    <option value={LEGACY_OWNER}>{owner} (Legacy)</option>
+                  )}
+                </select>
               </div>
 
               {/* Due Date */}

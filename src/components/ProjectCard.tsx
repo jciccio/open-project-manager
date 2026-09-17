@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FolderKanban, Layers, CreditCard, Trash2, ArrowRight, Archive, ArchiveRestore, Pencil } from "lucide-react";
+import { FolderKanban, Layers, CreditCard, Trash2, ArrowRight, Archive, ArchiveRestore, Pencil, Globe, Lock, Shield } from "lucide-react";
 import { deleteProject, archiveProject, unarchiveProject } from "@/actions/projects";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -12,9 +12,12 @@ import ErrorBanner from "./ErrorBanner";
 interface Props {
   project: {
     id: string;
+    userId?: string;
     name: string;
     description: string | null;
     color: string;
+    visibility?: string;
+    members?: Array<{ userId: string; role: string }>;
     isArchived?: boolean;
     createdAt: Date;
     _count: {
@@ -22,10 +25,11 @@ interface Props {
       columns: number;
     };
   };
+  currentUserId?: string;
   onDeleteSuccess?: () => void;
 }
 
-export default function ProjectCard({ project, onDeleteSuccess }: Props) {
+export default function ProjectCard({ project, currentUserId, onDeleteSuccess }: Props) {
   const [loading, setLoading] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [error, setError] = useState("");
@@ -86,6 +90,11 @@ export default function ProjectCard({ project, onDeleteSuccess }: Props) {
     }
   }
 
+  const userMember = project.members?.find((m) => m.userId === currentUserId);
+  const userRole = userMember?.role || (project.userId === currentUserId ? "OWNER" : null);
+  const canEdit = !userRole || userRole === "OWNER" || userRole === "ADMIN";
+  const canDelete = !userRole || userRole === "OWNER";
+
   return (
     <div className="group relative flex flex-col justify-between rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-sm hover:shadow-md transition-all">
       {/* Accent Bar */}
@@ -104,10 +113,30 @@ export default function ProjectCard({ project, onDeleteSuccess }: Props) {
               <FolderKanban className="h-5 w-5" style={{ color: project.color }} />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="font-bold text-base text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition-colors">
                   {project.name}
                 </h3>
+                {userRole && (
+                  <span className="rounded-md bg-indigo-500/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
+                    {userRole}
+                  </span>
+                )}
+                <span
+                  className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider border ${
+                    project.visibility === "INTERNAL"
+                      ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
+                      : "bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20"
+                  }`}
+                  title={project.visibility === "INTERNAL" ? "Internal project" : "Private project"}
+                >
+                  {project.visibility === "INTERNAL" ? (
+                    <Globe className="h-2.5 w-2.5" />
+                  ) : (
+                    <Lock className="h-2.5 w-2.5" />
+                  )}
+                  <span>{project.visibility === "INTERNAL" ? "Internal" : "Private"}</span>
+                </span>
                 {project.isArchived && (
                   <span className="rounded-md bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 border border-amber-500/20">
                     {t("projectCard.archivedBadge")}
@@ -121,38 +150,44 @@ export default function ProjectCard({ project, onDeleteSuccess }: Props) {
           </div>
 
           <div className="flex items-center gap-1">
-            <button
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setIsEditOpen(true);
-              }}
-              disabled={loading}
-              className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
-              title={t("projectCard.editTooltip") || "Edit project"}
-            >
-              <Pencil className="h-4 w-4" />
-            </button>
-            <button
-              onClick={handleArchiveToggle}
-              disabled={loading}
-              className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
-              title={project.isArchived ? t("projectCard.restoreTooltip") : t("projectCard.archiveTooltip")}
-            >
-              {project.isArchived ? (
-                <ArchiveRestore className="h-4 w-4 text-emerald-500 dark:text-emerald-400" />
-              ) : (
-                <Archive className="h-4 w-4" />
-              )}
-            </button>
-            <button
-              onClick={handleDelete}
-              disabled={loading}
-              className="rounded-lg p-2 text-slate-400 hover:bg-red-500/10 hover:text-red-500 transition-colors"
-              title={t("projectCard.deleteTooltip")}
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
+            {canEdit && (
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsEditOpen(true);
+                }}
+                disabled={loading}
+                className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                title={t("projectCard.editTooltip") || "Edit project"}
+              >
+                <Pencil className="h-4 w-4" />
+              </button>
+            )}
+            {canEdit && (
+              <button
+                onClick={handleArchiveToggle}
+                disabled={loading}
+                className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                title={project.isArchived ? t("projectCard.restoreTooltip") : t("projectCard.archiveTooltip")}
+              >
+                {project.isArchived ? (
+                  <ArchiveRestore className="h-4 w-4 text-emerald-500 dark:text-emerald-400" />
+                ) : (
+                  <Archive className="h-4 w-4" />
+                )}
+              </button>
+            )}
+            {canDelete && (
+              <button
+                onClick={handleDelete}
+                disabled={loading}
+                className="rounded-lg p-2 text-slate-400 hover:bg-red-500/10 hover:text-red-500 transition-colors"
+                title={t("projectCard.deleteTooltip")}
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            )}
           </div>
         </div>
 

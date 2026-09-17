@@ -5,6 +5,7 @@ import { getSession } from "@/lib/auth";
 import { safeRevalidatePath } from "@/lib/revalidate";
 import fs from "fs";
 import { UPLOADS_DIR, MAX_ATTACHMENT_BYTES, getAttachmentFilePath } from "@/lib/attachmentStorage";
+import { verifyProjectAccess } from "@/lib/permissions";
 
 function ensureUploadsDir() {
   if (!fs.existsSync(UPLOADS_DIR)) {
@@ -12,14 +13,14 @@ function ensureUploadsDir() {
   }
 }
 
-async function verifyCardAccess(cardId: string, userId: string) {
-  const card = await db.card.findFirst({
-    where: {
-      id: cardId,
-      project: { userId },
-    },
+async function verifyCardAccess(cardId: string, userId: string, minRole: "VIEWER" | "MEMBER" = "MEMBER") {
+  const card = await db.card.findUnique({
+    where: { id: cardId },
     include: { project: true },
   });
+  if (!card) return null;
+  const hasAccess = await verifyProjectAccess(card.projectId, userId, minRole);
+  if (!hasAccess) return null;
   return card;
 }
 
@@ -89,7 +90,7 @@ export async function listAttachments(cardId: string, overrideUserId?: string) {
       return { success: false, error: "Unauthorized" };
     }
 
-    const card = await verifyCardAccess(cardId, session.userId);
+    const card = await verifyCardAccess(cardId, session.userId, "VIEWER");
     if (!card) {
       return { success: false, error: "Card not found or access denied" };
     }
@@ -118,7 +119,7 @@ export async function deleteAttachment(attachmentId: string, overrideUserId?: st
       include: { card: { include: { project: true } } },
     });
 
-    if (!attachment || attachment.card.project.userId !== session.userId) {
+    if (!attachment || !(await verifyProjectAccess(attachment.card.projectId, session.userId, "MEMBER"))) {
       return { success: false, error: "Attachment not found or access denied" };
     }
 

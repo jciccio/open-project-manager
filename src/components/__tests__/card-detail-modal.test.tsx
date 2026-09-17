@@ -131,9 +131,14 @@ describe("CardDetailModal", () => {
       <CardDetailModal card={card} columns={columns} onClose={vi.fn()} onRefresh={vi.fn()} />
     );
 
-    fireEvent.change(screen.getByPlaceholderText("e.g. Alex Rivera"), {
-      target: { value: "" },
-    });
+    // The owner field is a member picker now; a card whose owner predates
+    // project members shows that name as a "(Legacy)" option, and clearing it
+    // means switching to Unassigned.
+    const ownerSelect = Array.from(document.querySelectorAll("select")).find((select) =>
+      Array.from(select.options).some((option) => option.textContent === "Unassigned")
+    ) as HTMLSelectElement;
+    expect(ownerSelect.value).not.toBe("");
+    fireEvent.change(ownerSelect, { target: { value: "" } });
 
     const descriptionTextarea = document.getElementById("markdown-editor-textarea") as HTMLTextAreaElement;
     fireEvent.change(descriptionTextarea, { target: { value: "" } });
