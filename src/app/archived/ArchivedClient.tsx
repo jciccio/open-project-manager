@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import ProjectCard from "@/components/ProjectCard";
 import { unarchiveCard } from "@/actions/cards";
 import { useTranslation } from "@/components/LanguageProvider";
+import ErrorBanner from "@/components/ErrorBanner";
 
 interface Props {
   archivedProjects: any[];
@@ -16,20 +17,31 @@ interface Props {
 export default function ArchivedClient({ archivedProjects, archivedCards }: Props) {
   const [activeTab, setActiveTab] = useState<"projects" | "cards">("projects");
   const [restoringId, setRestoringId] = useState<string | null>(null);
+  const [error, setError] = useState("");
   const router = useRouter();
   const { t } = useTranslation();
 
   async function handleRestoreCard(id: string) {
     setRestoringId(id);
-    const res = await unarchiveCard(id);
-    setRestoringId(null);
-    if (res.success) {
-      router.refresh();
+    setError("");
+    try {
+      const res = await unarchiveCard(id);
+      if (res.success) {
+        router.refresh();
+      } else {
+        setError(res.error || "Failed to restore card.");
+      }
+    } catch {
+      setError("Failed to restore card.");
+    } finally {
+      setRestoringId(null);
     }
   }
 
   return (
     <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-8">
+      {error && <div className="mb-6"><ErrorBanner message={error} /></div>}
+
       {/* Banner */}
       <div className="rounded-3xl bg-gradient-to-r from-amber-100 via-slate-100 to-slate-100 dark:from-amber-900/30 dark:via-slate-900 dark:to-slate-900 border border-amber-300 dark:border-amber-500/20 p-8 mb-8 shadow-xl relative overflow-hidden">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">

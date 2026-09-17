@@ -9,7 +9,12 @@ import {
   listApiTokens,
   revokeApiToken,
 } from "../auth";
-import { createSession, verifyToken, getApiSession } from "@/lib/auth";
+import {
+  createSession,
+  verifyToken,
+  getApiSession,
+  determineCookieSecurity,
+} from "@/lib/auth";
 import { db } from "@/lib/db";
 import { cleanupTestUser } from "@/test/helpers";
 import { NextRequest } from "next/server";
@@ -244,6 +249,34 @@ describe("Auth Server Actions", () => {
 
     const loginRes = await loginUser({ email: oidcOnlyEmail, password: "BrandNewPassword123!" });
     expect(loginRes.success).toBe(true);
+  });
+
+  describe("determineCookieSecurity", () => {
+    const origNodeEnv = process.env.NODE_ENV;
+    const origCookieSecure = process.env.COOKIE_SECURE;
+
+    afterEach(() => {
+      (process.env as any).NODE_ENV = origNodeEnv;
+      process.env.COOKIE_SECURE = origCookieSecure;
+    });
+
+    it("returns false when COOKIE_SECURE is 'false'", async () => {
+      (process.env as any).NODE_ENV = "production";
+      process.env.COOKIE_SECURE = "false";
+      expect(await determineCookieSecurity()).toBe(false);
+    });
+
+    it("returns true when COOKIE_SECURE is 'true'", async () => {
+      (process.env as any).NODE_ENV = "development";
+      process.env.COOKIE_SECURE = "true";
+      expect(await determineCookieSecurity()).toBe(true);
+    });
+
+    it("returns false in non-production when COOKIE_SECURE is unset", async () => {
+      (process.env as any).NODE_ENV = "development";
+      delete process.env.COOKIE_SECURE;
+      expect(await determineCookieSecurity()).toBe(false);
+    });
   });
 });
 
