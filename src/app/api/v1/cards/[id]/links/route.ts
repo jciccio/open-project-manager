@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
-import { addCardLink } from "@/actions/cards";
+import { addCardLink } from "@/lib/services/cards";
 
 export async function POST(
   request: NextRequest,
@@ -19,7 +19,7 @@ export async function POST(
       return NextResponse.json({ error: "Missing url" }, { status: 400 });
     }
 
-    const res = await addCardLink(cardId, body.url, body.title);
+    const res = await addCardLink(cardId, body.url, body.title, session.userId);
 
     if (!res.success) {
       return NextResponse.json({ error: res.error }, { status: 400 });

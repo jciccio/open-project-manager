@@ -3,8 +3,6 @@
 import { getSession } from "@/lib/auth";
 import * as projectsService from "@/lib/services/projects";
 
-export { generateProjectKey } from "@/lib/services/projects";
-
 export async function getProjects(isArchived = false) {
   const session = await getSession();
   if (!session) {

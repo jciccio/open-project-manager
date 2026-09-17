@@ -3,8 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "postinstall": "prisma generate",
+    "dev": "prisma generate && next dev",
+    "build": "prisma generate && next build",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
@@ -13,7 +14,13 @@
     "test:coverage": "vitest run --coverage",
     "benchmark": "npx tsx scripts/benchmark-memory.ts",
     "load-test": "npx tsx scripts/load-test.ts",
-    "mcp": "npx tsx scripts/mcp-server.ts"
+    "mcp": "npx tsx scripts/mcp-server.ts",
+    "update": "./deploy/update.sh",
+    "install-skills": "npx tsx scripts/install-skills.ts",
+    "db:seed": "npx tsx prisma/seed.ts"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

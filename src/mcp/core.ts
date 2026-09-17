@@ -9,6 +9,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { db } from "@/lib/db";
 import { DEFAULT_CARD_TYPES } from "@/lib/cardTypeDefaults";
+import { generateProjectKey } from "@/lib/projectKey";
 
 const DEFAULT_LIST_CARDS_LIMIT = 100;
 
@@ -65,6 +66,7 @@ export const MCP_TOOLS = [
         name: { type: "string", description: "Name of the project" },
         description: { type: "string", description: "Optional project description" },
         color: { type: "string", description: "Hex color code (e.g. #6366f1)" },
+        key: { type: "string", description: "Requested project key (auto-generated from name if omitted; de-duplicated per user if already taken)" },
         userId: { type: "string", description: "Owner user ID (defaults to active session/admin)" },
       },
       required: ["name"],
@@ -216,6 +218,7 @@ export const MCP_TOOLS = [
       type: "object",
       properties: {
         identifier: { type: "string", description: "Human-readable identifier like OPM-42" },
+        userId: { type: "string", description: "Owner user ID (defaults to active session/admin)" },
       },
       required: ["identifier"],
     },
@@ -760,9 +763,7 @@ export async function executeMcpTool(
 
     case "create_project": {
       const nameStr = args.name.trim();
-      const words = nameStr.replace(/[^a-zA-Z0-9\s]/g, "").split(/\s+/).filter(Boolean);
-      const generatedKey = words.length >= 2 ? words.map((w: string) => w[0].toUpperCase()).join("").slice(0, 6) : (nameStr.replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 4) || "PROJ");
-      const projectKey = args.key ? args.key.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6) : generatedKey;
+      const projectKey = await generateProjectKey(nameStr, args.key, userId);
       const project = await db.project.create({
         data: {
           userId,
@@ -948,6 +949,7 @@ export async function executeMcpTool(
     }
 
     case "get_card_by_identifier": {
+      const userId = requireUserId(args.userId);
       const clean = (args.identifier || "").trim();
       const lastDash = clean.lastIndexOf("-");
       if (lastDash === -1) {
