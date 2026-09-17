@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { revalidatePath } from "next/cache";
+import { safeRevalidatePath } from "@/lib/revalidate";
 import fs from "fs";
 import { UPLOADS_DIR, MAX_ATTACHMENT_BYTES, getAttachmentFilePath } from "@/lib/attachmentStorage";
 
@@ -74,7 +74,7 @@ export async function uploadAttachment(data: {
       data: { url: `/api/v1/attachments/${attachment.id}` },
     });
 
-    revalidatePath(`/projects/${card.projectId}`);
+    safeRevalidatePath(`/projects/${card.projectId}`);
     return { success: true, data: updated };
   } catch (error) {
     console.error("Error uploading attachment:", error);
@@ -133,7 +133,7 @@ export async function deleteAttachment(attachmentId: string, overrideUserId?: st
       }
     }
 
-    revalidatePath(`/projects/${attachment.card.projectId}`);
+    safeRevalidatePath(`/projects/${attachment.card.projectId}`);
     return { success: true, data: { id: attachmentId } };
   } catch (error) {
     console.error("Error deleting attachment:", error);

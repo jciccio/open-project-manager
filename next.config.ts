@@ -13,6 +13,7 @@ const nextConfig: NextConfig = {
       bodySizeLimit: `${maxAttachmentMb + 1}mb`,
     },
   },
+  serverExternalPackages: ["@prisma/client", "better-sqlite3", "pg"],
 };
 
 export default nextConfig;

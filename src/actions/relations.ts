@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { revalidatePath } from "next/cache";
+import { safeRevalidatePath } from "@/lib/revalidate";
 
 export async function addCardRelation(
   sourceCardId: string,
@@ -46,7 +46,7 @@ export async function addCardRelation(
       },
     });
 
-    revalidatePath(`/projects/${sourceCard.projectId}`);
+    safeRevalidatePath(`/projects/${sourceCard.projectId}`);
     return { success: true, data: relation };
   } catch (error) {
     console.error("Error creating card relation:", error);
@@ -69,7 +69,7 @@ export async function removeCardRelation(relationId: string, overrideUserId?: st
     }
 
     await db.cardRelation.delete({ where: { id: relationId } });
-    revalidatePath(`/projects/${relation.sourceCard.projectId}`);
+    safeRevalidatePath(`/projects/${relation.sourceCard.projectId}`);
     return { success: true };
   } catch (error) {
     console.error(`Error deleting card relation ${relationId}:`, error);

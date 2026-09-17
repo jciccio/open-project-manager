@@ -6,6 +6,7 @@ import TaskCard from "./TaskCard";
 import { createCard } from "@/actions/cards";
 import { deleteColumn } from "@/actions/columns";
 import { useTranslation } from "./LanguageProvider";
+import ErrorBanner from "./ErrorBanner";
 
 interface Props {
   column: {
@@ -44,6 +45,8 @@ export default function KanbanColumn({
   const [newOwner, setNewOwner] = useState("");
   const [isHoveredOver, setIsHoveredOver] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [deletingColumn, setDeletingColumn] = useState(false);
+  const [error, setError] = useState("");
   const { t } = useTranslation();
 
   async function handleAddCard(e: React.FormEvent) {
@@ -51,30 +54,48 @@ export default function KanbanColumn({
     if (!newTitle.trim()) return;
 
     setLoading(true);
-    const res = await createCard({
-      projectId: column.projectId,
-      columnId: column.id,
-      title: newTitle.trim(),
-      priority: newPriority,
-      points: newPoints === "" ? null : Number(newPoints),
-      owner: newOwner.trim() || null,
-    });
-    setLoading(false);
+    setError("");
+    try {
+      const res = await createCard({
+        projectId: column.projectId,
+        columnId: column.id,
+        title: newTitle.trim(),
+        priority: newPriority,
+        points: newPoints === "" ? null : Number(newPoints),
+        owner: newOwner.trim() || null,
+      });
 
-    if (res.success) {
-      setNewTitle("");
-      setNewPoints("");
-      setNewOwner("");
-      setIsAdding(false);
-      onRefresh();
+      if (res.success) {
+        setNewTitle("");
+        setNewPoints("");
+        setNewOwner("");
+        setIsAdding(false);
+        onRefresh();
+      } else {
+        setError(res.error || "Failed to add card.");
+      }
+    } catch {
+      setError("Failed to add card.");
+    } finally {
+      setLoading(false);
     }
   }
 
   async function handleDeleteColumn() {
     if (!confirm(t("kanban.confirmDeleteColumn", { name: column.name }))) return;
-    const res = await deleteColumn(column.id);
-    if (res.success) {
-      onRefresh();
+    setDeletingColumn(true);
+    setError("");
+    try {
+      const res = await deleteColumn(column.id);
+      if (res.success) {
+        onRefresh();
+      } else {
+        setError(res.error || "Failed to delete column.");
+      }
+    } catch {
+      setError("Failed to delete column.");
+    } finally {
+      setDeletingColumn(false);
     }
   }
 
@@ -148,13 +169,16 @@ export default function KanbanColumn({
           </button>
           <button
             onClick={handleDeleteColumn}
-            className="rounded-lg p-1 text-slate-500 hover:bg-red-500/10 hover:text-red-500 transition-colors"
+            disabled={deletingColumn}
+            className="rounded-lg p-1 text-slate-500 hover:bg-red-500/10 hover:text-red-500 transition-colors disabled:opacity-50"
             title="Delete column"
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>
         </div>
       </div>
+
+      {error && <div className="mb-3"><ErrorBanner message={error} /></div>}
 
       {/* Cards List */}
       <div className="flex-1 space-y-3 min-h-[150px] overflow-y-auto pr-0.5">
