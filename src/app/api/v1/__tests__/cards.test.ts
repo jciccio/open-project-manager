@@ -3,8 +3,9 @@ import { GET as getCardsRoute, POST as createCardRoute } from "../cards/route";
 import { POST as reorderCardsRoute } from "../cards/reorder/route";
 import { GET as getCardByIdRoute, PUT as updateCardRoute, DELETE as deleteCardRoute } from "../cards/[id]/route";
 import { GET as getByIdentifierRoute } from "../cards/by-identifier/[identifier]/route";
+import { POST as moveCardRoute } from "../cards/[id]/move/route";
 import { NextRequest } from "next/server";
-import { createTestUser, createTestProject, cleanupTestUser } from "@/test/helpers";
+import { createTestUser, createTestProject, createTestColumn, cleanupTestUser } from "@/test/helpers";
 import { getProjectById } from "@/actions/projects";
 import { db } from "@/lib/db";
 
@@ -217,6 +218,31 @@ describe("REST API: Cards", () => {
     expect(noneBody.data.length).toBe(0);
   });
 
+  it("does not leak another user's cards through the columnId filter on GET /api/v1/cards", async () => {
+    const other = await createTestUser(`api-cards-other-${Date.now()}`);
+    try {
+      const otherProject = await createTestProject(other.user.id, "Other User's Project");
+      const otherColumn = await createTestColumn(otherProject.id, "Other Column", 0);
+
+      const createReq = new NextRequest("http://localhost/api/v1/cards", {
+        method: "POST",
+        headers: { authorization: `Bearer ${other.token}`, "content-type": "application/json" },
+        body: JSON.stringify({ projectId: otherProject.id, columnId: otherColumn.id, title: "Private Card" }),
+      });
+      await createCardRoute(createReq);
+
+      const leakReq = new NextRequest(`http://localhost/api/v1/cards?columnId=${otherColumn.id}`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const leakRes = await getCardsRoute(leakReq);
+      expect(leakRes.status).toBe(200);
+      const leakBody = await leakRes.json();
+      expect(leakBody.data.length).toBe(0);
+    } finally {
+      await cleanupTestUser(other.user.id);
+    }
+  });
+
   it("bulk reorders cards via POST /api/v1/cards/reorder", async () => {
     const req1 = new NextRequest("http://localhost/api/v1/cards", {
       method: "POST",
@@ -294,5 +320,38 @@ describe("REST API: Cards", () => {
     const filterRes = await getCardsRoute(filterReq);
     const filterBody = await filterRes.json();
     expect(filterBody.data.some((c: any) => c.id === cardData.id)).toBe(true);
+  });
+
+  it("moves a card via POST /api/v1/cards/[id]/move with a Bearer token", async () => {
+    const targetColumn = await createTestColumn(projectId, "Doing", 1);
+
+    const createReq = new NextRequest("http://localhost/api/v1/cards", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ projectId, columnId, title: "Card To Move" }),
+    });
+    const createRes = await createCardRoute(createReq);
+    const cardId = (await createRes.json()).data.id;
+
+    const moveReq = new NextRequest(`http://localhost/api/v1/cards/${cardId}/move`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ targetColumnId: targetColumn.id, newOrder: 20000 }),
+    });
+    const moveRes = await moveCardRoute(moveReq, { params: Promise.resolve({ id: cardId }) });
+    expect(moveRes.status).toBe(200);
+    const moveBody = await moveRes.json();
+    expect(moveBody.success).toBe(true);
+    expect(moveBody.data.columnId).toBe(targetColumn.id);
+  });
+
+  it("returns 401 on the move endpoint without authorization", async () => {
+    const moveReq = new NextRequest(`http://localhost/api/v1/cards/nonexistent/move`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ targetColumnId: columnId, newOrder: 0 }),
+    });
+    const moveRes = await moveCardRoute(moveReq, { params: Promise.resolve({ id: "nonexistent" }) });
+    expect(moveRes.status).toBe(401);
   });
 });

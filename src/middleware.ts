@@ -9,7 +9,13 @@ if (!process.env.JWT_SECRET) {
 }
 const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET);
 
-const PUBLIC_PATHS = ["/login", "/register", "/api/v1/auth/login"];
+const PUBLIC_PATHS = [
+  "/login",
+  "/register",
+  "/api/v1/auth/login",
+  "/api/v1/auth/oidc/login",
+  "/api/v1/auth/oidc/callback",
+];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -61,8 +67,12 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     /*
-     * Match all request paths except static files
+     * Match all request paths except:
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     * - images, icons, and static assets in public/ (svg, png, jpg, etc.)
      */
-    "/((?!_next/static|_next/image|favicon.ico).*)",
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };

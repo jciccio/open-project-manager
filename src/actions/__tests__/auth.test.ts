@@ -9,7 +9,15 @@ import {
   listApiTokens,
   revokeApiToken,
 } from "../auth";
+import {
+  createSession,
+  verifyToken,
+  getApiSession,
+  determineCookieSecurity,
+} from "@/lib/auth";
+import { db } from "@/lib/db";
 import { cleanupTestUser } from "@/test/helpers";
+import { NextRequest } from "next/server";
 
 describe("Auth Server Actions", () => {
   let createdUserId: string | null = null;
@@ -149,6 +157,49 @@ describe("Auth Server Actions", () => {
     expect(listAfterRevoke.tokens).toHaveLength(0);
   });
 
+  it("never accepts an API token JWT as a session, valid or revoked", async () => {
+    const regRes = await registerUser({
+      name: "Cookie Confusion User",
+      email: testEmail,
+      password: testPass,
+    });
+    if (regRes.data) createdUserId = regRes.data.userId;
+
+    const createRes = await createApiToken("Cookie Confusion Client");
+    const apiTokenSecret = createRes.token!.secret;
+
+    // registerUser() logs the user in (sets a real session cookie via
+    // next/headers). Clear it so getApiSession's cookies()-fallback branch
+    // can't mask the NextRequest cookie we're actually testing below.
+    await logoutUser();
+
+    // Rejected as a session, both directly and via the getApiSession cookie
+    // fallback, even while the token is still valid and unrevoked.
+    expect(await verifyToken(apiTokenSecret)).toBeNull();
+    const reqWithValidToken = new NextRequest("http://localhost/api/v1/cards", {
+      headers: { Cookie: `opm_session=${apiTokenSecret}` },
+    });
+    expect(await getApiSession(reqWithValidToken)).toBeNull();
+
+    // Still rejected once revoked (would previously stay "valid" as a cookie
+    // for up to a year past revocation).
+    await revokeApiToken(createRes.token!.id);
+    expect(await verifyToken(apiTokenSecret)).toBeNull();
+    const reqWithRevokedToken = new NextRequest("http://localhost/api/v1/cards", {
+      headers: { Cookie: `opm_session=${apiTokenSecret}` },
+    });
+    expect(await getApiSession(reqWithRevokedToken)).toBeNull();
+
+    // A real session JWT is unaffected.
+    const sessionToken = await createSession({
+      userId: regRes.data!.userId,
+      email: testEmail,
+      name: "Cookie Confusion User",
+    });
+    const sessionPayload = await verifyToken(sessionToken);
+    expect(sessionPayload?.email).toBe(testEmail);
+  });
+
   it("rejects creating an API token with an empty name", async () => {
     const regRes = await registerUser({
       name: "Empty Token Name User",
@@ -166,6 +217,66 @@ describe("Auth Server Actions", () => {
     await logoutUser();
     const current = await getCurrentUser();
     expect(current).toBeNull();
+  });
+
+  it("rejects password login for an OIDC-only user with no passwordHash", async () => {
+    const oidcOnlyEmail = `oidc-only-${Date.now()}@example.com`;
+    const oidcOnlyUser = await db.user.create({
+      data: { email: oidcOnlyEmail, name: "OIDC Only User", oidcSubject: `sub-${Date.now()}` },
+    });
+    createdUserId = oidcOnlyUser.id;
+
+    const res = await loginUser({ email: oidcOnlyEmail, password: "anything123" });
+    expect(res.success).toBe(false);
+    expect(res.error).toBe("Invalid email or password.");
+  });
+
+  it("lets an OIDC-only user set a password without a current password", async () => {
+    const oidcOnlyEmail = `oidc-setpass-${Date.now()}@example.com`;
+    const oidcOnlyUser = await db.user.create({
+      data: { email: oidcOnlyEmail, name: "OIDC Only User", oidcSubject: `sub-${Date.now()}` },
+    });
+    createdUserId = oidcOnlyUser.id;
+
+    await createSession({
+      userId: oidcOnlyUser.id,
+      email: oidcOnlyUser.email,
+      name: oidcOnlyUser.name,
+    });
+
+    const res = await updateUserProfile({ newPassword: "BrandNewPassword123!" });
+    expect(res.success).toBe(true);
+
+    const loginRes = await loginUser({ email: oidcOnlyEmail, password: "BrandNewPassword123!" });
+    expect(loginRes.success).toBe(true);
+  });
+
+  describe("determineCookieSecurity", () => {
+    const origNodeEnv = process.env.NODE_ENV;
+    const origCookieSecure = process.env.COOKIE_SECURE;
+
+    afterEach(() => {
+      (process.env as any).NODE_ENV = origNodeEnv;
+      process.env.COOKIE_SECURE = origCookieSecure;
+    });
+
+    it("returns false when COOKIE_SECURE is 'false'", async () => {
+      (process.env as any).NODE_ENV = "production";
+      process.env.COOKIE_SECURE = "false";
+      expect(await determineCookieSecurity()).toBe(false);
+    });
+
+    it("returns true when COOKIE_SECURE is 'true'", async () => {
+      (process.env as any).NODE_ENV = "development";
+      process.env.COOKIE_SECURE = "true";
+      expect(await determineCookieSecurity()).toBe(true);
+    });
+
+    it("returns false in non-production when COOKIE_SECURE is unset", async () => {
+      (process.env as any).NODE_ENV = "development";
+      delete process.env.COOKIE_SECURE;
+      expect(await determineCookieSecurity()).toBe(false);
+    });
   });
 });
 

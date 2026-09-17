@@ -3,7 +3,7 @@
 A lightweight, fast, and self-hosted project management web application inspired by Vikunja. Built with **Next.js 15+ (App Router)**, **TypeScript**, **Tailwind CSS**, and **SQLite / PostgreSQL + Prisma ORM (v7)**.
 
 [![CircleCI](https://img.shields.io/circleci/build/github/jciccio/open-project-manager/main?logo=circleci)](https://circleci.com/gh/jciccio/open-project-manager)
-[![Tests](https://img.shields.io/badge/tests-55%20passed-emerald?logo=vitest)](https://github.com/jciccio/open-project-manager)
+[![Tests](https://img.shields.io/badge/tests-162%20passed-emerald?logo=vitest)](https://github.com/jciccio/open-project-manager)
 [![Downloads](https://img.shields.io/github/downloads/jciccio/open-project-manager/total?logo=github&label=downloads)](https://github.com/jciccio/open-project-manager/releases)
 [![Docker](https://img.shields.io/badge/docker-ready-2496ED?logo=docker&logoColor=white)](https://github.com/jciccio/open-project-manager)
 [![MCP Native](https://img.shields.io/badge/MCP-native-7C3AED)](https://github.com/jciccio/open-project-manager)
@@ -37,12 +37,136 @@ A lightweight, fast, and self-hosted project management web application inspired
   - **Assignees & Owners**: Assign team members to cards.
   - **Labels**: Tag cards with project-scoped or global color-coded labels (e.g. Frontend, Backend, Bug).
   - **Due Dates & Completion Timestamps**: Set deadlines and automatically track completion timestamps when cards reach done columns.
+- ✅ **Subtasks & Hierarchical Task Management**:
+  - Break larger cards down into actionable subtasks directly within the Card Detail Modal.
+  - Quick-add subtasks inline and toggle status with interactive completion checkboxes.
+  - Visual progress tracking with completion ratios and progress bars on both the detail modal and Kanban cards.
+  - Parent card breadcrumbs and click-through navigation to jump between parent and child tasks, with instant detachment.
+  - Kanban board filter toggle to show or hide subtasks from column lanes to prevent board clutter.
 - 🔗 **Card Dependencies & Relations**: Connect cards with `BLOCKS`, `BLOCKED_BY`, and `RELATES_TO` relationship links.
 - 📎 **File Attachments**: Upload, stream, list, and delete card attachments (documents, images, logs) via UI, REST API, and base64 MCP tools.
 - 📄 **Card Cursoring & Pagination**: Cursor-based pagination (`limit` & `cursor`) for large project card listings.
 - 💬 **In-Place Comment Editing & Feeds**: Discuss tasks and edit comments in-place across UI, REST API (`PATCH /api/v1/comments/:id`), and MCP tools.
 - 🐳 **Official Docker Image & Compose**: Multi-stage `Dockerfile` standalone build and single-command `docker-compose.yml` (SQLite) & `docker-compose.postgres.yml` (PostgreSQL) orchestration with automated migration bootstrapping.
 - 🪶 **Flexible Database Engine**: Single `.sqlite` file database stored locally (`dev.db`) by default, with opt-in PostgreSQL support via connection string (`DATABASE_URL=postgresql://...`).
+
+---
+
+## ⚡ Quick Start & Installation Guide
+
+Get Open Project Manager up and running in under 2 minutes. You can run it effortlessly with **Docker Compose** (recommended for testing or self-hosting) or set up **Local Development** to contribute and customize code.
+
+---
+
+### 📦 Prerequisites & Required Downloads
+
+Make sure you have the necessary tools installed for your preferred setup method:
+
+| Tool | Required For | Recommended Version | Download / Installation Link |
+|---|---|---|---|
+| **[Docker Desktop](https://www.docker.com/products/docker-desktop/)** or Docker Engine + Compose | Docker Setup | v24+ / Compose v2+ | [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/) |
+| **[Node.js](https://nodejs.org/)** | Local Development | v18.x or v20.x+ (LTS) | [nodejs.org](https://nodejs.org/) |
+| **[Yarn](https://yarnpkg.com/)** or **npm** | Local Development | `yarn` v1.22+ or `npm` v9+ | `npm install -g yarn` |
+| **[Git](https://git-scm.com/)** | Both | Any modern version | [git-scm.com](https://git-scm.com/) |
+| **OpenSSL** | Both (Token Generation) | Preinstalled on macOS/Linux | Windows: Included with Git Bash |
+
+---
+
+### 🐳 Option 1: Docker Compose (Fastest & Recommended)
+
+Docker Compose provides a fully isolated, zero-dependency environment with automatic SQLite database migrations and persistent volume storage.
+
+#### Step 1: Clone the Repository
+```bash
+git clone https://github.com/jciccio/open-project-manager.git
+cd open-project-manager
+```
+
+#### Step 2: Configure Environment Secret
+Create a `.env` file containing a secure random secret for JWT authentication. **The application refuses to start without this**:
+```bash
+# macOS / Linux / Git Bash:
+echo "JWT_SECRET=$(openssl rand -base64 32)" > .env
+```
+*(On Windows PowerShell without OpenSSL, generate any 32+ character random string and put `JWT_SECRET=your-random-32-char-secret-string` into `.env`)*
+
+#### Step 3: Launch Containers
+```bash
+docker compose up -d
+```
+> **How it works**: Docker Compose automatically runs the `migrate` service first (`prisma migrate deploy` against the `opm_data` volume) to initialize the SQLite database schema, then starts the web server.
+
+#### Step 4: Seed Sample Data & Demo Accounts
+Run the seed script inside the migrator container to populate initial demo accounts, columns, cards, and labels:
+```bash
+docker compose run --rm migrate npx tsx prisma/seed.ts
+```
+
+#### Step 5: Access the Application
+Open **[http://localhost:3000](http://localhost:3000)** in your browser!
+
+```bash
+# View live container logs:
+docker compose logs -f
+
+# Stop containers:
+docker compose down
+```
+
+> 💡 **Prefer PostgreSQL?** Run `docker compose -f docker-compose.postgres.yml up -d` and seed with `docker compose -f docker-compose.postgres.yml run --rm migrate npx tsx prisma/seed.ts`. See the [Docker Deployment](#-docker-deployment) section below for details.
+
+---
+
+### 💻 Option 2: Local Development (Node.js & Yarn)
+
+Follow these steps if you want to run the code locally, contribute features, or modify components.
+
+#### Step 1: Clone Repository & Install Dependencies
+```bash
+git clone https://github.com/jciccio/open-project-manager.git
+cd open-project-manager
+yarn install
+# (or: npm install)
+```
+
+#### Step 2: Configure Environment Secret
+Create your `.env.local` configuration file with a generated JWT secret:
+```bash
+echo "JWT_SECRET=$(openssl rand -base64 32)" > .env.local
+```
+*(Optional: see `.env.example` to configure OIDC / Single Sign-On or PostgreSQL)*
+
+#### Step 3: Initialize the SQLite Database
+Apply the Prisma database schema to your local SQLite file (`dev.db`):
+```bash
+npx prisma db push
+```
+
+#### Step 4: Seed Demo Accounts & Sample Projects
+Populate the database with sample boards, cards, labels, and default credentials:
+```bash
+yarn db:seed
+# (or: npx tsx prisma/seed.ts)
+```
+
+#### Step 5: Start the Development Server
+```bash
+yarn dev
+```
+Open **[http://localhost:3000](http://localhost:3000)** in your browser with hot reloading enabled!
+
+---
+
+### 🔑 Demo Login Credentials
+
+Once seeded (via either Docker or Local development), you can log in with the following pre-configured accounts:
+
+| Account | Email | Password | Isolated Project / Role |
+|---|---|---|---|
+| **Admin Account** | `admin@example.com` | `password123` | Open Project Manager MVP |
+| **Jose Account** | `jose@example.com` | `password123` | Jose's Autonomous Systems |
+
+> ℹ️ You can also register a brand-new custom account directly from the login page (`/login`).
 
 ---
 
@@ -83,24 +207,6 @@ yarn benchmark
 # 3. Execute high-concurrency memory load & throughput stress test (1,500 ops)
 yarn load-test
 ```
-
----
-
-## 🛠️ Prerequisites
-
-- **Node.js**: v18.x or higher
-- **Yarn**: `v1.22.x` or higher (or `npm`)
-
----
-
-## 🔑 Demo Login Credentials
-
-When database seeding is executed (`npx tsx prisma/seed.ts`), sample accounts are created:
-
-| Account | Email | Password | Isolated Project |
-|---|---|---|---|
-| Admin Account | `admin@example.com` | `password123` | Open Project Manager MVP |
-| Jose Account | `jose@example.com` | `password123` | Jose's Autonomous Systems |
 
 ---
 
@@ -180,6 +286,82 @@ curl -X POST http://localhost:3000/api/v1/cards/CARD_ID/attachments \
 curl -X GET http://localhost:3000/api/v1/cards/CARD_ID/attachments \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
 ```
+
+---
+
+## 📥 Importing an Existing Board (Vikunja)
+
+Open Project Manager can pull a whole board — projects, kanban buckets, cards,
+labels, priorities, due dates and comment history — out of another tool through
+the import framework in `src/lib/import/`. A **Vikunja** adapter ships in the box.
+
+Configure the source on the **server** (never in the request, so an API token
+holder cannot point the importer at an arbitrary host):
+
+```bash
+VIKUNJA_URL=http://localhost:3456/api/v1  # Or http://<your-vikunja-host>:3456/api/v1
+VIKUNJA_API_TOKEN=your-vikunja-read-token
+```
+
+Then trigger it. Always dry-run first — it writes nothing and reports exactly what
+would be created:
+
+```bash
+# Dry run
+curl -X POST http://localhost:3000/api/v1/import \
+  -H "Authorization: Bearer YOUR_OPM_TOKEN" -H "Content-Type: application/json" \
+  -d '{"source": "vikunja", "projectIds": [2], "dryRun": true}'
+
+# Live import (omit projectIds to import every project the source token can see)
+curl -X POST http://localhost:3000/api/v1/import \
+  -H "Authorization: Bearer YOUR_OPM_TOKEN" -H "Content-Type: application/json" \
+  -d '{"source": "vikunja", "projectIds": [2]}'
+```
+
+On the machine that owns the database you can skip the API token entirely and run
+the same import from the command line:
+
+```bash
+VIKUNJA_URL=http://localhost:3456/api/v1 VIKUNJA_API_TOKEN=… \
+  npx tsx scripts/import-vikunja.ts --user you@example.com --project 2 --dry-run
+```
+
+Every imported entity is recorded in `ImportRecord`, so **the import is safe to
+re-run**: previously imported rows come back `skipped` instead of duplicating, and
+a partially failed run is fixed by simply calling it again.
+
+How Vikunja concepts land in OPM:
+
+| Vikunja | Open Project Manager |
+|---|---|
+| Project | Project |
+| Kanban bucket | Column (the view's `done_bucket_id` becomes `isDone`) |
+| Task | Card (done tasks are forced into the done column, keeping `done_at` as `completedAt`) |
+| Priority `0…5` | `NONE, LOW, MEDIUM, HIGH, URGENT, URGENT` |
+| Label (instance-wide) | Project label — only labels the imported tasks actually use |
+| Comment | Comment, keeping the original author and timestamp |
+| HTML description | Markdown (OPM renders descriptions with `react-markdown`) |
+
+Adding another source is one adapter implementing `Importer` (`src/lib/import/types.ts`)
+plus one line in the `SOURCES` registry in `src/app/api/v1/import/route.ts`.
+
+---
+
+## ⚡ AI Assistant Skills (`/opm` for Claude Code & Antigravity)
+
+Open Project Manager provides a standardized skill bundle and `/opm` slash commands for **Claude Code** and **Antigravity**. You can manage tasks, transition cards across Kanban columns, and drive feature development directly from your coding assistant:
+
+```bash
+# Install skills into your project
+yarn install-skills
+```
+
+- `/opm list`: View project columns and tasks.
+- `/opm move <card> <column>`: Move cards between columns (e.g. Backlog -> To Do -> In Progress -> Done).
+- `/opm develop <card>`: Automatically assign task, move to In Progress, load requirements, and guide code implementation.
+- `/opm comment <card> <message>`: Add comments and status notes directly from the assistant.
+
+See the comprehensive [AI Assistant Skills Guide](docs/skills.md) for full setup instructions and connection modes.
 
 ---
 
@@ -274,6 +456,9 @@ echo "JWT_SECRET=$(openssl rand -base64 32)" > .env
 # Build and launch container
 docker compose up -d
 
+# (Optional) Seed demo user accounts and sample project boards
+docker compose run --rm migrate npx tsx prisma/seed.ts
+
 # View logs
 docker compose logs -f
 
@@ -294,6 +479,9 @@ echo "JWT_SECRET=$(openssl rand -base64 32)" > .env
 
 # Build and launch application alongside Postgres 16
 docker compose -f docker-compose.postgres.yml up -d
+
+# (Optional) Seed demo user accounts and sample project boards
+docker compose -f docker-compose.postgres.yml run --rm migrate npx tsx prisma/seed.ts
 
 # View logs
 docker compose -f docker-compose.postgres.yml logs -f
@@ -338,45 +526,22 @@ Commit the generated `prisma/migrations/` folder — `migrate deploy` (run autom
 
 ---
 
-## 🚀 Installation & Usage Guide
+## 🚀 Installation & Deployment Guide
 
-### 1. Clone the Repository
-```bash
-git clone https://github.com/your-username/open-project-manager.git
-cd open-project-manager
-```
+Open Project Manager supports two primary production deployment methods as well as a local development workflow.
 
-### 2. Install Dependencies
-This project uses **Yarn** for dependency management:
-```bash
-yarn install
-```
+- **⚡ Quick Start**: If you are setting up Open Project Manager for the first time, follow the [⚡ Quick Start & Installation Guide](#-quick-start--installation-guide) at the beginning of this document for Docker and local instructions.
+- **🍓 Dedicated Raspberry Pi & Linux Guide**: For an exhaustive, step-by-step tutorial covering **Raspberry Pi** (ARM64/ARMv7), home servers, and Linux VPS environments (including swap configuration, Systemd units, PM2, Caddy/Nginx reverse proxy with SSL, and SQLite hot backups), see the dedicated [🍓 Raspberry Pi & Linux Installation Guide](docs/installation-guide.md).
 
-### 3. Configure Environment Variables
-Create a `.env.local` with a signing secret for auth tokens (the app refuses to start without one):
-```bash
-echo "JWT_SECRET=$(openssl rand -base64 32)" > .env.local
-```
+### Deployment Modes at a Glance
 
-### 4. Initialize the SQLite Database
-Synchronize the Prisma v7 schema with your local SQLite database:
-```bash
-npx prisma db push
-```
+| Mode | Best For | Persistent Storage | Process Management | Memory Footprint |
+|---|---|---|---|---|
+| **🐳 Docker Compose** | Isolated container setups, homelabs, easy updates | Named volume (`opm_data`) or Postgres | Docker Daemon (`restart: unless-stopped`) | ~100–120 MB |
+| **⚙️ Bare-Metal / Standalone** | Minimum overhead on Raspberry Pi / Linux, maximum speed | Local `dev.db` file or Postgres | Systemd (`open-project-manager.service`) or PM2 | **~78 MB** |
+| **💻 Local Development** | Hacking, contributing, extending features | Local `dev.db` file | Next.js dev server (`yarn dev`) | ~150–200 MB |
 
-### 5. Seed Sample Projects & Users (Optional)
-Populate the database with sample user accounts, project boards, cards, labels, and comments:
-```bash
-npx tsx prisma/seed.ts
-```
-
-### 6. Start the Development Server
-Run the Next.js local development server:
-```bash
-yarn dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) in your web browser to log in or register a new account!
+> 📖 **Full Installation Tutorial**: Follow the complete [Installation Guide (docs/installation-guide.md)](docs/installation-guide.md) for detailed swap setup, Systemd units, PM2 configs, Caddy/Nginx reverse proxy with automatic SSL, and SQLite hot backups.
 
 ---
 
@@ -384,15 +549,49 @@ Open [http://localhost:3000](http://localhost:3000) in your web browser to log i
 
 | Command | Description |
 |---|---|
-| `yarn dev` | Starts the Next.js development server on port 3000 |
+| `yarn dev` | Generates Prisma client and starts the Next.js development server on port 3000 |
 | `yarn mcp` | Runs the Model Context Protocol (MCP) server on stdio |
 | `yarn test` | Executes automated integration test suite |
 | `yarn benchmark` | Profiles baseline Node.js process RAM and SQLite DB metrics |
 | `yarn load-test` | Runs high-concurrency stress test (1,500 operations) & measures RAM spikes |
-| `yarn build` | Compiles the production build |
+| `yarn build` | Generates Prisma client and compiles the production build |
 | `yarn start` | Starts the production server |
+| `yarn update` | Runs the automated update utility (`deploy/update.sh`) to fetch tags, backup SQLite, and upgrade |
+| `yarn install-skills` | Installs Open Project Manager skills and `/opm` commands for Claude Code and Antigravity |
+| `yarn db:seed` | Seeds sample user accounts and project boards into the database |
+| `npx prisma generate` | Generates the Prisma Client into `node_modules/@prisma/client` |
 | `npx prisma db push` | Applies schema changes to SQLite (`dev.db`) |
 | `npx prisma studio` | Opens Prisma GUI to inspect and edit SQLite records visually |
+
+---
+
+## 🔄 Upgrading & Updating Open Project Manager
+
+Open Project Manager includes an automated update utility in `deploy/update.sh` (or `yarn update`) designed for zero-downtime and zero data loss on Linux servers, Raspberry Pis, and homelabs.
+
+### 1. View Available Tags & Releases
+```bash
+./deploy/update.sh --list
+```
+This fetches upstream git tags and displays your currently running version alongside newer releases.
+
+### 2. Update to a Specific Tag or Latest Main
+```bash
+# Update to a specific release tag (e.g. 0.2.0):
+./deploy/update.sh 0.2.0
+
+# Or update to latest commits on main:
+./deploy/update.sh main
+```
+
+### What the Update Script Does:
+1. **Zero Data-Loss Snapshot**: Creates an atomic SQLite hot backup (`dev.db.<timestamp>.bak`) and archives `.env` into `backups/` before touching any code.
+2. **Tag Checkout**: Fetches and checks out the requested git tag or branch.
+3. **Dependency Sync**: Runs `yarn install --frozen-lockfile` with network timeout resilience.
+4. **Database Migrations**: Deploys pending Prisma schema migrations to `dev.db`.
+5. **Memory-Safe Standalone Build**: Enforces swap availability and passes `NODE_OPTIONS="--max-old-space-size=2048"` to compile safely on 1GB RAM hardware without memory exhaustion.
+6. **Asset Sync & Service Restart**: Synchronizes standalone public/static assets and automatically restarts the systemd service (`open-project-manager.service`).
+7. **Health Verification & Auto-Rollback**: Verifies local HTTP response; automatically reverts git state and database backup if any build or migration error occurs.
 
 ---
 
@@ -419,6 +618,17 @@ open-project-manager/
 ├── prisma.config.ts        # Prisma v7 configuration
 └── dev.db                  # Local SQLite database file
 ```
+
+---
+
+## 💖 Donations
+
+Open Project Manager is an independent open-source project. If you find it useful and would like to support its ongoing development, maintenance, and future features, contributions are deeply appreciated!
+
+[![](https://www.paypalobjects.com/en_US/i/btn/btn_donateCC_LG.gif)](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=2MSMEVFF9P33N)
+
+You can also follow me on Patreon:
+https://patreon.com/Jacware
 
 ---
 

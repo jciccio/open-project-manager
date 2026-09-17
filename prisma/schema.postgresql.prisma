@@ -10,7 +10,8 @@ model User {
   id           String   @id @default(cuid())
   email        String   @unique
   name         String
-  passwordHash String
+  passwordHash String?
+  oidcSubject  String?  @unique
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -18,6 +19,7 @@ model User {
   labels        Label[]
   apiTokens     ApiToken[]
   assignedCards CardAssignee[]
+  importRecords ImportRecord[]
 }
 
 model ApiToken {
@@ -50,6 +52,8 @@ model Project {
   cardTypes  CardType[]
   savedViews SavedView[]
   webhooks   Webhook[]
+
+  @@unique([userId, key])
 }
 
 model Column {
@@ -228,6 +232,21 @@ model Webhook {
   updatedAt  DateTime @updatedAt
 
   @@index([projectId])
+}
+
+model ImportRecord {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  source      String
+  entityType  String
+  sourceId    String
+  localId     String
+  importRunId String
+  createdAt   DateTime @default(now())
+
+  @@unique([userId, source, entityType, sourceId])
+  @@index([importRunId])
 }
 
 model CardLink {

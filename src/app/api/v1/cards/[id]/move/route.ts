@@ -21,7 +21,7 @@ export async function POST(request: NextRequest, { params }: Props) {
       return NextResponse.json({ error: "targetColumnId is required" }, { status: 400 });
     }
 
-    const res = await moveCard(cardId, targetColumnId, newOrder);
+    const res = await moveCard(cardId, targetColumnId, newOrder, session.userId);
     if (!res.success) {
       return NextResponse.json({ error: res.error }, { status: 400 });
     }
