@@ -45,7 +45,7 @@ type ViewMode = "kanban" | "list" | "analytics" | "calendar";
 
 export default function KanbanBoard({ project }: Props) {
   const [viewMode, setViewMode] = useState<ViewMode>("kanban");
-  const [activeCard, setActiveCard] = useState<any | null>(null);
+  const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [newColumnName, setNewColumnName] = useState("");
   const [isAddingColumn, setIsAddingColumn] = useState(false);
   const [loadingCol, setLoadingCol] = useState(false);
@@ -168,7 +168,7 @@ export default function KanbanBoard({ project }: Props) {
     if (res.success) {
       setNewColumnName("");
       setIsAddingColumn(false);
-      window.location.reload();
+      router.refresh();
     }
   }
 
@@ -195,7 +195,7 @@ export default function KanbanBoard({ project }: Props) {
     const orderedIds = newColumns.map((c: any) => c.id);
     const res = await reorderColumns(project.id, orderedIds);
     if (res.success) {
-      window.location.reload();
+      router.refresh();
     }
   }
 
@@ -215,11 +215,17 @@ export default function KanbanBoard({ project }: Props) {
       const newOrder = targetCol?.cards ? targetCol.cards.length : 0;
 
       await moveCard(cardId, targetColumnId, newOrder);
-      window.location.reload();
+      router.refresh();
     } catch (err) {
       console.error("Drop card error:", err);
     }
   }
+
+  const activeCard = activeCardId
+    ? project.columns
+        .flatMap((col: any) => col.cards || [])
+        .find((c: any) => c.id === activeCardId) || null
+    : null;
 
   // Filter cards by search, priority, type & subtask visibility for Kanban view
   const columnsWithFilteredCards = project.columns.map((col: any) => {
@@ -476,8 +482,8 @@ export default function KanbanBoard({ project }: Props) {
               <KanbanColumn
                 key={column.id}
                 column={column}
-                onCardClick={(card) => setActiveCard(card)}
-                onRefresh={() => window.location.reload()}
+                onCardClick={(card) => setActiveCardId(card.id)}
+                onRefresh={() => router.refresh()}
                 onDragStartCard={handleDragStartCard}
                 onDropCard={handleDropCard}
                 canMoveLeft={index > 0}
@@ -534,8 +540,8 @@ export default function KanbanBoard({ project }: Props) {
         {viewMode === "list" && (
           <ListView
             project={project}
-            onCardClick={(card) => setActiveCard(card)}
-            onRefresh={() => window.location.reload()}
+            onCardClick={(card) => setActiveCardId(card.id)}
+            onRefresh={() => router.refresh()}
             searchQuery={searchQuery}
             priorityFilter={priorityFilter}
             typeFilter={typeFilter}
@@ -547,7 +553,7 @@ export default function KanbanBoard({ project }: Props) {
         {viewMode === "calendar" && (
           <CalendarView
             project={project}
-            onCardClick={(card) => setActiveCard(card)}
+            onCardClick={(card) => setActiveCardId(card.id)}
             searchQuery={searchQuery}
             priorityFilter={priorityFilter}
           />
@@ -639,17 +645,9 @@ export default function KanbanBoard({ project }: Props) {
         <CardDetailModal
           card={activeCard}
           columns={project.columns}
-          onClose={() => setActiveCard(null)}
-          onRefresh={() => window.location.reload()}
-          onOpenCard={(cardId) => {
-            for (const col of project.columns) {
-              const found = (col.cards || []).find((c: any) => c.id === cardId);
-              if (found) {
-                setActiveCard(found);
-                return;
-              }
-            }
-          }}
+          onClose={() => setActiveCardId(null)}
+          onRefresh={() => router.refresh()}
+          onOpenCard={(cardId) => setActiveCardId(cardId)}
         />
       )}
 

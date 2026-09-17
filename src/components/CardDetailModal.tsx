@@ -188,6 +188,7 @@ export default function CardDetailModal({
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
 
   const [activities, setActivities] = useState<Array<any>>(card.activities || []);
+  const [comments, setComments] = useState<Props["card"]["comments"]>(card.comments || []);
   const [feedTab, setFeedTab] = useState<"comments" | "activity">("comments");
   const [isLoadingActivities, setIsLoadingActivities] = useState(false);
 
@@ -404,12 +405,12 @@ export default function CardDetailModal({
     const parsedPoints = points.trim() === "" ? null : parseInt(points, 10);
     const res = await updateCard(card.id, {
       title: title.trim(),
-      description: description.trim() || undefined,
+      description: description.trim() || null,
       columnId,
       priority,
       points: isNaN(parsedPoints as number) ? null : parsedPoints,
-      owner: owner.trim() || undefined,
-      dueDate: dueDate || undefined,
+      owner: owner.trim() || null,
+      dueDate: dueDate || null,
       typeId: typeId || "",
       labelIds: selectedLabelIds,
     });
@@ -458,7 +459,8 @@ export default function CardDetailModal({
     );
     setIsSubmittingComment(false);
 
-    if (res.success) {
+    if (res.success && res.data) {
+      setComments((prev) => [res.data, ...prev]);
       setCommentContent("");
       loadActivities();
       onRefresh();
@@ -468,7 +470,8 @@ export default function CardDetailModal({
   async function handleSaveEditComment(commentId: string) {
     if (!editingCommentText.trim()) return;
     const res = await updateComment(commentId, editingCommentText.trim());
-    if (res.success) {
+    if (res.success && res.data) {
+      setComments((prev) => prev.map((c) => (c.id === commentId ? res.data : c)));
       setEditingCommentId(null);
       setEditingCommentText("");
       onRefresh();
@@ -478,6 +481,7 @@ export default function CardDetailModal({
   async function handleDeleteComment(commentId: string) {
     const res = await deleteComment(commentId);
     if (res.success) {
+      setComments((prev) => prev.filter((c) => c.id !== commentId));
       onRefresh();
     }
   }
@@ -1249,7 +1253,7 @@ export default function CardDetailModal({
                   <MessageSquare className="h-3.5 w-3.5" />
                   <span>{t("cardModal.tabComments")}</span>
                   <span className="ml-1 rounded-full bg-slate-200 dark:bg-slate-800 px-1.5 py-0.2 text-[10px] text-slate-700 dark:text-slate-300">
-                    {card.comments ? card.comments.length : 0}
+                    {comments.length}
                   </span>
                 </button>
                 <button
@@ -1305,8 +1309,8 @@ export default function CardDetailModal({
 
                 {/* Comments List */}
                 <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                  {card.comments && card.comments.length > 0 ? (
-                    card.comments.map((c) => (
+                  {comments.length > 0 ? (
+                    comments.map((c) => (
                       <div
                         key={c.id}
                         className="group flex items-start justify-between gap-2 rounded-lg bg-slate-50 dark:bg-slate-800/50 p-2.5 border border-slate-200 dark:border-slate-800"
