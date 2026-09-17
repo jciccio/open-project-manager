@@ -1,9 +1,11 @@
 "use server";
 
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { revalidatePath } from "next/cache";
+import { safeRevalidatePath } from "@/lib/revalidate";
 import { DEFAULT_CARD_TYPES } from "@/lib/cardTypeDefaults";
+import { generateProjectKey } from "@/lib/projectKey";
 
 export async function getProjects(isArchived = false, overrideUserId?: string) {
   try {
@@ -104,6 +106,38 @@ export async function getProjectById(id: string, overrideUserId?: string) {
                     },
                   },
                 },
+                parent: {
+                  select: {
+                    id: true,
+                    number: true,
+                    title: true,
+                    columnId: true,
+                  },
+                },
+                children: {
+                  where: { isArchived: false },
+                  orderBy: { order: "asc" },
+                  select: {
+                    id: true,
+                    number: true,
+                    title: true,
+                    dueDate: true,
+                    completedAt: true,
+                    columnId: true,
+                    column: {
+                      select: {
+                        id: true,
+                        name: true,
+                        isDone: true,
+                      },
+                    },
+                    assignees: {
+                      include: {
+                        user: { select: { id: true, name: true, email: true } },
+                      },
+                    },
+                  },
+                },
               },
             },
           },
@@ -122,26 +156,6 @@ export async function getProjectById(id: string, overrideUserId?: string) {
   }
 }
 
-export async function generateProjectKey(name: string, requestedKey?: string): Promise<string> {
-  if (requestedKey && requestedKey.trim()) {
-    return requestedKey.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
-  }
-  const words = name.replace(/[^a-zA-Z0-9\s]/g, "").split(/\s+/).filter(Boolean);
-  if (words.length >= 2) {
-    const initials = words.map((w) => w[0].toUpperCase()).join("");
-    return initials.slice(0, 6);
-  }
-  const clean = name.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-  return clean.slice(0, 4) || "PROJ";
-}
-
-function safeRevalidatePath(path: string) {
-  try {
-    revalidatePath(path);
-  } catch {
-    // Ignore cache revalidation errors outside request context
-  }
-}
 
 export async function createProject(
   data: { name: string; description?: string; color?: string; key?: string },
@@ -157,7 +171,7 @@ export async function createProject(
       return { success: false, error: "Project name is required" };
     }
 
-    const projectKey = await generateProjectKey(data.name, data.key);
+    const projectKey = await generateProjectKey(data.name, data.key, session.userId);
 
     const project = await db.project.create({
       data: {
@@ -183,6 +197,9 @@ export async function createProject(
     safeRevalidatePath("/");
     return { success: true, data: project };
   } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return { success: false, error: "A project with that key already exists" };
+    }
     console.error("Error creating project:", error);
     return { success: false, error: "Failed to create project" };
   }
@@ -209,7 +226,11 @@ export async function updateProject(
 
     const project = await db.project.update({
       where: { id },
-      data,
+      data: {
+        name: data.name,
+        description: data.description,
+        color: data.color,
+      },
     });
 
     safeRevalidatePath("/");

@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { revalidatePath } from "next/cache";
+import { safeRevalidatePath } from "@/lib/revalidate";
 
 export async function getCardTypes(projectId: string, overrideUserId?: string) {
   try {
@@ -54,7 +54,7 @@ export async function createCardType(
       },
     });
 
-    revalidatePath("/");
+    safeRevalidatePath(`/projects/${projectId}`);
     return { success: true, data: cardType };
   } catch (error) {
     console.error("Error creating card type:", error);
@@ -88,7 +88,7 @@ export async function updateCardType(
       },
     });
 
-    revalidatePath("/");
+    safeRevalidatePath(`/projects/${existing.projectId}`);
     return { success: true, data: cardType };
   } catch (error) {
     console.error(`Error updating card type ${id}:`, error);
@@ -113,7 +113,7 @@ export async function deleteCardType(id: string, overrideUserId?: string) {
       where: { id },
     });
 
-    revalidatePath("/");
+    safeRevalidatePath(`/projects/${existing.projectId}`);
     return { success: true };
   } catch (error) {
     console.error(`Error deleting card type ${id}:`, error);

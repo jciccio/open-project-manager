@@ -31,11 +31,8 @@ export async function GET(request: NextRequest) {
 
   try {
     const where: any = {
-      ...(columnId
-        ? { columnId }
-        : projectId
-        ? { project: { id: projectId, userId: session.userId } }
-        : { project: { userId: session.userId } }),
+      project: projectId ? { id: projectId, userId: session.userId } : { userId: session.userId },
+      ...(columnId ? { columnId } : {}),
     };
     if (parentId !== null) {
       where.parentId = parentId === "null" ? null : parentId;
