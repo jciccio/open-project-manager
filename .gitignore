@@ -44,6 +44,9 @@ secrets.*
 *.sqlite-journal
 dev.db
 
+# Local attachment storage (UPLOADS_DIR default - see src/lib/attachmentStorage.ts)
+/data
+
 # Next.js Build Output & Cache
 /.next/
 /out/
