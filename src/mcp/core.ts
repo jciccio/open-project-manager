@@ -949,7 +949,6 @@ export async function executeMcpTool(
     }
 
     case "get_card_by_identifier": {
-      const userId = requireUserId(args.userId);
       const clean = (args.identifier || "").trim();
       const lastDash = clean.lastIndexOf("-");
       if (lastDash === -1) {
