@@ -12,11 +12,20 @@ async function main() {
   console.log("Seeding database with default user accounts...");
 
   // Clean existing data
+  await db.activity.deleteMany();
   await db.comment.deleteMany();
   await db.cardLabel.deleteMany();
+  await db.cardAssignee.deleteMany();
+  await db.cardLink.deleteMany();
+  await db.cardRelation.deleteMany();
+  await db.attachment.deleteMany();
   await db.label.deleteMany();
   await db.card.deleteMany();
   await db.column.deleteMany();
+  await db.savedView.deleteMany();
+  await db.cardType.deleteMany();
+  await db.importRecord.deleteMany();
+  await db.apiToken.deleteMany();
   await db.project.deleteMany();
   await db.user.deleteMany();
 
@@ -73,6 +82,7 @@ async function main() {
     },
     include: {
       columns: true,
+      cardTypes: true,
     },
   });
 
@@ -81,14 +91,18 @@ async function main() {
   const inProgressCol = proj1.columns.find((c) => c.name === "In Progress")!;
   const doneCol = proj1.columns.find((c) => c.name === "Done")!;
 
+  const featureType = proj1.cardTypes.find((t) => t.name === "Feature");
+  const taskType = proj1.cardTypes.find((t) => t.name === "Task");
+
   // Card 1
   await db.card.create({
     data: {
       projectId: proj1.id,
       columnId: inProgressCol.id,
+      number: 1,
+      typeId: featureType?.id,
       title: "Design Modern Kanban Board Interface",
       description: "Implement drag-and-drop column layout with customizable cards, badges, and filters.",
-      number: 1,
       priority: "HIGH",
       points: 5,
       owner: "Jose Ciccio",
@@ -115,9 +129,10 @@ async function main() {
     data: {
       projectId: proj1.id,
       columnId: todoCol.id,
+      number: 2,
+      typeId: taskType?.id,
       title: "User Authentication & Data Isolation",
       description: "Implement bcrypt password hashing, session cookies, and route protection.",
-      number: 2,
       priority: "URGENT",
       points: 8,
       owner: "Alex Rivera",

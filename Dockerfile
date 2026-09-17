@@ -11,6 +11,8 @@ RUN adduser --system --uid 1001 nextjs
 FROM base AS deps
 RUN apk add --no-cache libc6-compat python3 make g++
 COPY package.json yarn.lock ./
+COPY prisma ./prisma
+COPY prisma.config.ts ./
 RUN yarn install --frozen-lockfile
 
 # 3. Builder stage
@@ -21,6 +23,15 @@ COPY . .
 # Ensure telemetry disabled and build environment variables
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
+
+# Selects which schema `prisma generate` reads (prisma.config.ts picks
+# prisma/schema.postgresql.prisma when this is postgresql/postgres, else
+# prisma/schema.prisma) — the generated client's query engine is bound to
+# one provider at generate time, so this must match the DATABASE_PROVIDER
+# the image will actually run under. Defaults to sqlite for docker-compose.yml;
+# docker-compose.postgres.yml passes DATABASE_PROVIDER=postgresql as a build arg.
+ARG DATABASE_PROVIDER=sqlite
+ENV DATABASE_PROVIDER=$DATABASE_PROVIDER
 
 # Prisma v7 client generation and Next.js standalone build
 RUN npx prisma generate
