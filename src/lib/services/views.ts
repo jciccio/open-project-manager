@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { revalidatePath } from "next/cache";
+import { safeRevalidatePath } from "@/lib/revalidate";
 
 export async function getSavedViews(projectId: string, userId: string) {
   try {
@@ -55,11 +55,7 @@ export async function createSavedView(
       },
     });
 
-    try {
-      revalidatePath(`/projects/${projectId}`);
-    } catch {
-      // Ignore revalidation outside request context
-    }
+    safeRevalidatePath(`/projects/${projectId}`);
 
     return { success: true, data: savedView };
   } catch (error) {
@@ -102,11 +98,7 @@ export async function updateSavedView(
       },
     });
 
-    try {
-      revalidatePath(`/projects/${existing.projectId}`);
-    } catch {
-      // Ignore revalidation outside request context
-    }
+    safeRevalidatePath(`/projects/${existing.projectId}`);
 
     return { success: true, data: savedView };
   } catch (error) {
@@ -129,11 +121,7 @@ export async function deleteSavedView(id: string, userId: string) {
       where: { id },
     });
 
-    try {
-      revalidatePath(`/projects/${existing.projectId}`);
-    } catch {
-      // Ignore revalidation outside request context
-    }
+    safeRevalidatePath(`/projects/${existing.projectId}`);
 
     return { success: true, deletedId: id };
   } catch (error) {

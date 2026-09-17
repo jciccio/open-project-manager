@@ -172,6 +172,51 @@ describe("Cards Server Actions", () => {
     expect(selfParentRes.error).toBe("A card cannot be its own parent");
   });
 
+  it("enforces single-level nesting constraints and returns children in getProjectById", async () => {
+    const rootCard = await createCard({ projectId, columnId, title: "Root Card" });
+    const rootId = rootCard.data!.id;
+
+    const subCard = await createCard({
+      projectId,
+      columnId,
+      title: "Subtask Card",
+      parentId: rootId,
+    });
+    expect(subCard.success).toBe(true);
+
+    // Cannot nest another subtask under a subtask
+    const deepNestRes = await createCard({
+      projectId,
+      columnId,
+      title: "Deep Subtask",
+      parentId: subCard.data!.id,
+    });
+    expect(deepNestRes.success).toBe(false);
+    expect(deepNestRes.error).toBe("Subtasks cannot be nested under another subtask");
+
+    // Cannot make a card with subtasks a child of another card
+    const anotherCard = await createCard({ projectId, columnId, title: "Another Card" });
+    const makeRootAChild = await updateCard(rootId, { parentId: anotherCard.data!.id });
+    expect(makeRootAChild.success).toBe(false);
+    expect(makeRootAChild.error).toBe("A card with subtasks cannot be made a subtask");
+
+    // Verify getProjectById includes parent and children
+    const proj = await getProjectById(projectId);
+    expect(proj.success).toBe(true);
+
+    const allCards = proj.data!.columns.flatMap((c: any) => c.cards || []);
+    const foundRoot = allCards.find((c: any) => c.id === rootId);
+    expect(foundRoot).toBeDefined();
+    expect(foundRoot.children).toBeDefined();
+    expect(foundRoot.children.length).toBe(1);
+    expect(foundRoot.children[0].id).toBe(subCard.data!.id);
+
+    const foundSub = allCards.find((c: any) => c.id === subCard.data!.id);
+    expect(foundSub).toBeDefined();
+    expect(foundSub.parent).toBeDefined();
+    expect(foundSub.parent.id).toBe(rootId);
+  });
+
   it("supports assigning structured users to a card", async () => {
     const cardRes = await createCard({
       projectId,

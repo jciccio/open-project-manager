@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { revalidatePath } from "next/cache";
+import { safeRevalidatePath } from "@/lib/revalidate";
 import { recordActivity } from "./activity";
 import * as cardsService from "@/lib/services/cards";
 
@@ -93,8 +93,8 @@ export async function archiveCard(id: string) {
       type: "archived",
     });
 
-    revalidatePath(`/projects/${card.projectId}`);
-    revalidatePath("/archived");
+    safeRevalidatePath(`/projects/${card.projectId}`);
+    safeRevalidatePath("/archived");
     return { success: true, data: updated };
   } catch (error) {
     console.error(`Error archiving card ${id}:`, error);
@@ -128,8 +128,8 @@ export async function unarchiveCard(id: string) {
       type: "unarchived",
     });
 
-    revalidatePath(`/projects/${card.projectId}`);
-    revalidatePath("/archived");
+    safeRevalidatePath(`/projects/${card.projectId}`);
+    safeRevalidatePath("/archived");
     return { success: true, data: updated };
   } catch (error) {
     console.error(`Error unarchiving card ${id}:`, error);
@@ -220,7 +220,10 @@ export async function reorderCards(items: ReorderItem[]) {
     );
 
     await db.$transaction(updates);
-    revalidatePath("/");
+    const projectIds = new Set(existingCards.map((c) => c.projectId));
+    for (const projectId of projectIds) {
+      safeRevalidatePath(`/projects/${projectId}`);
+    }
     return { success: true };
   } catch (error) {
     console.error("Error reordering cards:", error);
@@ -229,54 +232,13 @@ export async function reorderCards(items: ReorderItem[]) {
 }
 
 export async function addCardLink(cardId: string, url: string, title?: string) {
-  try {
-    const session = await getSession();
-    if (!session) return { success: false, error: "Unauthorized" };
-
-    const card = await db.card.findUnique({
-      where: { id: cardId },
-      include: { project: true },
-    });
-
-    if (!card || card.project.userId !== session.userId) {
-      return { success: false, error: "Unauthorized" };
-    }
-
-    const link = await db.cardLink.create({
-      data: {
-        cardId,
-        url,
-        title,
-      },
-    });
-
-    revalidatePath(`/projects/${card.projectId}`);
-    return { success: true, data: link };
-  } catch (error) {
-    console.error("Error adding card link:", error);
-    return { success: false, error: "Failed to add card link" };
-  }
+  const session = await getSession();
+  if (!session) return { success: false as const, error: "Unauthorized" };
+  return cardsService.addCardLink(cardId, url, title, session.userId);
 }
 
 export async function removeCardLink(linkId: string) {
-  try {
-    const session = await getSession();
-    if (!session) return { success: false, error: "Unauthorized" };
-
-    const link = await db.cardLink.findUnique({
-      where: { id: linkId },
-      include: { card: { include: { project: true } } },
-    });
-
-    if (!link || link.card.project.userId !== session.userId) {
-      return { success: false, error: "Unauthorized or link not found" };
-    }
-
-    await db.cardLink.delete({ where: { id: linkId } });
-    revalidatePath(`/projects/${link.card.projectId}`);
-    return { success: true };
-  } catch (error) {
-    console.error("Error removing card link:", error);
-    return { success: false, error: "Failed to remove card link" };
-  }
+  const session = await getSession();
+  if (!session) return { success: false as const, error: "Unauthorized" };
+  return cardsService.removeCardLink(linkId, session.userId);
 }
