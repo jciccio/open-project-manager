@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { revalidatePath } from "next/cache";
+import { safeRevalidatePath } from "@/lib/revalidate";
 import fs from "fs";
 import path from "path";
 
@@ -61,7 +61,7 @@ export async function uploadAttachment(
       },
     });
 
-    revalidatePath(`/projects/${card.projectId}`);
+    safeRevalidatePath(`/projects/${card.projectId}`);
     return { success: true, data: attachment };
   } catch (error) {
     console.error("Error uploading attachment:", error);
@@ -110,7 +110,7 @@ export async function deleteAttachment(attachmentId: string, userId: string) {
       }
     }
 
-    revalidatePath(`/projects/${attachment.card.projectId}`);
+    safeRevalidatePath(`/projects/${attachment.card.projectId}`);
     return { success: true, data: { id: attachmentId } };
   } catch (error) {
     console.error("Error deleting attachment:", error);

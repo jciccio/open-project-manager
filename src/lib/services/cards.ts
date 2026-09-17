@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { revalidatePath } from "next/cache";
+import { safeRevalidatePath } from "@/lib/revalidate";
 import { recordActivity } from "@/actions/activity";
 
 async function verifyProjectOwnership(projectId: string, userId: string) {
@@ -33,6 +33,19 @@ export async function createCard(
 
     if (!data.title.trim()) {
       return { success: false, error: "Card title is required" };
+    }
+
+    if (data.parentId) {
+      const parentCard = await db.card.findUnique({
+        where: { id: data.parentId },
+        select: { id: true, projectId: true, parentId: true },
+      });
+      if (!parentCard || parentCard.projectId !== data.projectId) {
+        return { success: false, error: "Parent card not found in this project" };
+      }
+      if (parentCard.parentId) {
+        return { success: false, error: "Subtasks cannot be nested under another subtask" };
+      }
     }
 
     const ORDER_GAP = 10000;
@@ -106,7 +119,7 @@ export async function createCard(
       toValue: card.title,
     });
 
-    revalidatePath(`/projects/${data.projectId}`);
+    safeRevalidatePath(`/projects/${data.projectId}`);
     return { success: true, data: card };
   } catch (error) {
     console.error("Error creating card:", error);
@@ -133,10 +146,6 @@ export async function updateCard(
   userId: string
 ) {
   try {
-    if (data.parentId === id) {
-      return { success: false, error: "A card cannot be its own parent" };
-    }
-
     const existingCard = await db.card.findUnique({
       where: { id },
       include: {
@@ -150,6 +159,28 @@ export async function updateCard(
 
     if (!existingCard || existingCard.project.userId !== userId) {
       return { success: false, error: "Unauthorized" };
+    }
+
+    if (data.parentId !== undefined && data.parentId !== null && data.parentId !== "") {
+      if (data.parentId === id) {
+        return { success: false, error: "A card cannot be its own parent" };
+      }
+
+      const childCount = await db.card.count({ where: { parentId: id } });
+      if (childCount > 0) {
+        return { success: false, error: "A card with subtasks cannot be made a subtask" };
+      }
+
+      const targetParent = await db.card.findUnique({
+        where: { id: data.parentId },
+        select: { id: true, projectId: true, parentId: true },
+      });
+      if (!targetParent || targetParent.projectId !== existingCard.projectId) {
+        return { success: false, error: "Parent card not found in this project" };
+      }
+      if (targetParent.parentId) {
+        return { success: false, error: "Subtasks cannot be nested under another subtask" };
+      }
     }
 
     let targetColumn = null;
@@ -343,7 +374,7 @@ export async function updateCard(
       }
     }
 
-    revalidatePath(`/projects/${existingCard.projectId}`);
+    safeRevalidatePath(`/projects/${existingCard.projectId}`);
     return { success: true, data: card };
   } catch (error) {
     console.error(`Error updating card ${id}:`, error);
@@ -384,7 +415,7 @@ export async function moveCard(cardId: string, targetColumnId: string, newOrder:
       });
     }
 
-    revalidatePath(`/projects/${card.projectId}`);
+    safeRevalidatePath(`/projects/${card.projectId}`);
     return { success: true, data: card };
   } catch (error) {
     console.error(`Error moving card ${cardId}:`, error);
@@ -407,7 +438,7 @@ export async function deleteCard(id: string, userId: string) {
       where: { id },
     });
 
-    revalidatePath(`/projects/${existingCard.projectId}`);
+    safeRevalidatePath(`/projects/${existingCard.projectId}`);
     return { success: true };
   } catch (error) {
     console.error(`Error deleting card ${id}:`, error);
@@ -474,5 +505,52 @@ export async function getCardByIdentifier(identifier: string, userId: string) {
   } catch (error) {
     console.error(`Error looking up card by identifier '${identifier}':`, error);
     return { success: false, error: "Failed to fetch card by identifier" };
+  }
+}
+
+export async function addCardLink(cardId: string, url: string, title: string | undefined, userId: string) {
+  try {
+    const card = await db.card.findUnique({
+      where: { id: cardId },
+      include: { project: true },
+    });
+
+    if (!card || card.project.userId !== userId) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    const link = await db.cardLink.create({
+      data: {
+        cardId,
+        url,
+        title,
+      },
+    });
+
+    safeRevalidatePath(`/projects/${card.projectId}`);
+    return { success: true, data: link };
+  } catch (error) {
+    console.error("Error adding card link:", error);
+    return { success: false, error: "Failed to add card link" };
+  }
+}
+
+export async function removeCardLink(linkId: string, userId: string) {
+  try {
+    const link = await db.cardLink.findUnique({
+      where: { id: linkId },
+      include: { card: { include: { project: true } } },
+    });
+
+    if (!link || link.card.project.userId !== userId) {
+      return { success: false, error: "Unauthorized or link not found" };
+    }
+
+    await db.cardLink.delete({ where: { id: linkId } });
+    safeRevalidatePath(`/projects/${link.card.projectId}`);
+    return { success: true };
+  } catch (error) {
+    console.error("Error removing card link:", error);
+    return { success: false, error: "Failed to remove card link" };
   }
 }

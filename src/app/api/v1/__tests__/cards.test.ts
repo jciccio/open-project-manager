@@ -218,6 +218,31 @@ describe("REST API: Cards", () => {
     expect(noneBody.data.length).toBe(0);
   });
 
+  it("does not leak another user's cards through the columnId filter on GET /api/v1/cards", async () => {
+    const other = await createTestUser(`api-cards-other-${Date.now()}`);
+    try {
+      const otherProject = await createTestProject(other.user.id, "Other User's Project");
+      const otherColumn = await createTestColumn(otherProject.id, "Other Column", 0);
+
+      const createReq = new NextRequest("http://localhost/api/v1/cards", {
+        method: "POST",
+        headers: { authorization: `Bearer ${other.token}`, "content-type": "application/json" },
+        body: JSON.stringify({ projectId: otherProject.id, columnId: otherColumn.id, title: "Private Card" }),
+      });
+      await createCardRoute(createReq);
+
+      const leakReq = new NextRequest(`http://localhost/api/v1/cards?columnId=${otherColumn.id}`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const leakRes = await getCardsRoute(leakReq);
+      expect(leakRes.status).toBe(200);
+      const leakBody = await leakRes.json();
+      expect(leakBody.data.length).toBe(0);
+    } finally {
+      await cleanupTestUser(other.user.id);
+    }
+  });
+
   it("bulk reorders cards via POST /api/v1/cards/reorder", async () => {
     const req1 = new NextRequest("http://localhost/api/v1/cards", {
       method: "POST",

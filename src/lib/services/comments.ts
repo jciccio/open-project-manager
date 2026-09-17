@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { revalidatePath } from "next/cache";
+import { safeRevalidatePath } from "@/lib/revalidate";
 import { recordActivity } from "@/actions/activity";
 
 export async function listComments(cardId: string, userId: string) {
@@ -55,11 +55,36 @@ export async function addComment(cardId: string, author: string, content: string
       toValue: content.trim().slice(0, 100),
     });
 
-    revalidatePath(`/projects/${card.projectId}`);
+    safeRevalidatePath(`/projects/${card.projectId}`);
     return { success: true, data: comment };
   } catch (error) {
     console.error("Error adding comment:", error);
     return { success: false, error: "Failed to add comment" };
+  }
+}
+
+export async function deleteComment(commentId: string, userId: string) {
+  try {
+    const comment = await db.comment.findUnique({
+      where: { id: commentId },
+      include: {
+        card: { include: { project: true } },
+      },
+    });
+
+    if (!comment || comment.card.project.userId !== userId) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    await db.comment.delete({
+      where: { id: commentId },
+    });
+
+    safeRevalidatePath(`/projects/${comment.card.projectId}`);
+    return { success: true };
+  } catch (error) {
+    console.error(`Error deleting comment ${commentId}:`, error);
+    return { success: false, error: "Failed to delete comment" };
   }
 }
 
@@ -87,7 +112,7 @@ export async function updateComment(commentId: string, content: string, userId: 
       },
     });
 
-    revalidatePath(`/projects/${comment.card.projectId}`);
+    safeRevalidatePath(`/projects/${comment.card.projectId}`);
     return { success: true, data: updatedComment };
   } catch (error) {
     console.error(`Error updating comment ${commentId}:`, error);

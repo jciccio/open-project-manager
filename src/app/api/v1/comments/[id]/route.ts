@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
-import { updateComment } from "@/lib/services/comments";
-import { deleteComment } from "@/actions/comments";
+import { updateComment, deleteComment } from "@/lib/services/comments";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -38,7 +37,7 @@ export async function DELETE(request: NextRequest, { params }: Props) {
   }
 
   const { id } = await params;
-  const res = await deleteComment(id);
+  const res = await deleteComment(id, session.userId);
   if (!res.success) {
     return NextResponse.json({ error: res.error }, { status: 400 });
   }
