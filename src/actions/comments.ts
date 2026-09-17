@@ -66,6 +66,7 @@ export async function addComment(
 
     await recordActivity({
       cardId,
+      projectId: card.projectId,
       actorUserId: session.userId,
       type: "comment_added",
       toValue: content.trim().slice(0, 100),

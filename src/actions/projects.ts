@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { safeRevalidatePath } from "@/lib/revalidate";
 import { DEFAULT_CARD_TYPES } from "@/lib/cardTypeDefaults";
+import { triggerWebhooks } from "@/lib/webhooks";
 import { generateProjectKey } from "@/lib/projectKey";
 
 export async function getProjects(isArchived = false, overrideUserId?: string) {
@@ -190,6 +191,16 @@ export async function createProject(
         cardTypes: {
           create: DEFAULT_CARD_TYPES,
         },
+      },
+    });
+
+    triggerWebhooks(project.id, "project_created", {
+      project: {
+        id: project.id,
+        name: project.name,
+        key: project.key,
+        description: project.description,
+        color: project.color,
       },
     });
 
