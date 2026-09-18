@@ -6,7 +6,7 @@ import { GET as getByIdentifierRoute } from "../cards/by-identifier/[identifier]
 import { POST as moveCardRoute } from "../cards/[id]/move/route";
 import { NextRequest } from "next/server";
 import { createTestUser, createTestProject, createTestColumn, cleanupTestUser } from "@/test/helpers";
-import { getProjectById } from "@/actions/projects";
+import { getProjectById } from "@/lib/services/projects";
 import { db } from "@/lib/db";
 
 describe("REST API: Cards", () => {

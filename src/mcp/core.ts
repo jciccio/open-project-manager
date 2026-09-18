@@ -1282,7 +1282,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
 
     case "add_attachment": {
       const buffer = Buffer.from(args.contentBase64, "base64");
-      const { uploadAttachment } = await import("@/actions/attachments");
+      const { uploadAttachment } = await import("@/lib/services/attachments");
       const res = await uploadAttachment(
         {
           cardId: args.cardId,
@@ -1291,7 +1291,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
           mimeType: args.mimeType,
           uploadedBy: args.uploadedBy,
         },
-        args.userId
+        requireUserId(args.userId)
       );
       if (!res.success) {
         throw new Error(res.error || "Failed to upload attachment");
@@ -1308,8 +1308,8 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "delete_attachment": {
-      const { deleteAttachment } = await import("@/actions/attachments");
-      const res = await deleteAttachment(args.id, args.userId);
+      const { deleteAttachment } = await import("@/lib/services/attachments");
+      const res = await deleteAttachment(args.id, requireUserId(args.userId));
       if (!res.success) {
         throw new Error(res.error || "Failed to delete attachment");
       }

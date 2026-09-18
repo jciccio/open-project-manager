@@ -4,7 +4,7 @@ import { GET as getLabelsRoute, POST as createLabelRoute } from "../labels/route
 import { DELETE as deleteLabelRoute } from "../labels/[id]/route";
 import { NextRequest } from "next/server";
 import { createTestUser, createTestProject, createTestColumn, cleanupTestUser } from "@/test/helpers";
-import { createCard } from "@/actions/cards";
+import { createCard } from "@/lib/services/cards";
 
 describe("REST API: Comments and Labels", () => {
   let userId: string;

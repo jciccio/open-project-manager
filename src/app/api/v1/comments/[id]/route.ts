@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
-import { updateComment, deleteComment } from "@/actions/comments";
+import { updateComment, deleteComment } from "@/lib/services/comments";
 
 interface Props {
   params: Promise<{ id: string }>;

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
-import { reorderCards } from "@/actions/cards";
+import { reorderCards } from "@/lib/services/cards";
 
 export async function POST(request: NextRequest) {
   const session = await getApiSession(request);
