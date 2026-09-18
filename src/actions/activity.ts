@@ -3,16 +3,18 @@
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import * as activityService from "@/lib/services/activity";
+import { triggerWebhooks } from "@/lib/webhooks";
 
 export async function recordActivity(data: {
   cardId: string;
+  projectId: string;
   actorUserId: string;
   type: string;
   fromValue?: string | null;
   toValue?: string | null;
 }) {
   try {
-    return await db.activity.create({
+    const activity = await db.activity.create({
       data: {
         cardId: data.cardId,
         actorUserId: data.actorUserId,
@@ -21,6 +23,15 @@ export async function recordActivity(data: {
         toValue: data.toValue !== undefined ? data.toValue : null,
       },
     });
+
+    triggerWebhooks(data.projectId, data.type, {
+      cardId: data.cardId,
+      actorUserId: data.actorUserId,
+      fromValue: activity.fromValue,
+      toValue: activity.toValue,
+    });
+
+    return activity;
   } catch (err) {
     console.error("Error recording activity:", err);
     return null;

@@ -2,21 +2,33 @@ import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { safeRevalidatePath } from "@/lib/revalidate";
 import { DEFAULT_CARD_TYPES } from "@/lib/cardTypeDefaults";
+import { triggerWebhooks } from "@/lib/webhooks";
 import { generateProjectKey } from "@/lib/projectKey";
+import { getProjectAccess } from "@/lib/permissions";
 
 export async function getProjects(userId: string, isArchived = false) {
   try {
     const projects = await db.project.findMany({
       where: {
-        userId,
+        OR: [
+          { userId },
+          { members: { some: { userId } } },
+        ],
         isArchived,
       },
       orderBy: { createdAt: "desc" },
       include: {
+        members: {
+          select: {
+            userId: true,
+            role: true,
+          },
+        },
         _count: {
           select: {
             cards: true,
             columns: true,
+            members: true,
           },
         },
       },
@@ -24,7 +36,10 @@ export async function getProjects(userId: string, isArchived = false) {
 
     const archivedCount = await db.project.count({
       where: {
-        userId,
+        OR: [
+          { userId },
+          { members: { some: { userId } } },
+        ],
         isArchived: true,
       },
     });
@@ -38,12 +53,20 @@ export async function getProjects(userId: string, isArchived = false) {
 
 export async function getProjectById(id: string, userId: string) {
   try {
-    const project = await db.project.findFirst({
-      where: {
-        id,
-        userId,
-      },
+    const access = await getProjectAccess(id, userId, "VIEWER");
+    if (!access.hasAccess) {
+      return { success: false, error: "Project not found or access denied" };
+    }
+
+    const project = await db.project.findUnique({
+      where: { id },
       include: {
+        members: {
+          include: {
+            user: { select: { id: true, name: true, email: true } },
+          },
+          orderBy: { createdAt: "asc" },
+        },
         savedViews: {
           orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
         },
@@ -69,6 +92,7 @@ export async function getProjectById(id: string, userId: string) {
                 activities: {
                   orderBy: { createdAt: "desc" },
                 },
+                links: true,
                 assignees: {
                   include: { user: { select: { id: true, name: true, email: true } } },
                 },
@@ -135,7 +159,7 @@ export async function getProjectById(id: string, userId: string) {
       return { success: false, error: "Project not found or access denied" };
     }
 
-    return { success: true, data: project };
+    return { success: true, data: { ...project, currentUserRole: access.role } };
   } catch (error) {
     console.error(`Error fetching project ${id}:`, error);
     return { success: false, error: "Failed to fetch project details" };
@@ -143,7 +167,7 @@ export async function getProjectById(id: string, userId: string) {
 }
 
 export async function createProject(
-  data: { name: string; description?: string; color?: string; key?: string },
+  data: { name: string; description?: string; color?: string; key?: string; visibility?: string },
   userId: string
 ) {
   try {
@@ -160,6 +184,7 @@ export async function createProject(
         key: projectKey,
         description: data.description,
         color: data.color || "#6366f1",
+        visibility: data.visibility || "PRIVATE",
         columns: {
           create: [
             { name: "Backlog", order: 0, isDone: false },
@@ -171,6 +196,22 @@ export async function createProject(
         cardTypes: {
           create: DEFAULT_CARD_TYPES,
         },
+        members: {
+          create: {
+            userId,
+            role: "OWNER",
+          },
+        },
+      },
+    });
+
+    triggerWebhooks(project.id, "project_created", {
+      project: {
+        id: project.id,
+        name: project.name,
+        key: project.key,
+        description: project.description,
+        color: project.color,
       },
     });
 
@@ -187,16 +228,17 @@ export async function createProject(
 
 export async function updateProject(
   id: string,
-  data: { name?: string; description?: string; color?: string },
+  data: { name?: string; description?: string; color?: string; visibility?: string },
   userId: string
 ) {
   try {
-    const existing = await db.project.findFirst({
-      where: { id, userId },
-    });
-
-    if (!existing) {
+    const access = await getProjectAccess(id, userId, "ADMIN");
+    if (!access.hasAccess) {
       return { success: false, error: "Project not found or access denied" };
+    }
+
+    if (data.visibility !== undefined && !access.isOwner) {
+      return { success: false, error: "Only the project owner can change project visibility" };
     }
 
     const project = await db.project.update({
@@ -220,11 +262,8 @@ export async function updateProject(
 
 export async function archiveProject(id: string, userId: string) {
   try {
-    const existing = await db.project.findFirst({
-      where: { id, userId },
-    });
-
-    if (!existing) {
+    const access = await getProjectAccess(id, userId, "ADMIN");
+    if (!access.hasAccess) {
       return { success: false, error: "Project not found or access denied" };
     }
 
@@ -245,11 +284,8 @@ export async function archiveProject(id: string, userId: string) {
 
 export async function unarchiveProject(id: string, userId: string) {
   try {
-    const existing = await db.project.findFirst({
-      where: { id, userId },
-    });
-
-    if (!existing) {
+    const access = await getProjectAccess(id, userId, "ADMIN");
+    if (!access.hasAccess) {
       return { success: false, error: "Project not found or access denied" };
     }
 
@@ -270,11 +306,8 @@ export async function unarchiveProject(id: string, userId: string) {
 
 export async function deleteProject(id: string, userId: string) {
   try {
-    const existing = await db.project.findFirst({
-      where: { id, userId },
-    });
-
-    if (!existing) {
+    const access = await getProjectAccess(id, userId, "OWNER");
+    if (!access.hasAccess) {
       return { success: false, error: "Project not found or access denied" };
     }
 

@@ -12,9 +12,10 @@ import ErrorBanner from "@/components/ErrorBanner";
 interface Props {
   archivedProjects: any[];
   archivedCards: any[];
+  currentUserId?: string;
 }
 
-export default function ArchivedClient({ archivedProjects, archivedCards }: Props) {
+export default function ArchivedClient({ archivedProjects, archivedCards, currentUserId }: Props) {
   const [activeTab, setActiveTab] = useState<"projects" | "cards">("projects");
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -43,22 +44,16 @@ export default function ArchivedClient({ archivedProjects, archivedCards }: Prop
       {error && <div className="mb-6"><ErrorBanner message={error} /></div>}
 
       {/* Banner */}
-      <div className="rounded-3xl bg-gradient-to-r from-amber-100 via-slate-100 to-slate-100 dark:from-amber-900/30 dark:via-slate-900 dark:to-slate-900 border border-amber-300 dark:border-amber-500/20 p-8 mb-8 shadow-xl relative overflow-hidden">
+      <div className="rounded-3xl bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border border-amber-500/20 p-8 mb-8 shadow-sm relative overflow-hidden">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
           <div>
-            <div className="flex items-center gap-2">
-              <Link
-                href="/"
-                className="rounded-xl bg-slate-200 dark:bg-slate-800/80 p-2 text-slate-600 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white transition-colors mr-1"
-              >
-                <ArrowLeft className="h-4 w-4" />
-              </Link>
-              <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 text-xs font-semibold uppercase tracking-wider">
-                <Archive className="h-4 w-4" />
-                <span>{t("archived.tagline")}</span>
-              </div>
-            </div>
-
+            <Link
+              href="/"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-600 dark:text-amber-400 hover:underline mb-3"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              <span>{t("archived.backToProjects")}</span>
+            </Link>
             <h1 className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight mt-2">
               {t("archived.title")}
             </h1>
@@ -100,7 +95,11 @@ export default function ArchivedClient({ archivedProjects, archivedCards }: Prop
         archivedProjects.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {archivedProjects.map((project) => (
-              <ProjectCard key={project.id} project={project as any} />
+              <ProjectCard
+                key={project.id}
+                project={project as any}
+                currentUserId={currentUserId}
+              />
             ))}
           </div>
         ) : (

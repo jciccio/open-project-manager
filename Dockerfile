@@ -33,6 +33,13 @@ ENV NODE_ENV=production
 ARG DATABASE_PROVIDER=sqlite
 ENV DATABASE_PROVIDER=$DATABASE_PROVIDER
 
+# Collecting page data during `next build` imports every route, and
+# src/lib/env.ts requires a JWT_SECRET at module load. Nothing is signed at
+# build time and this value is not baked into the output (only NEXT_PUBLIC_*
+# env vars are inlined), so a throwaway value satisfies the guard while the
+# real secret still has to be supplied at runtime.
+ENV JWT_SECRET="build-time-placeholder-never-used-at-runtime"
+
 # Prisma v7 client generation and Next.js standalone build
 RUN npx prisma generate
 RUN yarn build

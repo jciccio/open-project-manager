@@ -1,12 +1,11 @@
 import { db } from "@/lib/db";
 import { safeRevalidatePath } from "@/lib/revalidate";
+import { verifyProjectAccess } from "@/lib/permissions";
 
 export async function getSavedViews(projectId: string, userId: string) {
   try {
-    const project = await db.project.findFirst({
-      where: { id: projectId, userId },
-    });
-    if (!project) return { success: false, error: "Project not found or access denied" };
+    const hasAccess = await verifyProjectAccess(projectId, userId, "VIEWER");
+    if (!hasAccess) return { success: false, error: "Project not found or access denied" };
 
     const savedViews = await db.savedView.findMany({
       where: { projectId },
@@ -33,10 +32,8 @@ export async function createSavedView(
       return { success: false, error: "View name is required" };
     }
 
-    const project = await db.project.findFirst({
-      where: { id: projectId, userId },
-    });
-    if (!project) return { success: false, error: "Project not found or access denied" };
+    const hasAccess = await verifyProjectAccess(projectId, userId, "MEMBER");
+    if (!hasAccess) return { success: false, error: "Project not found or access denied" };
 
     // If setting as default, unset other defaults in the project
     if (data.isDefault) {
@@ -78,7 +75,7 @@ export async function updateSavedView(
       where: { id },
       include: { project: true },
     });
-    if (!existing || existing.project.userId !== userId) {
+    if (!existing || !(await verifyProjectAccess(existing.projectId, userId, "MEMBER"))) {
       return { success: false, error: "Saved view not found or access denied" };
     }
 
@@ -113,7 +110,7 @@ export async function deleteSavedView(id: string, userId: string) {
       where: { id },
       include: { project: true },
     });
-    if (!existing || existing.project.userId !== userId) {
+    if (!existing || !(await verifyProjectAccess(existing.projectId, userId, "MEMBER"))) {
       return { success: false, error: "Saved view not found or access denied" };
     }
 
