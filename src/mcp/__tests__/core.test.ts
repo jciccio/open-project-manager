@@ -471,5 +471,94 @@ describe("MCP Server Core Tools", () => {
       await cleanupTestUser(otherUser.id);
     }
   });
+
+  it("marks the default Done column isDone: true on create_project", async () => {
+    const projRes = await executeMcpTool("create_project", { name: "Done Column Check", userId });
+    expect(projRes.success).toBe(true);
+    const columns = (projRes.project as any).columns;
+    const doneColumn = columns.find((c: any) => c.name === "Done");
+    expect(doneColumn?.isDone).toBe(true);
+    expect(columns.filter((c: any) => c.isDone).length).toBe(1);
+
+    await executeMcpTool("delete_project", { id: projRes.project!.id });
+  });
+
+  it("preserves an existing completedAt across update_card and move_card, and clears it leaving a Done column", async () => {
+    const projRes = await executeMcpTool("create_project", { name: "Completion Semantics Project", userId });
+    const projectId = projRes.project!.id;
+    const columns = (projRes.project as any).columns;
+    const todoColId = columns.find((c: any) => c.name === "To Do").id;
+    const doneColId = columns.find((c: any) => c.isDone).id;
+
+    const cardRes = await executeMcpTool("create_card", { projectId, columnId: todoColId, title: "Completion Card" });
+    const cardId = cardRes.card!.id;
+    expect(cardRes.card?.completedAt).toBeNull();
+
+    const moveDone = await executeMcpTool("move_card", { id: cardId, targetColumnId: doneColId, newOrder: 0 });
+    expect(moveDone.success).toBe(true);
+    const firstCompletedAt = moveDone.card?.completedAt;
+    expect(firstCompletedAt).not.toBeNull();
+
+    const moveBack = await executeMcpTool("move_card", { id: cardId, targetColumnId: todoColId, newOrder: 0 });
+    expect(moveBack.success).toBe(true);
+    expect(moveBack.card?.completedAt).toBeNull();
+
+    const moveDoneAgain = await executeMcpTool("move_card", { id: cardId, targetColumnId: doneColId, newOrder: 0 });
+    expect(moveDoneAgain.card?.completedAt).not.toBeNull();
+
+    const updateDone = await executeMcpTool("update_card", { id: cardId, columnId: doneColId });
+    expect(updateDone.success).toBe(true);
+    expect(updateDone.card?.completedAt?.toString()).toBe(moveDoneAgain.card?.completedAt?.toString());
+
+    await executeMcpTool("delete_project", { id: projectId });
+  });
+
+  it("sets completedAt via reorder_cards when a card's columnId changes into a Done column", async () => {
+    const projRes = await executeMcpTool("create_project", { name: "Reorder Completion Project", userId });
+    const projectId = projRes.project!.id;
+    const columns = (projRes.project as any).columns;
+    const todoColId = columns.find((c: any) => c.name === "To Do").id;
+    const doneColId = columns.find((c: any) => c.isDone).id;
+
+    const cardRes = await executeMcpTool("create_card", { projectId, columnId: todoColId, title: "Reorder Card" });
+    const cardId = cardRes.card!.id;
+
+    const reorderRes = await executeMcpTool("reorder_cards", {
+      items: [{ id: cardId, order: 0, columnId: doneColId }],
+    });
+    expect(reorderRes.success).toBe(true);
+
+    const getRes = await executeMcpTool("get_card", { id: cardId });
+    expect(getRes.card?.completedAt).not.toBeNull();
+
+    await executeMcpTool("delete_project", { id: projectId });
+  });
+
+  it("sets isDone via create_column/update_column and cascades completedAt on isDone flip", async () => {
+    const projRes = await executeMcpTool("create_project", { name: "Column isDone Project", userId });
+    const projectId = projRes.project!.id;
+
+    const colRes = await executeMcpTool("create_column", { projectId, name: "Shipped", isDone: true });
+    expect(colRes.success).toBe(true);
+    expect(colRes.column?.isDone).toBe(true);
+
+    const cardRes = await executeMcpTool("create_card", { projectId, columnId: colRes.column!.id, title: "Shipped Card" });
+    expect(cardRes.card?.completedAt).not.toBeNull();
+
+    const flipOff = await executeMcpTool("update_column", { id: colRes.column!.id, isDone: false });
+    expect(flipOff.success).toBe(true);
+    expect(flipOff.column?.isDone).toBe(false);
+
+    const afterFlipOff = await executeMcpTool("get_card", { id: cardRes.card!.id });
+    expect(afterFlipOff.card?.completedAt).toBeNull();
+
+    const flipOn = await executeMcpTool("update_column", { id: colRes.column!.id, isDone: true });
+    expect(flipOn.success).toBe(true);
+
+    const afterFlipOn = await executeMcpTool("get_card", { id: cardRes.card!.id });
+    expect(afterFlipOn.card?.completedAt).not.toBeNull();
+
+    await executeMcpTool("delete_project", { id: projectId });
+  });
 });
 
