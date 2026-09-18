@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
-import { updateSavedView, deleteSavedView } from "@/actions/views";
+import { updateSavedView, deleteSavedView } from "@/lib/services/views";
 import { db } from "@/lib/db";
 
 interface Props {

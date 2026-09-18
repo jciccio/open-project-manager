@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
-import { addCardLink } from "@/actions/cards";
+import { addCardLink } from "@/lib/services/cards";
 
 export async function POST(
   request: NextRequest,

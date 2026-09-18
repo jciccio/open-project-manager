@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
-import { uploadAttachment, listAttachments } from "@/actions/attachments";
+import { uploadAttachment, listAttachments } from "@/lib/services/attachments";
 import { MAX_ATTACHMENT_BYTES } from "@/lib/attachmentStorage";
 
 // Base64 JSON bodies inflate the raw byte count to ~4/3 of the decoded size,
