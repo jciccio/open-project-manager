@@ -560,7 +560,7 @@ Open Project Manager supports two primary production deployment methods as well 
 | `yarn install-skills` | Installs Open Project Manager skills and `/opm` commands for Claude Code and Antigravity |
 | `yarn db:seed` | Seeds sample user accounts and project boards into the database |
 | `npx prisma generate` | Generates the Prisma Client into `node_modules/@prisma/client` |
-| `npx prisma db push` | Applies schema changes to SQLite (`dev.db`) |
+| `npx prisma db push` | Prototypes a schema change against SQLite without a migration — for quick local experiments only; commit an actual migration (see "Changing the schema") for anything real |
 | `npx prisma studio` | Opens Prisma GUI to inspect and edit SQLite records visually |
 
 ---
