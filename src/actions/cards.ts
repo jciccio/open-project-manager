@@ -3,7 +3,7 @@
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { safeRevalidatePath } from "@/lib/revalidate";
-import { recordActivity } from "./activity";
+import { recordActivity } from "@/lib/activity";
 import { nextCardNumber, withCardNumberRetry } from "@/lib/cardNumbering";
 import { verifyProjectAccess } from "@/lib/permissions";
 
