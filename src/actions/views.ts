@@ -3,16 +3,15 @@
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { safeRevalidatePath } from "@/lib/revalidate";
+import { verifyProjectAccess } from "@/lib/permissions";
 
 export async function getSavedViews(projectId: string, overrideUserId?: string) {
   try {
     const session = overrideUserId ? { userId: overrideUserId } : await getSession();
     if (!session) return { success: false, error: "Unauthorized" };
 
-    const project = await db.project.findFirst({
-      where: { id: projectId, userId: session.userId },
-    });
-    if (!project) return { success: false, error: "Project not found or access denied" };
+    const hasAccess = await verifyProjectAccess(projectId, session.userId, "VIEWER");
+    if (!hasAccess) return { success: false, error: "Project not found or access denied" };
 
     const savedViews = await db.savedView.findMany({
       where: { projectId },
@@ -42,10 +41,8 @@ export async function createSavedView(
       return { success: false, error: "View name is required" };
     }
 
-    const project = await db.project.findFirst({
-      where: { id: projectId, userId: session.userId },
-    });
-    if (!project) return { success: false, error: "Project not found or access denied" };
+    const hasAccess = await verifyProjectAccess(projectId, session.userId, "MEMBER");
+    if (!hasAccess) return { success: false, error: "Project not found or access denied" };
 
     // If setting as default, unset other defaults in the project
     if (data.isDefault) {
@@ -90,7 +87,7 @@ export async function updateSavedView(
       where: { id },
       include: { project: true },
     });
-    if (!existing || existing.project.userId !== session.userId) {
+    if (!existing || !(await verifyProjectAccess(existing.projectId, session.userId, "MEMBER"))) {
       return { success: false, error: "Saved view not found or access denied" };
     }
 
@@ -128,7 +125,7 @@ export async function deleteSavedView(id: string, overrideUserId?: string) {
       where: { id },
       include: { project: true },
     });
-    if (!existing || existing.project.userId !== session.userId) {
+    if (!existing || !(await verifyProjectAccess(existing.projectId, session.userId, "MEMBER"))) {
       return { success: false, error: "Saved view not found or access denied" };
     }
 
@@ -144,3 +141,4 @@ export async function deleteSavedView(id: string, overrideUserId?: string) {
     return { success: false, error: "Failed to delete saved view" };
   }
 }
+

@@ -36,6 +36,10 @@ import { uploadAttachment, listAttachments, deleteAttachment } from "@/actions/a
 import { getLabels } from "@/actions/labels";
 import { getCardTypes } from "@/actions/cardTypes";
 import { addCardRelation, removeCardRelation, getCardRelations } from "@/actions/relations";
+import { getProjectMembers } from "@/actions/members";
+
+// Sentinel <option> value for an owner name that predates project members.
+const LEGACY_OWNER = "__legacy_owner__";
 import { useTranslation } from "./LanguageProvider";
 import MarkdownEditor from "./MarkdownEditor";
 import CardTypeManagerModal from "./CardTypeManagerModal";
@@ -107,11 +111,21 @@ interface Props {
       url: string;
       title: string | null;
     }>;
+    assignees?: Array<{
+      userId?: string;
+      user: { id: string; name: string; email: string };
+    }>;
   };
   columns: Array<{
     id: string;
     name: string;
     isDone?: boolean;
+  }>;
+  members?: Array<{
+    id?: string;
+    userId: string;
+    role: string;
+    user: { id: string; name: string; email: string };
   }>;
   onClose: () => void;
   onRefresh: () => void;
@@ -121,10 +135,18 @@ interface Props {
 export default function CardDetailModal({
   card,
   columns,
+  members,
   onClose,
   onRefresh,
   onOpenCard,
 }: Props) {
+  const [projectMembers, setProjectMembers] = useState<Array<any>>(members || []);
+  const [selectedAssigneeId, setSelectedAssigneeId] = useState<string>(() => {
+    if (card.assignees && card.assignees.length > 0) {
+      return card.assignees[0].user?.id || (card.assignees[0] as any).userId || "";
+    }
+    return "";
+  });
   const [title, setTitle] = useState(card.title);
   const [description, setDescription] = useState(card.description || "");
   const [columnId, setColumnId] = useState(card.columnId);
@@ -185,8 +207,10 @@ export default function CardDetailModal({
 
   const [attachments, setAttachments] = useState<Array<any>>((card as any).attachments || []);
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
 
   const [activities, setActivities] = useState<Array<any>>(card.activities || []);
+  const [comments, setComments] = useState<Props["card"]["comments"]>(card.comments || []);
   const [feedTab, setFeedTab] = useState<"comments" | "activity">("comments");
   const [isLoadingActivities, setIsLoadingActivities] = useState(false);
 
@@ -219,9 +243,19 @@ export default function CardDetailModal({
     loadActivities();
   }, [card.id]);
 
+  const MAX_ATTACHMENT_MB = 10;
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    setAttachmentError(null);
+
+    if (file.size > MAX_ATTACHMENT_MB * 1024 * 1024) {
+      setAttachmentError(`"${file.name}" is larger than the ${MAX_ATTACHMENT_MB}MB attachment limit.`);
+      e.target.value = "";
+      return;
+    }
 
     setIsUploadingAttachment(true);
     try {
@@ -237,9 +271,12 @@ export default function CardDetailModal({
       if (res.success && res.data) {
         setAttachments((prev) => [res.data, ...prev]);
         onRefresh();
+      } else {
+        setAttachmentError(res.error || "Failed to upload attachment.");
       }
     } catch (err) {
       console.error("Failed to upload attachment:", err);
+      setAttachmentError("Failed to upload attachment.");
     } finally {
       setIsUploadingAttachment(false);
       e.target.value = "";
@@ -283,10 +320,22 @@ export default function CardDetailModal({
       }
     }
 
+    async function loadMembers() {
+      if (members && members.length > 0) {
+        setProjectMembers(members);
+        return;
+      }
+      const mRes = await getProjectMembers(card.projectId);
+      if (mRes.success && mRes.data) {
+        setProjectMembers(mRes.data);
+      }
+    }
+
     loadLabels();
     loadCardTypes();
     loadRelations();
     loadProjectCards();
+    loadMembers();
 
     setTitle(card.title);
     setDescription(card.description || "");
@@ -294,6 +343,10 @@ export default function CardDetailModal({
     setPriority(card.priority);
     setPoints(card.points !== null && card.points !== undefined ? String(card.points) : "");
     setOwner(card.owner || "");
+    const initAssignee = (card as any).assignees && (card as any).assignees.length > 0
+      ? (card as any).assignees[0].user?.id || (card as any).assignees[0].userId || ""
+      : "";
+    setSelectedAssigneeId(initAssignee);
     setDueDate(card.dueDate ? new Date(card.dueDate).toISOString().split("T")[0] : "");
     setSelectedLabelIds(card.labels ? card.labels.map((l) => l.label.id) : []);
     setTypeId(card.typeId || card.type?.id || "");
@@ -302,7 +355,7 @@ export default function CardDetailModal({
     setIsAddingSubtask(false);
     setNewSubtaskTitle("");
     setSubtaskError("");
-  }, [card.id, card.projectId]);
+  }, [card.id, card.projectId, members]);
 
   async function handleCreateSubtask(e: React.FormEvent) {
     e.preventDefault();
@@ -385,17 +438,36 @@ export default function CardDetailModal({
     }
   }
 
+  // An owner string carried over from before project members existed: it names
+  // nobody in the member list, so it has no id to select by.
+  const hasLegacyOwner =
+    !!owner &&
+    !selectedAssigneeId &&
+    !projectMembers.some(
+      (m) => m.user?.name === owner || m.user?.email === owner || m.userId === owner
+    );
+
   async function handleSave() {
     setIsSaving(true);
     const parsedPoints = points.trim() === "" ? null : parseInt(points, 10);
+    const selectedMember = projectMembers.find(
+      (m) => (m.user?.id || m.userId) === selectedAssigneeId
+    );
+    // null clears the field, undefined leaves it unchanged (updateCard in
+    // src/actions/cards.ts) - so an emptied owner box must send null.
+    const computedOwner = selectedMember
+      ? (selectedMember.user?.name || selectedMember.user?.email || "")
+      : (owner.trim() || null);
+
     const res = await updateCard(card.id, {
       title: title.trim(),
-      description: description.trim() || undefined,
+      description: description.trim() || null,
       columnId,
       priority,
       points: isNaN(parsedPoints as number) ? null : parsedPoints,
-      owner: owner.trim() || undefined,
-      dueDate: dueDate || undefined,
+      owner: computedOwner,
+      assigneeIds: selectedAssigneeId ? [selectedAssigneeId] : [],
+      dueDate: dueDate || null,
       typeId: typeId || "",
       labelIds: selectedLabelIds,
     });
@@ -444,7 +516,8 @@ export default function CardDetailModal({
     );
     setIsSubmittingComment(false);
 
-    if (res.success) {
+    if (res.success && res.data) {
+      setComments((prev) => [res.data, ...prev]);
       setCommentContent("");
       loadActivities();
       onRefresh();
@@ -454,7 +527,8 @@ export default function CardDetailModal({
   async function handleSaveEditComment(commentId: string) {
     if (!editingCommentText.trim()) return;
     const res = await updateComment(commentId, editingCommentText.trim());
-    if (res.success) {
+    if (res.success && res.data) {
+      setComments((prev) => prev.map((c) => (c.id === commentId ? res.data : c)));
       setEditingCommentId(null);
       setEditingCommentText("");
       onRefresh();
@@ -464,6 +538,7 @@ export default function CardDetailModal({
   async function handleDeleteComment(commentId: string) {
     const res = await deleteComment(commentId);
     if (res.success) {
+      setComments((prev) => prev.filter((c) => c.id !== commentId));
       onRefresh();
     }
   }
@@ -725,13 +800,34 @@ export default function CardDetailModal({
                   <User className="h-3 w-3 text-blue-500 dark:text-blue-400" />
                   <span>{t("cardModal.owner")}</span>
                 </label>
-                <input
-                  type="text"
-                  value={owner}
-                  onChange={(e) => setOwner(e.target.value)}
-                  placeholder={t("cardModal.assigneePlaceholder")}
-                  className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
-                />
+                <select
+                  value={selectedAssigneeId || (hasLegacyOwner ? LEGACY_OWNER : "")}
+                  onChange={(e) => {
+                    const newId = e.target.value;
+                    // Re-picking the legacy name is a no-op; every other choice
+                    // (including Unassigned) replaces it, which is what lets a
+                    // legacy owner be cleared at all.
+                    if (newId === LEGACY_OWNER) return;
+                    setSelectedAssigneeId(newId);
+                    const mem = projectMembers.find((m) => (m.user?.id || m.userId) === newId);
+                    setOwner(mem ? (mem.user?.name || mem.user?.email || "") : "");
+                  }}
+                  className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none cursor-pointer"
+                >
+                  <option value="">{t("cardModal.unassigned") || "Unassigned"}</option>
+                  {projectMembers.map((m) => {
+                    const uid = m.user?.id || m.userId;
+                    const uName = m.user?.name || m.user?.email || uid;
+                    return (
+                      <option key={uid} value={uid}>
+                        {uName} ({m.role})
+                      </option>
+                    );
+                  })}
+                  {hasLegacyOwner && (
+                    <option value={LEGACY_OWNER}>{owner} (Legacy)</option>
+                  )}
+                </select>
               </div>
 
               {/* Due Date */}
@@ -1177,6 +1273,10 @@ export default function CardDetailModal({
               </label>
             </div>
 
+            {attachmentError && (
+              <p className="text-xs text-rose-600 dark:text-rose-400">{attachmentError}</p>
+            )}
+
             <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
               {attachments && attachments.length > 0 ? (
                 attachments.map((att) => (
@@ -1231,7 +1331,7 @@ export default function CardDetailModal({
                   <MessageSquare className="h-3.5 w-3.5" />
                   <span>{t("cardModal.tabComments")}</span>
                   <span className="ml-1 rounded-full bg-slate-200 dark:bg-slate-800 px-1.5 py-0.2 text-[10px] text-slate-700 dark:text-slate-300">
-                    {card.comments ? card.comments.length : 0}
+                    {comments.length}
                   </span>
                 </button>
                 <button
@@ -1287,8 +1387,8 @@ export default function CardDetailModal({
 
                 {/* Comments List */}
                 <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                  {card.comments && card.comments.length > 0 ? (
-                    card.comments.map((c) => (
+                  {comments.length > 0 ? (
+                    comments.map((c) => (
                       <div
                         key={c.id}
                         className="group flex items-start justify-between gap-2 rounded-lg bg-slate-50 dark:bg-slate-800/50 p-2.5 border border-slate-200 dark:border-slate-800"

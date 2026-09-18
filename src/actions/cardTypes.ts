@@ -3,16 +3,15 @@
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { safeRevalidatePath } from "@/lib/revalidate";
+import { verifyProjectAccess } from "@/lib/permissions";
 
 export async function getCardTypes(projectId: string, overrideUserId?: string) {
   try {
     const session = overrideUserId ? { userId: overrideUserId } : await getSession();
     if (!session) return { success: false, error: "Unauthorized" };
 
-    const project = await db.project.findFirst({
-      where: { id: projectId, userId: session.userId },
-    });
-    if (!project) return { success: false, error: "Project not found or access denied" };
+    const hasAccess = await verifyProjectAccess(projectId, session.userId, "VIEWER");
+    if (!hasAccess) return { success: false, error: "Project not found or access denied" };
 
     const cardTypes = await db.cardType.findMany({
       where: { projectId },
@@ -40,10 +39,8 @@ export async function createCardType(
       return { success: false, error: "Type name is required" };
     }
 
-    const project = await db.project.findFirst({
-      where: { id: projectId, userId: session.userId },
-    });
-    if (!project) return { success: false, error: "Project not found or access denied" };
+    const hasAccess = await verifyProjectAccess(projectId, session.userId, "ADMIN");
+    if (!hasAccess) return { success: false, error: "Project not found or access denied" };
 
     const cardType = await db.cardType.create({
       data: {
@@ -75,7 +72,7 @@ export async function updateCardType(
       where: { id },
       include: { project: true },
     });
-    if (!existing || existing.project.userId !== session.userId) {
+    if (!existing || !(await verifyProjectAccess(existing.projectId, session.userId, "ADMIN"))) {
       return { success: false, error: "Card type not found or access denied" };
     }
 
@@ -105,7 +102,7 @@ export async function deleteCardType(id: string, overrideUserId?: string) {
       where: { id },
       include: { project: true },
     });
-    if (!existing || existing.project.userId !== session.userId) {
+    if (!existing || !(await verifyProjectAccess(existing.projectId, session.userId, "ADMIN"))) {
       return { success: false, error: "Card type not found or access denied" };
     }
 
@@ -120,3 +117,4 @@ export async function deleteCardType(id: string, overrideUserId?: string) {
     return { success: false, error: "Failed to delete card type" };
   }
 }
+

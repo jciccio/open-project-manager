@@ -12,27 +12,56 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
-export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>("dark");
-  const [mounted, setMounted] = useState(false);
+function disableTransitions() {
+  if (typeof document === "undefined") return () => {};
+  document.documentElement.classList.add("disable-theme-transitions");
+  return () => {
+    window.getComputedStyle(document.documentElement).opacity;
+    document.documentElement.classList.remove("disable-theme-transitions");
+  };
+}
+
+export function ThemeProvider({
+  initialTheme,
+  children,
+}: {
+  initialTheme?: Theme;
+  children: React.ReactNode;
+}) {
+  // Seeded from the cookie the server rendered with, so the first client render
+  // matches the server markup. Reading the DOM here instead would re-introduce
+  // the hydration mismatch this provider is meant to avoid.
+  const [theme, setThemeState] = useState<Theme>(initialTheme ?? "light");
 
   useEffect(() => {
-    const savedTheme = localStorage.getItem("opm_theme") as Theme | null;
-    const initialTheme =
-      savedTheme ||
-      (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-
-    setThemeState(initialTheme);
-    document.documentElement.classList.remove("dark", "light");
-    document.documentElement.classList.add(initialTheme);
-    setMounted(true);
+    // First visit only: no cookie existed, so the inline head script - not the
+    // server - decided the theme. Catch up to whatever it applied. Runs after
+    // hydration, so it cannot cause a flash.
+    if (initialTheme) return;
+    const activeTheme: Theme = document.documentElement.classList.contains("dark")
+      ? "dark"
+      : "light";
+    if (theme !== activeTheme) {
+      setThemeState(activeTheme);
+    }
   }, []);
 
   function setTheme(newTheme: Theme) {
+    const enableTransitions = disableTransitions();
     setThemeState(newTheme);
-    localStorage.setItem("opm_theme", newTheme);
-    document.documentElement.classList.remove("dark", "light");
-    document.documentElement.classList.add(newTheme);
+    try {
+      localStorage.setItem("opm_theme", newTheme);
+      document.cookie = `opm_theme=${newTheme}; path=/; max-age=31536000; SameSite=Lax`;
+    } catch (e) {}
+
+    if (newTheme === "dark") {
+      document.documentElement.classList.add("dark");
+      document.documentElement.style.colorScheme = "dark";
+    } else {
+      document.documentElement.classList.remove("dark");
+      document.documentElement.style.colorScheme = "light";
+    }
+    enableTransitions();
   }
 
   function toggleTheme() {
@@ -41,7 +70,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <ThemeContext.Provider value={{ theme, toggleTheme, setTheme }}>
-      <div className={mounted ? "" : "visibility-hidden"}>{children}</div>
+      {children}
     </ThemeContext.Provider>
   );
 }

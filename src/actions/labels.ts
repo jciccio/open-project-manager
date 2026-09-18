@@ -3,6 +3,7 @@
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { safeRevalidatePath } from "@/lib/revalidate";
+import { verifyProjectAccess } from "@/lib/permissions";
 
 export async function getLabels(projectId?: string, overrideUserId?: string) {
   try {
@@ -10,8 +11,8 @@ export async function getLabels(projectId?: string, overrideUserId?: string) {
     if (!session) return { success: false, error: "Unauthorized" };
 
     if (projectId) {
-      const project = await db.project.findFirst({ where: { id: projectId, userId: session.userId } });
-      if (!project) return { success: false, error: "Unauthorized" };
+      const hasAccess = await verifyProjectAccess(projectId, session.userId, "VIEWER");
+      if (!hasAccess) return { success: false, error: "Unauthorized" };
     }
 
     const where: any = projectId
@@ -39,8 +40,8 @@ export async function createLabel(name: string, color?: string, projectId?: stri
     }
 
     if (projectId) {
-      const project = await db.project.findFirst({ where: { id: projectId, userId: session.userId } });
-      if (!project) return { success: false, error: "Unauthorized" };
+      const hasAccess = await verifyProjectAccess(projectId, session.userId, "MEMBER");
+      if (!hasAccess) return { success: false, error: "Unauthorized" };
     }
 
     const label = await db.label.create({
@@ -73,15 +74,12 @@ export async function deleteLabel(id: string, overrideUserId?: string) {
 
     if (!label) return { success: false, error: "Unauthorized" };
 
-    // Project-scoped label: only the owning project's user may delete it.
+    // Project-scoped label: ADMIN on project may delete it.
     // Personal label: only its own creator may delete it.
-    // Global label (both null): not deletable here — there's no admin
-    // concept in this app, so nobody should be able to remove a label
-    // every user relies on.
-    const isOwnedByCaller = label.projectId
-      ? label.project?.userId === session.userId
+    const isAuthorized = label.projectId
+      ? await verifyProjectAccess(label.projectId, session.userId, "ADMIN")
       : label.userId === session.userId;
-    if (!isOwnedByCaller) {
+    if (!isAuthorized) {
       return { success: false, error: "Unauthorized" };
     }
 
@@ -97,3 +95,4 @@ export async function deleteLabel(id: string, overrideUserId?: string) {
     return { success: false, error: "Failed to delete label" };
   }
 }
+

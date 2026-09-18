@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { safeRevalidatePath } from "@/lib/revalidate";
 import { recordActivity } from "@/lib/activity";
+import { verifyProjectAccess } from "@/lib/permissions";
 
 export async function listComments(cardId: string, overrideUserId?: string) {
   try {
@@ -15,7 +16,7 @@ export async function listComments(cardId: string, overrideUserId?: string) {
       include: { project: true },
     });
 
-    if (!card || card.project.userId !== session.userId) {
+    if (!card || !(await verifyProjectAccess(card.projectId, session.userId, "VIEWER"))) {
       return { success: false, error: "Card not found or access denied" };
     }
 
@@ -52,7 +53,7 @@ export async function addComment(
       include: { project: true },
     });
 
-    if (!card || card.project.userId !== session.userId) {
+    if (!card || !(await verifyProjectAccess(card.projectId, session.userId, "MEMBER"))) {
       return { success: false, error: "Unauthorized" };
     }
 
@@ -66,6 +67,7 @@ export async function addComment(
 
     await recordActivity({
       cardId,
+      projectId: card.projectId,
       actorUserId: session.userId,
       type: "comment_added",
       toValue: content.trim().slice(0, 100),
@@ -91,7 +93,7 @@ export async function deleteComment(commentId: string, overrideUserId?: string) 
       },
     });
 
-    if (!comment || comment.card.project.userId !== session.userId) {
+    if (!comment || !(await verifyProjectAccess(comment.card.projectId, session.userId, "MEMBER"))) {
       return { success: false, error: "Unauthorized" };
     }
 
@@ -127,7 +129,7 @@ export async function updateComment(
       },
     });
 
-    if (!comment || comment.card.project.userId !== session.userId) {
+    if (!comment || !(await verifyProjectAccess(comment.card.projectId, session.userId, "MEMBER"))) {
       return { success: false, error: "Unauthorized" };
     }
 
@@ -145,4 +147,5 @@ export async function updateComment(
     return { success: false, error: "Failed to update comment" };
   }
 }
+
 

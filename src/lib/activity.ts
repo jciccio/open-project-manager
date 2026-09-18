@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { triggerWebhooks } from "@/lib/webhooks";
 
 // Not a Server Action: this is called internally by actions/services after
 // they've already authorized the mutation being logged. It must never live
@@ -7,13 +8,14 @@ import { db } from "@/lib/db";
 // let anyone forge activity history on an arbitrary card.
 export async function recordActivity(data: {
   cardId: string;
+  projectId: string;
   actorUserId: string;
   type: string;
   fromValue?: string | null;
   toValue?: string | null;
 }) {
   try {
-    return await db.activity.create({
+    const activity = await db.activity.create({
       data: {
         cardId: data.cardId,
         actorUserId: data.actorUserId,
@@ -22,6 +24,15 @@ export async function recordActivity(data: {
         toValue: data.toValue !== undefined ? data.toValue : null,
       },
     });
+
+    triggerWebhooks(data.projectId, data.type, {
+      cardId: data.cardId,
+      actorUserId: data.actorUserId,
+      fromValue: activity.fromValue,
+      toValue: activity.toValue,
+    });
+
+    return activity;
   } catch (err) {
     console.error("Error recording activity:", err);
     return null;

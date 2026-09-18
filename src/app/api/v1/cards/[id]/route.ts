@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
 import { updateCard, deleteCard } from "@/actions/cards";
 import { db } from "@/lib/db";
+import { verifyProjectAccess } from "@/lib/permissions";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -15,12 +16,12 @@ export async function GET(request: NextRequest, { params }: Props) {
 
   const { id } = await params;
   try {
-    const card = await db.card.findFirst({
+    const card = await db.card.findUnique({
       where: {
         id,
-        project: { userId: session.userId },
       },
       include: {
+        project: true,
         type: true,
         labels: { include: { label: true } },
         comments: { orderBy: { createdAt: "asc" } },
@@ -30,7 +31,7 @@ export async function GET(request: NextRequest, { params }: Props) {
       },
     });
 
-    if (!card) {
+    if (!card || !(await verifyProjectAccess(card.projectId, session.userId, "VIEWER"))) {
       return NextResponse.json({ error: "Card not found" }, { status: 404 });
     }
 

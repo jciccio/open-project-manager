@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
 import { createCard } from "@/actions/cards";
 import { db } from "@/lib/db";
+import { verifyProjectAccess } from "@/lib/permissions";
 
 const DEFAULT_LIST_CARDS_LIMIT = 100;
 
@@ -30,9 +31,25 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    if (projectId) {
+      const hasAccess = await verifyProjectAccess(projectId, session.userId, "VIEWER");
+      if (!hasAccess) {
+        return NextResponse.json({ success: true, data: [], nextCursor: null });
+      }
+    }
+
     const where: any = {
-      project: projectId ? { id: projectId, userId: session.userId } : { userId: session.userId },
       ...(columnId ? { columnId } : {}),
+      ...(projectId
+        ? { projectId }
+        : {
+            project: {
+              OR: [
+                { userId: session.userId },
+                { members: { some: { userId: session.userId } } },
+              ],
+            },
+          }),
     };
     if (parentId !== null) {
       where.parentId = parentId === "null" ? null : parentId;

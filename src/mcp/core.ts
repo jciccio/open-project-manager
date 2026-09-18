@@ -9,6 +9,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { db } from "@/lib/db";
 import { DEFAULT_CARD_TYPES } from "@/lib/cardTypeDefaults";
+import { nextCardNumber, withCardNumberRetry } from "@/lib/cardNumbering";
 import { generateProjectKey } from "@/lib/projectKey";
 
 const DEFAULT_LIST_CARDS_LIMIT = 100;
@@ -725,7 +726,12 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     case "list_projects": {
       const isArchived = args.isArchived ?? false;
       const where: any = { isArchived };
-      if (args.userId) where.userId = args.userId;
+      if (args.userId) {
+        where.OR = [
+          { userId: args.userId },
+          { members: { some: { userId: args.userId } } },
+        ];
+      }
       const projects = await db.project.findMany({
         where,
         orderBy: { createdAt: "desc" },
@@ -769,6 +775,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
           key: projectKey,
           description: args.description || null,
           color: args.color || "#6366f1",
+          visibility: args.visibility || "PRIVATE",
           columns: {
             create: [
               { name: "Backlog", order: 0 },
@@ -780,8 +787,14 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
           cardTypes: {
             create: DEFAULT_CARD_TYPES,
           },
+          members: {
+            create: {
+              userId,
+              role: "OWNER",
+            },
+          },
         },
-        include: { columns: true, cardTypes: true },
+        include: { columns: true, cardTypes: true, members: true },
       });
       return { success: true, project };
     }
@@ -979,45 +992,41 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       });
       if (lastCard) order = lastCard.order + ORDER_GAP;
 
-      const maxCard = await db.card.findFirst({
-        where: { projectId: args.projectId },
-        orderBy: { number: "desc" },
-        select: { number: true },
-      });
-      const nextNumber = maxCard ? maxCard.number + 1 : 1;
-
       const targetCol = await db.column.findUnique({ where: { id: args.columnId } });
       const completedAt = targetCol?.isDone ? new Date() : null;
 
-      const card = await db.card.create({
-        data: {
-          projectId: args.projectId,
-          columnId: args.columnId,
-          title: args.title.trim(),
-          description: args.description || null,
-          number: nextNumber,
-          priority: args.priority || "NONE",
-          points: typeof args.points === "number" ? args.points : null,
-          owner: args.owner || null,
-          dueDate: args.dueDate ? new Date(args.dueDate) : null,
-          completedAt,
-          order,
-          parentId: args.parentId || null,
-          typeId: args.typeId || null,
-          assignees:
-            args.assigneeIds && args.assigneeIds.length > 0
-              ? {
-                  create: args.assigneeIds.map((userId: string) => ({ userId })),
-                }
-              : undefined,
-        },
-        include: {
-          type: true,
-          assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
-          parent: { select: { id: true, number: true, title: true } },
-          children: { select: { id: true, number: true, title: true, completedAt: true } },
-        },
-      });
+      const firstAttemptNumber = await nextCardNumber(args.projectId);
+      const card = await withCardNumberRetry(args.projectId, firstAttemptNumber, (number) =>
+        db.card.create({
+          data: {
+            projectId: args.projectId,
+            columnId: args.columnId,
+            title: args.title.trim(),
+            description: args.description || null,
+            number,
+            priority: args.priority || "NONE",
+            points: typeof args.points === "number" ? args.points : null,
+            owner: args.owner || null,
+            dueDate: args.dueDate ? new Date(args.dueDate) : null,
+            completedAt,
+            order,
+            parentId: args.parentId || null,
+            typeId: args.typeId || null,
+            assignees:
+              args.assigneeIds && args.assigneeIds.length > 0
+                ? {
+                    create: args.assigneeIds.map((userId: string) => ({ userId })),
+                  }
+                : undefined,
+          },
+          include: {
+            type: true,
+            assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
+            parent: { select: { id: true, number: true, title: true } },
+            children: { select: { id: true, number: true, title: true, completedAt: true } },
+          },
+        })
+      );
       return { success: true, card };
     }
 

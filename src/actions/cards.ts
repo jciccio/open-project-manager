@@ -4,13 +4,8 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { safeRevalidatePath } from "@/lib/revalidate";
 import { recordActivity } from "@/lib/activity";
-
-async function verifyProjectOwnership(projectId: string, userId: string) {
-  const project = await db.project.findFirst({
-    where: { id: projectId, userId },
-  });
-  return !!project;
-}
+import { nextCardNumber, withCardNumberRetry } from "@/lib/cardNumbering";
+import { verifyProjectAccess } from "@/lib/permissions";
 
 export async function createCard(
   data: {
@@ -31,7 +26,7 @@ export async function createCard(
 ) {
   try {
     const session = overrideUserId ? { userId: overrideUserId } : await getSession();
-    if (!session || !(await verifyProjectOwnership(data.projectId, session.userId))) {
+    if (!session || !(await verifyProjectAccess(data.projectId, session.userId, "MEMBER"))) {
       return { success: false, error: "Unauthorized" };
     }
 
@@ -60,64 +55,61 @@ export async function createCard(
 
     const newOrder = lastCard ? lastCard.order + ORDER_GAP : ORDER_GAP;
 
-    const maxCard = await db.card.findFirst({
-      where: { projectId: data.projectId },
-      orderBy: { number: "desc" },
-      select: { number: true },
-    });
-    const nextNumber = maxCard ? maxCard.number + 1 : 1;
-
     const targetColumn = await db.column.findUnique({ where: { id: data.columnId } });
     const completedAt = targetColumn?.isDone ? new Date() : null;
 
-    const card = await db.card.create({
-      data: {
-        projectId: data.projectId,
-        columnId: data.columnId,
-        title: data.title.trim(),
-        description: data.description,
-        number: nextNumber,
-        priority: data.priority || "NONE",
-        points: data.points ?? null,
-        owner: data.owner || null,
-        dueDate: data.dueDate ? new Date(data.dueDate) : null,
-        completedAt,
-        order: newOrder,
-        parentId: data.parentId || null,
-        typeId: data.typeId || null,
-        labels:
-          data.labelIds && data.labelIds.length > 0
-            ? {
-                create: data.labelIds.map((labelId) => ({ labelId })),
-              }
-            : undefined,
-        assignees:
-          data.assigneeIds && data.assigneeIds.length > 0
-            ? {
-                create: data.assigneeIds.map((userId) => ({ userId })),
-              }
-            : undefined,
-      },
-      include: {
-        type: true,
-        labels: {
-          include: { label: true },
+    const firstAttemptNumber = await nextCardNumber(data.projectId);
+    const card = await withCardNumberRetry(data.projectId, firstAttemptNumber, (number) =>
+      db.card.create({
+        data: {
+          projectId: data.projectId,
+          columnId: data.columnId,
+          title: data.title.trim(),
+          description: data.description,
+          number,
+          priority: data.priority || "NONE",
+          points: data.points ?? null,
+          owner: data.owner || null,
+          dueDate: data.dueDate ? new Date(data.dueDate) : null,
+          completedAt,
+          order: newOrder,
+          parentId: data.parentId || null,
+          typeId: data.typeId || null,
+          labels:
+            data.labelIds && data.labelIds.length > 0
+              ? {
+                  create: data.labelIds.map((labelId) => ({ labelId })),
+                }
+              : undefined,
+          assignees:
+            data.assigneeIds && data.assigneeIds.length > 0
+              ? {
+                  create: data.assigneeIds.map((userId) => ({ userId })),
+                }
+              : undefined,
         },
-        comments: true,
-        activities: {
-          orderBy: { createdAt: "desc" },
+        include: {
+          type: true,
+          labels: {
+            include: { label: true },
+          },
+          comments: true,
+          activities: {
+            orderBy: { createdAt: "desc" },
+          },
+          assignees: {
+            include: { user: { select: { id: true, name: true, email: true } } },
+          },
+          parent: { select: { id: true, number: true, title: true } },
+          children: { select: { id: true, number: true, title: true, completedAt: true } },
+          links: true,
         },
-        assignees: {
-          include: { user: { select: { id: true, name: true, email: true } } },
-        },
-        parent: { select: { id: true, number: true, title: true } },
-        children: { select: { id: true, number: true, title: true, completedAt: true } },
-        links: true,
-      },
-    });
+      })
+    );
 
     await recordActivity({
       cardId: card.id,
+      projectId: data.projectId,
       actorUserId: session.userId,
       type: "card_created",
       toValue: card.title,
@@ -136,7 +128,7 @@ export async function updateCard(
   data: {
     columnId?: string;
     title?: string;
-    description?: string;
+    description?: string | null;
     priority?: string;
     points?: number | null;
     owner?: string | null;
@@ -164,7 +156,7 @@ export async function updateCard(
       },
     });
 
-    if (!existingCard || existingCard.project.userId !== session.userId) {
+    if (!existingCard || !(await verifyProjectAccess(existingCard.projectId, session.userId, "MEMBER"))) {
       return { success: false, error: "Unauthorized" };
     }
 
@@ -256,6 +248,7 @@ export async function updateCard(
     if (data.title !== undefined && data.title !== existingCard.title) {
       await recordActivity({
         cardId: id,
+        projectId: existingCard.projectId,
         actorUserId: session.userId,
         type: "title_changed",
         fromValue: existingCard.title,
@@ -266,6 +259,7 @@ export async function updateCard(
     if (data.description !== undefined && data.description !== existingCard.description) {
       await recordActivity({
         cardId: id,
+        projectId: existingCard.projectId,
         actorUserId: session.userId,
         type: "description_changed",
         fromValue: existingCard.description || undefined,
@@ -276,6 +270,7 @@ export async function updateCard(
     if (data.priority !== undefined && data.priority !== existingCard.priority) {
       await recordActivity({
         cardId: id,
+        projectId: existingCard.projectId,
         actorUserId: session.userId,
         type: "priority_changed",
         fromValue: existingCard.priority,
@@ -286,6 +281,7 @@ export async function updateCard(
     if (data.points !== undefined && data.points !== existingCard.points) {
       await recordActivity({
         cardId: id,
+        projectId: existingCard.projectId,
         actorUserId: session.userId,
         type: "points_changed",
         fromValue: existingCard.points != null ? String(existingCard.points) : undefined,
@@ -296,6 +292,7 @@ export async function updateCard(
     if (data.columnId !== undefined && data.columnId !== existingCard.columnId) {
       await recordActivity({
         cardId: id,
+        projectId: existingCard.projectId,
         actorUserId: session.userId,
         type: "moved",
         fromValue: existingCard.column?.name,
@@ -307,6 +304,7 @@ export async function updateCard(
       const newType = data.typeId ? await db.cardType.findUnique({ where: { id: data.typeId } }) : null;
       await recordActivity({
         cardId: id,
+        projectId: existingCard.projectId,
         actorUserId: session.userId,
         type: "type_changed",
         fromValue: existingCard.type?.name,
@@ -320,6 +318,7 @@ export async function updateCard(
       if (oldDue !== newDue) {
         await recordActivity({
           cardId: id,
+          projectId: existingCard.projectId,
           actorUserId: session.userId,
           type: "due_date_changed",
           fromValue: oldDue || undefined,
@@ -336,6 +335,7 @@ export async function updateCard(
           const l = await db.label.findUnique({ where: { id: addedId } });
           await recordActivity({
             cardId: id,
+            projectId: existingCard.projectId,
             actorUserId: session.userId,
             type: "label_added",
             toValue: l?.name || addedId,
@@ -346,6 +346,7 @@ export async function updateCard(
         if (!newLabelIds.has(old.labelId)) {
           await recordActivity({
             cardId: id,
+            projectId: existingCard.projectId,
             actorUserId: session.userId,
             type: "label_removed",
             fromValue: old.label.name,
@@ -362,6 +363,7 @@ export async function updateCard(
           const u = await db.user.findUnique({ where: { id: addedId } });
           await recordActivity({
             cardId: id,
+            projectId: existingCard.projectId,
             actorUserId: session.userId,
             type: "assigned",
             toValue: u?.name || addedId,
@@ -373,6 +375,7 @@ export async function updateCard(
           const u = await db.user.findUnique({ where: { id: old.userId } });
           await recordActivity({
             cardId: id,
+            projectId: existingCard.projectId,
             actorUserId: session.userId,
             type: "unassigned",
             fromValue: u?.name || old.userId,
@@ -404,7 +407,7 @@ export async function moveCard(
       include: { project: true, column: true },
     });
 
-    if (!existingCard || existingCard.project.userId !== session.userId) {
+    if (!existingCard || !(await verifyProjectAccess(existingCard.projectId, session.userId, "MEMBER"))) {
       return { success: false, error: "Unauthorized" };
     }
 
@@ -423,6 +426,7 @@ export async function moveCard(
     if (existingCard.columnId !== targetColumnId) {
       await recordActivity({
         cardId,
+        projectId: existingCard.projectId,
         actorUserId: session.userId,
         type: "moved",
         fromValue: existingCard.column?.name,
@@ -448,7 +452,7 @@ export async function deleteCard(id: string, overrideUserId?: string) {
       include: { project: true },
     });
 
-    if (!existingCard || existingCard.project.userId !== session.userId) {
+    if (!existingCard || !(await verifyProjectAccess(existingCard.projectId, session.userId, "MEMBER"))) {
       return { success: false, error: "Unauthorized" };
     }
 
@@ -487,7 +491,6 @@ export async function getCardByIdentifier(identifier: string, overrideUserId?: s
         number: num,
         project: {
           key,
-          userId: session.userId,
         },
       },
       include: {
@@ -512,7 +515,7 @@ export async function getCardByIdentifier(identifier: string, overrideUserId?: s
       },
     });
 
-    if (!card) {
+    if (!card || !(await verifyProjectAccess(card.projectId, session.userId, "VIEWER"))) {
       return { success: false, error: `Card '${identifier}' not found` };
     }
 
@@ -536,11 +539,12 @@ export async function archiveCard(id: string) {
       return { success: false, error: "Unauthorized" };
     }
 
-    const card = await db.card.findFirst({
-      where: { id, project: { userId: session.userId } },
+    const card = await db.card.findUnique({
+      where: { id },
+      include: { project: true },
     });
 
-    if (!card) {
+    if (!card || !(await verifyProjectAccess(card.projectId, session.userId, "MEMBER"))) {
       return { success: false, error: "Card not found or access denied" };
     }
 
@@ -551,6 +555,7 @@ export async function archiveCard(id: string) {
 
     await recordActivity({
       cardId: id,
+      projectId: card.projectId,
       actorUserId: session.userId,
       type: "archived",
     });
@@ -571,11 +576,12 @@ export async function unarchiveCard(id: string) {
       return { success: false, error: "Unauthorized" };
     }
 
-    const card = await db.card.findFirst({
-      where: { id, project: { userId: session.userId } },
+    const card = await db.card.findUnique({
+      where: { id },
+      include: { project: true },
     });
 
-    if (!card) {
+    if (!card || !(await verifyProjectAccess(card.projectId, session.userId, "MEMBER"))) {
       return { success: false, error: "Card not found or access denied" };
     }
 
@@ -586,6 +592,7 @@ export async function unarchiveCard(id: string) {
 
     await recordActivity({
       cardId: id,
+      projectId: card.projectId,
       actorUserId: session.userId,
       type: "unarchived",
     });
@@ -609,7 +616,12 @@ export async function getArchivedCards() {
     const cards = await db.card.findMany({
       where: {
         isArchived: true,
-        project: { userId: session.userId },
+        project: {
+          OR: [
+            { userId: session.userId },
+            { members: { some: { userId: session.userId } } },
+          ],
+        },
       },
       include: {
         project: true,
@@ -633,9 +645,9 @@ export interface ReorderItem {
   columnId?: string;
 }
 
-export async function reorderCards(items: ReorderItem[]) {
+export async function reorderCards(items: ReorderItem[], overrideUserId?: string) {
   try {
-    const session = await getSession();
+    const session = overrideUserId ? { userId: overrideUserId } : await getSession();
     if (!session) {
       return { success: false, error: "Unauthorized" };
     }
@@ -648,13 +660,19 @@ export async function reorderCards(items: ReorderItem[]) {
     const existingCards = await db.card.findMany({
       where: {
         id: { in: cardIds },
-        project: { userId: session.userId },
       },
       select: { id: true, projectId: true },
     });
 
     if (existingCards.length !== cardIds.length) {
       return { success: false, error: "Unauthorized or card not found" };
+    }
+
+    for (const card of existingCards) {
+      const canEdit = await verifyProjectAccess(card.projectId, session.userId, "MEMBER");
+      if (!canEdit) {
+        return { success: false, error: "Unauthorized or card not found" };
+      }
     }
 
     const updates = items.map((item) =>
@@ -694,7 +712,7 @@ export async function addCardLink(
       include: { project: true },
     });
 
-    if (!card || card.project.userId !== session.userId) {
+    if (!card || !(await verifyProjectAccess(card.projectId, session.userId, "MEMBER"))) {
       return { success: false, error: "Unauthorized" };
     }
 
@@ -724,7 +742,7 @@ export async function removeCardLink(linkId: string, overrideUserId?: string) {
       include: { card: { include: { project: true } } },
     });
 
-    if (!link || link.card.project.userId !== session.userId) {
+    if (!link || !(await verifyProjectAccess(link.card.projectId, session.userId, "MEMBER"))) {
       return { success: false, error: "Unauthorized or link not found" };
     }
 

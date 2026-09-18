@@ -137,7 +137,7 @@ describe("Card Activity / Audit Trail Actions", () => {
     const cardRes = await createCard({ projectId, columnId: col1Id, title: "Direct Record Task" }, userId);
     const cardId = cardRes.data!.id;
 
-    await recordActivity({ cardId, actorUserId: userId, type: "custom_event", toValue: "done" });
+    await recordActivity({ cardId, projectId, actorUserId: userId, type: "custom_event", toValue: "done" });
 
     const actRes = await getCardActivity(cardId, userId);
     expect(actRes.data!.map((a) => a.type)).toContain("custom_event");
