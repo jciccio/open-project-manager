@@ -4,9 +4,12 @@ import { createCard } from "../cards";
 import { createProject, getProjectById } from "../projects";
 import { createTestUser, cleanupTestUser } from "@/test/helpers";
 import { createSession, destroySession } from "@/lib/auth";
+import { db } from "@/lib/db";
 
 describe("Card Relations Server Actions", () => {
   let userId: string;
+  let userEmail: string;
+  let userName: string;
   let projectId: string;
   let columnId: string;
   let card1Id: string;
@@ -15,6 +18,8 @@ describe("Card Relations Server Actions", () => {
   beforeEach(async () => {
     const { user } = await createTestUser(`relations-action-${Date.now()}`);
     userId = user.id;
+    userEmail = user.email;
+    userName = user.name;
     await createSession({ userId, email: user.email, name: user.name });
 
     const pRes = await createProject({ name: "Relations Test Project" });
@@ -65,5 +70,51 @@ describe("Card Relations Server Actions", () => {
 
     const getRes = await getCardRelations(card1Id);
     expect(getRes.data?.length).toBe(0);
+  });
+
+  it("rejects relating to a card owned by another user", async () => {
+    const { user: otherUser } = await createTestUser(`relations-other-${Date.now()}`);
+    try {
+      await createSession({ userId: otherUser.id, email: otherUser.email, name: otherUser.name });
+      const otherProject = await createProject({ name: "Other Relations Project" });
+      const otherProjectDetails = await getProjectById(otherProject.data!.id);
+      const otherCard = await createCard({
+        projectId: otherProject.data!.id,
+        columnId: otherProjectDetails.data!.columns[0].id,
+        title: "Foreign Card",
+      });
+      await createSession({ userId, email: userEmail, name: userName });
+
+      const res = await addCardRelation(card1Id, otherCard.data!.id, "BLOCKS");
+      expect(res.success).toBe(false);
+      expect(res.error).toBe("Unauthorized or card not found");
+    } finally {
+      await cleanupTestUser(otherUser.id);
+    }
+  });
+
+  it("allows the target card's owner to remove a relation pointing at their card", async () => {
+    const { user: otherUser } = await createTestUser(`relations-target-${Date.now()}`);
+    try {
+      await createSession({ userId: otherUser.id, email: otherUser.email, name: otherUser.name });
+      const otherProject = await createProject({ name: "Target Owner Project" });
+      const otherProjectDetails = await getProjectById(otherProject.data!.id);
+      const otherCard = await createCard({
+        projectId: otherProject.data!.id,
+        columnId: otherProjectDetails.data!.columns[0].id,
+        title: "Target Card",
+      });
+      const otherCardId = otherCard.data!.id;
+
+      // Simulate a pre-existing cross-owner relation (legacy data / created before this fix).
+      const relation = await db.cardRelation.create({
+        data: { sourceCardId: card1Id, targetCardId: otherCardId, type: "BLOCKS" },
+      });
+
+      const delRes = await removeCardRelation(relation.id);
+      expect(delRes.success).toBe(true);
+    } finally {
+      await cleanupTestUser(otherUser.id);
+    }
   });
 });

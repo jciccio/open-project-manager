@@ -6,7 +6,7 @@ import { GET as getByIdentifierRoute } from "../cards/by-identifier/[identifier]
 import { POST as moveCardRoute } from "../cards/[id]/move/route";
 import { NextRequest } from "next/server";
 import { createTestUser, createTestProject, createTestColumn, cleanupTestUser } from "@/test/helpers";
-import { getProjectById } from "@/actions/projects";
+import { getProjectById } from "@/lib/services/projects";
 import { db } from "@/lib/db";
 
 describe("REST API: Cards", () => {
@@ -274,6 +274,31 @@ describe("REST API: Cards", () => {
     expect(reorderRes.status).toBe(200);
     const reorderBody = await reorderRes.json();
     expect(reorderBody.success).toBe(true);
+  });
+
+  it("rejects a reorder that moves a card into a column from another project", async () => {
+    const cardReq = new NextRequest("http://localhost/api/v1/cards", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ projectId, columnId, title: "Card 1" }),
+    });
+    const cardRes = await createCardRoute(cardReq);
+    const card = (await cardRes.json()).data;
+
+    const otherProject = await createTestProject(userId, "Other REST Project");
+    const otherColumn = await createTestColumn(otherProject.id, "Other Column", 0);
+
+    const reorderReq = new NextRequest("http://localhost/api/v1/cards/reorder", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        items: [{ id: card.id, order: 0, columnId: otherColumn.id }],
+      }),
+    });
+    const reorderRes = await reorderCardsRoute(reorderReq);
+    expect(reorderRes.status).toBe(400);
+    const reorderBody = await reorderRes.json();
+    expect(reorderBody.error).toBe("Invalid column");
   });
 
   it("supports parentId in REST API creation and filtering", async () => {
