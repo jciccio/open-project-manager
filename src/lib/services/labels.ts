@@ -1,11 +1,12 @@
 import { db } from "@/lib/db";
 import { safeRevalidatePath } from "@/lib/revalidate";
+import { verifyProjectAccess } from "@/lib/permissions";
 
 export async function getLabels(projectId: string | undefined, userId: string) {
   try {
     if (projectId) {
-      const project = await db.project.findFirst({ where: { id: projectId, userId } });
-      if (!project) return { success: false, error: "Unauthorized" };
+      const hasAccess = await verifyProjectAccess(projectId, userId, "VIEWER");
+      if (!hasAccess) return { success: false, error: "Unauthorized" };
     }
 
     const where: any = projectId
@@ -30,8 +31,8 @@ export async function createLabel(name: string, color: string | undefined, proje
     }
 
     if (projectId) {
-      const project = await db.project.findFirst({ where: { id: projectId, userId } });
-      if (!project) return { success: false, error: "Unauthorized" };
+      const hasAccess = await verifyProjectAccess(projectId, userId, "MEMBER");
+      if (!hasAccess) return { success: false, error: "Unauthorized" };
     }
 
     const label = await db.label.create({
@@ -61,15 +62,12 @@ export async function deleteLabel(id: string, userId: string) {
 
     if (!label) return { success: false, error: "Unauthorized" };
 
-    // Project-scoped label: only the owning project's user may delete it.
+    // Project-scoped label: ADMIN on project may delete it.
     // Personal label: only its own creator may delete it.
-    // Global label (both null): not deletable here — there's no admin
-    // concept in this app, so nobody should be able to remove a label
-    // every user relies on.
-    const isOwnedByCaller = label.projectId
-      ? label.project?.userId === userId
+    const isAuthorized = label.projectId
+      ? await verifyProjectAccess(label.projectId, userId, "ADMIN")
       : label.userId === userId;
-    if (!isOwnedByCaller) {
+    if (!isAuthorized) {
       return { success: false, error: "Unauthorized" };
     }
 

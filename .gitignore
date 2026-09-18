@@ -23,6 +23,15 @@
 /.openai
 /.gemini
 skills-lock.json
+# Written by `next dev` itself (see src/server/lib/generate-agent-files.js in
+# the `next` package) — regenerated locally by anyone who runs the dev server.
+/AGENTS.md
+/CLAUDE.md
+
+# Local scratch data & snapshots (not opm_data, which is a Docker named
+# volume, not a bind mount — nothing in this repo writes to ./data)
+/data
+*.tgz
 
 # Environment Files & Password/Secret Credentials
 .env
@@ -44,6 +53,9 @@ secrets.*
 *.sqlite-journal
 dev.db
 
+# Local attachment storage (UPLOADS_DIR default - see src/lib/attachmentStorage.ts)
+/data
+
 # Next.js Build Output & Cache
 /.next/
 /out/
@@ -63,3 +75,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 /src/generated/prisma
+
+# Scratch space
+/tmp
