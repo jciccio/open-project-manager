@@ -20,6 +20,7 @@ model User {
   apiTokens     ApiToken[]
   assignedCards CardAssignee[]
   importRecords ImportRecord[]
+  projectMembers ProjectMember[]
 }
 
 model ApiToken {
@@ -42,6 +43,7 @@ model Project {
   key         String   @default("OPM")
   description String?
   color       String   @default("#6366f1")
+  visibility  String   @default("PRIVATE")
   isArchived  Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -51,6 +53,8 @@ model Project {
   labels     Label[]
   cardTypes  CardType[]
   savedViews SavedView[]
+  webhooks   Webhook[]
+  members    ProjectMember[]
 
   @@unique([userId, key])
 }
@@ -76,7 +80,7 @@ model Card {
   column      Column    @relation(fields: [columnId], references: [id], onDelete: Cascade)
   title       String
   description String?
-  number      Int       @default(1)
+  number      Int
   priority    String    @default("NONE")
   points      Int?
   owner       String?
@@ -219,6 +223,20 @@ model SavedView {
   @@index([projectId])
 }
 
+model Webhook {
+  id         String   @id @default(cuid())
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  url        String
+  secret     String
+  eventsJson String   @default("[]")
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([projectId])
+}
+
 model ImportRecord {
   id          String   @id @default(cuid())
   userId      String
@@ -244,4 +262,19 @@ model CardLink {
   updatedAt DateTime @updatedAt
 
   @@index([cardId])
+}
+
+model ProjectMember {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String   @default("MEMBER") // OWNER | ADMIN | MEMBER | VIEWER
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, userId])
+  @@index([userId])
+  @@index([projectId])
 }

@@ -5,6 +5,7 @@ import { getSession } from "@/lib/auth";
 import { safeRevalidatePath } from "@/lib/revalidate";
 import { recordActivity } from "./activity";
 import * as cardsService from "@/lib/services/cards";
+import { verifyProjectAccess } from "@/lib/permissions";
 
 export async function createCard(data: {
   projectId: string;
@@ -32,7 +33,7 @@ export async function updateCard(
   data: {
     columnId?: string;
     title?: string;
-    description?: string;
+    description?: string | null;
     priority?: string;
     points?: number | null;
     owner?: string | null;
@@ -74,11 +75,12 @@ export async function archiveCard(id: string) {
       return { success: false, error: "Unauthorized" };
     }
 
-    const card = await db.card.findFirst({
-      where: { id, project: { userId: session.userId } },
+    const card = await db.card.findUnique({
+      where: { id },
+      include: { project: true },
     });
 
-    if (!card) {
+    if (!card || !(await verifyProjectAccess(card.projectId, session.userId, "MEMBER"))) {
       return { success: false, error: "Card not found or access denied" };
     }
 
@@ -89,6 +91,7 @@ export async function archiveCard(id: string) {
 
     await recordActivity({
       cardId: id,
+      projectId: card.projectId,
       actorUserId: session.userId,
       type: "archived",
     });
@@ -109,11 +112,12 @@ export async function unarchiveCard(id: string) {
       return { success: false, error: "Unauthorized" };
     }
 
-    const card = await db.card.findFirst({
-      where: { id, project: { userId: session.userId } },
+    const card = await db.card.findUnique({
+      where: { id },
+      include: { project: true },
     });
 
-    if (!card) {
+    if (!card || !(await verifyProjectAccess(card.projectId, session.userId, "MEMBER"))) {
       return { success: false, error: "Card not found or access denied" };
     }
 
@@ -124,6 +128,7 @@ export async function unarchiveCard(id: string) {
 
     await recordActivity({
       cardId: id,
+      projectId: card.projectId,
       actorUserId: session.userId,
       type: "unarchived",
     });
@@ -147,7 +152,12 @@ export async function getArchivedCards() {
     const cards = await db.card.findMany({
       where: {
         isArchived: true,
-        project: { userId: session.userId },
+        project: {
+          OR: [
+            { userId: session.userId },
+            { members: { some: { userId: session.userId } } },
+          ],
+        },
       },
       include: {
         project: true,
@@ -165,56 +175,12 @@ export async function getArchivedCards() {
   }
 }
 
-export interface ReorderItem {
-  id: string;
-  order: number;
-  columnId?: string;
-}
+export type { ReorderItem } from "@/lib/services/cards";
 
-export async function reorderCards(items: ReorderItem[]) {
-  try {
-    const session = await getSession();
-    if (!session) {
-      return { success: false, error: "Unauthorized" };
-    }
-
-    if (!items || !Array.isArray(items) || items.length === 0) {
-      return { success: false, error: "Items array is required" };
-    }
-
-    const cardIds = items.map((i) => i.id);
-    const existingCards = await db.card.findMany({
-      where: {
-        id: { in: cardIds },
-        project: { userId: session.userId },
-      },
-      select: { id: true, projectId: true },
-    });
-
-    if (existingCards.length !== cardIds.length) {
-      return { success: false, error: "Unauthorized or card not found" };
-    }
-
-    const updates = items.map((item) =>
-      db.card.update({
-        where: { id: item.id },
-        data: {
-          order: item.order,
-          ...(item.columnId ? { columnId: item.columnId } : {}),
-        },
-      })
-    );
-
-    await db.$transaction(updates);
-    const projectIds = new Set(existingCards.map((c) => c.projectId));
-    for (const projectId of projectIds) {
-      safeRevalidatePath(`/projects/${projectId}`);
-    }
-    return { success: true };
-  } catch (error) {
-    console.error("Error reordering cards:", error);
-    return { success: false, error: "Failed to reorder cards" };
-  }
+export async function reorderCards(items: cardsService.ReorderItem[]) {
+  const session = await getSession();
+  if (!session) return { success: false as const, error: "Unauthorized" };
+  return cardsService.reorderCards(items, session.userId);
 }
 
 export async function addCardLink(cardId: string, url: string, title?: string) {

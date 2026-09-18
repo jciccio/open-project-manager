@@ -1,12 +1,11 @@
 import { db } from "@/lib/db";
 import { safeRevalidatePath } from "@/lib/revalidate";
+import { verifyProjectAccess } from "@/lib/permissions";
 
 export async function getCardTypes(projectId: string, userId: string) {
   try {
-    const project = await db.project.findFirst({
-      where: { id: projectId, userId },
-    });
-    if (!project) return { success: false, error: "Project not found or access denied" };
+    const hasAccess = await verifyProjectAccess(projectId, userId, "VIEWER");
+    if (!hasAccess) return { success: false, error: "Project not found or access denied" };
 
     const cardTypes = await db.cardType.findMany({
       where: { projectId },
@@ -31,10 +30,8 @@ export async function createCardType(
       return { success: false, error: "Type name is required" };
     }
 
-    const project = await db.project.findFirst({
-      where: { id: projectId, userId },
-    });
-    if (!project) return { success: false, error: "Project not found or access denied" };
+    const hasAccess = await verifyProjectAccess(projectId, userId, "ADMIN");
+    if (!hasAccess) return { success: false, error: "Project not found or access denied" };
 
     const cardType = await db.cardType.create({
       data: {
@@ -63,7 +60,7 @@ export async function updateCardType(
       where: { id },
       include: { project: true },
     });
-    if (!existing || existing.project.userId !== userId) {
+    if (!existing || !(await verifyProjectAccess(existing.projectId, userId, "ADMIN"))) {
       return { success: false, error: "Card type not found or access denied" };
     }
 
@@ -90,7 +87,7 @@ export async function deleteCardType(id: string, userId: string) {
       where: { id },
       include: { project: true },
     });
-    if (!existing || existing.project.userId !== userId) {
+    if (!existing || !(await verifyProjectAccess(existing.projectId, userId, "ADMIN"))) {
       return { success: false, error: "Card type not found or access denied" };
     }
 
