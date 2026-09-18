@@ -3,6 +3,7 @@ import { safeRevalidatePath } from "@/lib/revalidate";
 import { recordActivity } from "@/actions/activity";
 import { nextCardNumber, withCardNumberRetry } from "@/lib/cardNumbering";
 import { verifyProjectAccess } from "@/lib/permissions";
+import { deriveCompletedAt } from "@/lib/cardCompletion";
 import { SafeUrlSchema } from "@/lib/validation/safeUrl";
 
 export async function createCard(
@@ -53,7 +54,7 @@ export async function createCard(
     const newOrder = lastCard ? lastCard.order + ORDER_GAP : ORDER_GAP;
 
     const targetColumn = await db.column.findUnique({ where: { id: data.columnId } });
-    const completedAt = targetColumn?.isDone ? new Date() : null;
+    const completedAt = deriveCompletedAt(targetColumn?.isDone, null);
 
     const firstAttemptNumber = await nextCardNumber(data.projectId);
     const card = await withCardNumberRetry(data.projectId, firstAttemptNumber, (number) =>
@@ -180,7 +181,7 @@ export async function updateCard(
     let completedAtUpdate: Date | null | undefined = undefined;
     if (data.columnId !== undefined && data.columnId !== existingCard.columnId) {
       targetColumn = await db.column.findUnique({ where: { id: data.columnId } });
-      completedAtUpdate = targetColumn?.isDone ? (existingCard.completedAt || new Date()) : null;
+      completedAtUpdate = deriveCompletedAt(targetColumn?.isDone, existingCard.completedAt);
     }
 
     const updatePayload: any = {
@@ -398,7 +399,7 @@ export async function moveCard(cardId: string, targetColumnId: string, newOrder:
     }
 
     const targetColumn = await db.column.findUnique({ where: { id: targetColumnId } });
-    const completedAt = targetColumn?.isDone ? (existingCard.completedAt || new Date()) : null;
+    const completedAt = deriveCompletedAt(targetColumn?.isDone, existingCard.completedAt);
 
     const card = await db.card.update({
       where: { id: cardId },
@@ -562,7 +563,7 @@ export async function reorderCards(items: ReorderItem[], userId: string) {
       where: {
         id: { in: cardIds },
       },
-      select: { id: true, projectId: true },
+      select: { id: true, projectId: true, completedAt: true },
     });
 
     if (existingCards.length !== cardIds.length) {
@@ -576,15 +577,27 @@ export async function reorderCards(items: ReorderItem[], userId: string) {
       }
     }
 
-    const updates = items.map((item) =>
-      db.card.update({
+    const cardById = new Map(existingCards.map((c) => [c.id, c]));
+    const columnIds = [...new Set(items.map((i) => i.columnId).filter((id): id is string => !!id))];
+    const columns = await db.column.findMany({
+      where: { id: { in: columnIds } },
+      select: { id: true, isDone: true },
+    });
+    const columnById = new Map(columns.map((c) => [c.id, c]));
+
+    const updates = items.map((item) => {
+      const completedAt = item.columnId
+        ? deriveCompletedAt(columnById.get(item.columnId)?.isDone, cardById.get(item.id)!.completedAt)
+        : undefined;
+      return db.card.update({
         where: { id: item.id },
         data: {
           order: item.order,
           ...(item.columnId ? { columnId: item.columnId } : {}),
+          ...(completedAt !== undefined ? { completedAt } : {}),
         },
-      })
-    );
+      });
+    });
 
     await db.$transaction(updates);
     const projectIds = new Set(existingCards.map((c) => c.projectId));

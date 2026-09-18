@@ -153,6 +153,43 @@ describe("Cards Server Actions", () => {
     expect(reorderRes.success).toBe(true);
   });
 
+  it("sets and clears completedAt when reorderCards moves a card across a Done column boundary", async () => {
+    const projectDetails = await getProjectById(projectId);
+    const doneColumnId = projectDetails.data!.columns.find((c) => c.isDone)!.id;
+
+    const cardRes = await createCard({ projectId, columnId, title: "Reorder Timestamp Card" });
+    const cardId = cardRes.data!.id;
+    expect(cardRes.data?.completedAt).toBeNull();
+
+    const intoDone = await reorderCards([{ id: cardId, order: 0, columnId: doneColumnId }]);
+    expect(intoDone.success).toBe(true);
+    let card = await getCardByIdentifier((await getProjectById(projectId)).data!.key + "-" + cardRes.data!.number);
+    expect(card.data?.completedAt).not.toBeNull();
+
+    const outOfDone = await reorderCards([{ id: cardId, order: 0, columnId }]);
+    expect(outOfDone.success).toBe(true);
+    card = await getCardByIdentifier((await getProjectById(projectId)).data!.key + "-" + cardRes.data!.number);
+    expect(card.data?.completedAt).toBeNull();
+  });
+
+  it("preserves the original completedAt when a card re-enters a Done column via updateCard", async () => {
+    const projectDetails = await getProjectById(projectId);
+    const doneColumnId = projectDetails.data!.columns.find((c) => c.isDone)!.id;
+
+    const cardRes = await createCard({ projectId, columnId, title: "Preserve Timestamp Card" });
+    const cardId = cardRes.data!.id;
+
+    const firstDone = await updateCard(cardId, { columnId: doneColumnId });
+    const firstCompletedAt = firstDone.data?.completedAt;
+    expect(firstCompletedAt).not.toBeNull();
+
+    await updateCard(cardId, { columnId });
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const secondDone = await updateCard(cardId, { columnId: doneColumnId });
+    expect(secondDone.data?.completedAt?.toString()).toBe(firstCompletedAt?.toString());
+  });
+
   it("supports parent and sub-card nesting and prevents self-parenting", async () => {
     const parentCard = await createCard({ projectId, columnId, title: "Parent Epic" });
     const parentId = parentCard.data!.id;

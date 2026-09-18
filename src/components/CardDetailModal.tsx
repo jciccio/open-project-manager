@@ -410,7 +410,7 @@ export default function CardDetailModal({
             ? {
                 ...s,
                 columnId: targetCol.id,
-                completedAt: targetCol.isDone ? new Date() : null,
+                completedAt: res.data.completedAt,
                 column: { id: targetCol.id, name: targetCol.name, isDone: targetCol.isDone },
               }
             : s
