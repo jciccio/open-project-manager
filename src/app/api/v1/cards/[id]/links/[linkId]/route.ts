@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
-import { removeCardLink } from "@/actions/cards";
+import { removeCardLink } from "@/lib/services/cards";
 
 export async function DELETE(
   request: NextRequest,

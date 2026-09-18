@@ -1,0 +1,325 @@
+import { Prisma } from "@prisma/client";
+import { db } from "@/lib/db";
+import { safeRevalidatePath } from "@/lib/revalidate";
+import { DEFAULT_CARD_TYPES } from "@/lib/cardTypeDefaults";
+import { triggerWebhooks } from "@/lib/webhooks";
+import { generateProjectKey } from "@/lib/projectKey";
+import { getProjectAccess } from "@/lib/permissions";
+
+export async function getProjects(userId: string, isArchived = false) {
+  try {
+    const projects = await db.project.findMany({
+      where: {
+        OR: [
+          { userId },
+          { members: { some: { userId } } },
+        ],
+        isArchived,
+      },
+      orderBy: { createdAt: "desc" },
+      include: {
+        members: {
+          select: {
+            userId: true,
+            role: true,
+          },
+        },
+        _count: {
+          select: {
+            cards: true,
+            columns: true,
+            members: true,
+          },
+        },
+      },
+    });
+
+    const archivedCount = await db.project.count({
+      where: {
+        OR: [
+          { userId },
+          { members: { some: { userId } } },
+        ],
+        isArchived: true,
+      },
+    });
+
+    return { success: true, data: projects, archivedCount };
+  } catch (error) {
+    console.error("Error fetching projects:", error);
+    return { success: false, error: "Failed to fetch projects" };
+  }
+}
+
+export async function getProjectById(id: string, userId: string) {
+  try {
+    const access = await getProjectAccess(id, userId, "VIEWER");
+    if (!access.hasAccess) {
+      return { success: false, error: "Project not found or access denied" };
+    }
+
+    const project = await db.project.findUnique({
+      where: { id },
+      include: {
+        members: {
+          include: {
+            user: { select: { id: true, name: true, email: true } },
+          },
+          orderBy: { createdAt: "asc" },
+        },
+        savedViews: {
+          orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
+        },
+        cardTypes: {
+          orderBy: { name: "asc" },
+        },
+        columns: {
+          orderBy: { order: "asc" },
+          include: {
+            cards: {
+              where: { isArchived: false },
+              orderBy: { order: "asc" },
+              include: {
+                type: true,
+                labels: {
+                  include: {
+                    label: true,
+                  },
+                },
+                comments: {
+                  orderBy: { createdAt: "desc" },
+                },
+                activities: {
+                  orderBy: { createdAt: "desc" },
+                },
+                links: true,
+                assignees: {
+                  include: { user: { select: { id: true, name: true, email: true } } },
+                },
+                incomingRelations: {
+                  include: {
+                    sourceCard: {
+                      include: {
+                        column: true,
+                        project: true,
+                      },
+                    },
+                  },
+                },
+                outgoingRelations: {
+                  include: {
+                    targetCard: {
+                      include: {
+                        column: true,
+                        project: true,
+                      },
+                    },
+                  },
+                },
+                parent: {
+                  select: {
+                    id: true,
+                    number: true,
+                    title: true,
+                    columnId: true,
+                  },
+                },
+                children: {
+                  where: { isArchived: false },
+                  orderBy: { order: "asc" },
+                  select: {
+                    id: true,
+                    number: true,
+                    title: true,
+                    dueDate: true,
+                    completedAt: true,
+                    columnId: true,
+                    column: {
+                      select: {
+                        id: true,
+                        name: true,
+                        isDone: true,
+                      },
+                    },
+                    assignees: {
+                      include: {
+                        user: { select: { id: true, name: true, email: true } },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!project) {
+      return { success: false, error: "Project not found or access denied" };
+    }
+
+    return { success: true, data: { ...project, currentUserRole: access.role } };
+  } catch (error) {
+    console.error(`Error fetching project ${id}:`, error);
+    return { success: false, error: "Failed to fetch project details" };
+  }
+}
+
+export async function createProject(
+  data: { name: string; description?: string; color?: string; key?: string; visibility?: string },
+  userId: string
+) {
+  try {
+    if (!data.name.trim()) {
+      return { success: false, error: "Project name is required" };
+    }
+
+    const projectKey = await generateProjectKey(data.name, data.key, userId);
+
+    const project = await db.project.create({
+      data: {
+        userId,
+        name: data.name.trim(),
+        key: projectKey,
+        description: data.description,
+        color: data.color || "#6366f1",
+        visibility: data.visibility || "PRIVATE",
+        columns: {
+          create: [
+            { name: "Backlog", order: 0, isDone: false },
+            { name: "To Do", order: 1, isDone: false },
+            { name: "In Progress", order: 2, isDone: false },
+            { name: "Done", order: 3, isDone: true },
+          ],
+        },
+        cardTypes: {
+          create: DEFAULT_CARD_TYPES,
+        },
+        members: {
+          create: {
+            userId,
+            role: "OWNER",
+          },
+        },
+      },
+    });
+
+    triggerWebhooks(project.id, "project_created", {
+      project: {
+        id: project.id,
+        name: project.name,
+        key: project.key,
+        description: project.description,
+        color: project.color,
+      },
+    });
+
+    safeRevalidatePath("/");
+    return { success: true, data: project };
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return { success: false, error: "A project with that key already exists" };
+    }
+    console.error("Error creating project:", error);
+    return { success: false, error: "Failed to create project" };
+  }
+}
+
+export async function updateProject(
+  id: string,
+  data: { name?: string; description?: string; color?: string; visibility?: string },
+  userId: string
+) {
+  try {
+    const access = await getProjectAccess(id, userId, "ADMIN");
+    if (!access.hasAccess) {
+      return { success: false, error: "Project not found or access denied" };
+    }
+
+    if (data.visibility !== undefined && !access.isOwner) {
+      return { success: false, error: "Only the project owner can change project visibility" };
+    }
+
+    const project = await db.project.update({
+      where: { id },
+      data: {
+        name: data.name,
+        description: data.description,
+        color: data.color,
+      },
+    });
+
+    safeRevalidatePath("/");
+    safeRevalidatePath("/archived");
+    safeRevalidatePath(`/projects/${id}`);
+    return { success: true, data: project };
+  } catch (error) {
+    console.error(`Error updating project ${id}:`, error);
+    return { success: false, error: "Failed to update project" };
+  }
+}
+
+export async function archiveProject(id: string, userId: string) {
+  try {
+    const access = await getProjectAccess(id, userId, "ADMIN");
+    if (!access.hasAccess) {
+      return { success: false, error: "Project not found or access denied" };
+    }
+
+    const project = await db.project.update({
+      where: { id },
+      data: { isArchived: true },
+    });
+
+    safeRevalidatePath("/");
+    safeRevalidatePath("/archived");
+    safeRevalidatePath(`/projects/${id}`);
+    return { success: true, data: project };
+  } catch (error) {
+    console.error(`Error archiving project ${id}:`, error);
+    return { success: false, error: "Failed to archive project" };
+  }
+}
+
+export async function unarchiveProject(id: string, userId: string) {
+  try {
+    const access = await getProjectAccess(id, userId, "ADMIN");
+    if (!access.hasAccess) {
+      return { success: false, error: "Project not found or access denied" };
+    }
+
+    const project = await db.project.update({
+      where: { id },
+      data: { isArchived: false },
+    });
+
+    safeRevalidatePath("/");
+    safeRevalidatePath("/archived");
+    safeRevalidatePath(`/projects/${id}`);
+    return { success: true, data: project };
+  } catch (error) {
+    console.error(`Error unarchiving project ${id}:`, error);
+    return { success: false, error: "Failed to restore project" };
+  }
+}
+
+export async function deleteProject(id: string, userId: string) {
+  try {
+    const access = await getProjectAccess(id, userId, "OWNER");
+    if (!access.hasAccess) {
+      return { success: false, error: "Project not found or access denied" };
+    }
+
+    await db.project.delete({
+      where: { id },
+    });
+
+    safeRevalidatePath("/");
+    safeRevalidatePath("/archived");
+    return { success: true };
+  } catch (error) {
+    console.error(`Error deleting project ${id}:`, error);
+    return { success: false, error: "Failed to delete project" };
+  }
+}

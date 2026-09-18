@@ -30,25 +30,25 @@ async function runMcpTests() {
 
     // Test 3: List Projects Tool
     console.log("\n▶ Testing Project & Card Operations via MCP Tool Handlers...");
-    const listRes = await executeMcpTool("list_projects", { isArchived: false });
-    assert(listRes.success && Array.isArray(listRes.projects), "list_projects tool execution");
-
-    // Test 4: Create Project via MCP
     const testUser = await db.user.findFirst({ where: { email: "admin@example.com" } });
     if (!testUser) {
       throw new Error("No seeded admin@example.com user found — run `npx prisma db seed` first.");
     }
+    const listRes = await executeMcpTool("list_projects", { isArchived: false }, { userId: testUser.id });
+    assert(listRes.success && Array.isArray(listRes.projects), "list_projects tool execution");
+
+    // Test 4: Create Project via MCP
     const projRes = await executeMcpTool("create_project", {
       userId: testUser.id,
       name: `MCP Integration Test ${Date.now()}`,
       description: "Automated project created via MCP",
       color: "#10b981",
-    });
+    }, { userId: testUser.id });
     assert(projRes.success && !!projRes.project?.id, "create_project tool execution");
     const projectId = projRes.project!.id;
 
     // Test 5: List Columns via MCP
-    const colRes = await executeMcpTool("list_columns", { projectId });
+    const colRes = await executeMcpTool("list_columns", { projectId }, { userId: testUser.id });
     assert(colRes.success && colRes.columns?.length === 4, "Default 4 Kanban columns created");
     const backlogCol = colRes.columns![0];
     const doneCol = colRes.columns![3];
@@ -62,7 +62,7 @@ async function runMcpTests() {
       priority: "HIGH",
       points: 8,
       owner: "MCP Agent",
-    });
+    }, { userId: testUser.id });
     assert(cardRes.success && cardRes.card?.points === 8, "create_card tool execution");
     const cardId = cardRes.card!.id;
 
@@ -71,7 +71,7 @@ async function runMcpTests() {
       id: cardId,
       targetColumnId: doneCol.id,
       newOrder: 0,
-    });
+    }, { userId: testUser.id });
     assert(moveRes.success && moveRes.card?.columnId === doneCol.id, "move_card tool execution");
 
     // Test 8: Add Comment via MCP
@@ -79,11 +79,11 @@ async function runMcpTests() {
       cardId,
       author: "MCP Test Bot",
       content: "Task completed via MCP workflow",
-    });
+    }, { userId: testUser.id });
     assert(commentRes.success && commentRes.comment?.author === "MCP Test Bot", "add_comment tool execution");
 
     // Test 9: Cleanup Created Test Project
-    const deleteRes = await executeMcpTool("delete_project", { id: projectId });
+    const deleteRes = await executeMcpTool("delete_project", { id: projectId }, { userId: testUser.id });
     assert(deleteRes.success && deleteRes.deletedId === projectId, "delete_project tool cleanup");
 
     console.log(`\n🎉 MCP Test Suite Completed: ${passedCount}/${totalCount} tests passed.\n`);

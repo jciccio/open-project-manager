@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { revalidatePath } from "next/cache";
 import { createTestUser, createTestProject, createTestColumn, cleanupTestUser } from "@/test/helpers";
-import { createCard } from "@/actions/cards";
-import { uploadAttachment, deleteAttachment, listAttachments } from "@/actions/attachments";
+import { createCard } from "@/lib/services/cards";
+import { uploadAttachment, deleteAttachment, listAttachments } from "@/lib/services/attachments";
 
 describe("safeRevalidatePath resilience", () => {
   let userId: string;

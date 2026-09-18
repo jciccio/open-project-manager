@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
-import { moveCard } from "@/actions/cards";
+import { moveCard } from "@/lib/services/cards";
 
 interface Props {
   params: Promise<{ id: string }>;
