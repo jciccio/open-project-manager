@@ -11,6 +11,7 @@ import { db } from "@/lib/db";
 import { DEFAULT_CARD_TYPES } from "@/lib/cardTypeDefaults";
 import { nextCardNumber, withCardNumberRetry } from "@/lib/cardNumbering";
 import { generateProjectKey } from "@/lib/projectKey";
+import { deriveCompletedAt } from "@/lib/cardCompletion";
 
 const DEFAULT_LIST_CARDS_LIMIT = 100;
 
@@ -134,6 +135,7 @@ export const MCP_TOOLS = [
         projectId: { type: "string", description: "Target project ID" },
         name: { type: "string", description: "Column name" },
         order: { type: "number", description: "Optional column order position index" },
+        isDone: { type: "boolean", description: "Whether cards in this column count as complete (default: false)" },
       },
       required: ["projectId", "name"],
     },
@@ -144,13 +146,14 @@ export const MCP_TOOLS = [
   },
   {
     name: "update_column",
-    description: "Update column title or position order.",
+    description: "Update column title, position order, or done-state. Flipping isDone bulk-updates completedAt on the column's cards.",
     inputSchema: {
       type: "object",
       properties: {
         id: { type: "string", description: "Column ID" },
         name: { type: "string", description: "New column name" },
         order: { type: "number", description: "New order position index" },
+        isDone: { type: "boolean", description: "Whether cards in this column count as complete" },
       },
       required: ["id"],
     },
@@ -778,10 +781,10 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
           visibility: args.visibility || "PRIVATE",
           columns: {
             create: [
-              { name: "Backlog", order: 0 },
-              { name: "To Do", order: 1 },
-              { name: "In Progress", order: 2 },
-              { name: "Done", order: 3 },
+              { name: "Backlog", order: 0, isDone: false },
+              { name: "To Do", order: 1, isDone: false },
+              { name: "In Progress", order: 2, isDone: false },
+              { name: "Done", order: 3, isDone: true },
             ],
           },
           cardTypes: {
@@ -841,20 +844,38 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
           projectId: args.projectId,
           name: args.name.trim(),
           order,
+          isDone: args.isDone ?? false,
         },
       });
       return { success: true, column };
     }
 
     case "update_column": {
+      const existingColumn = await db.column.findUnique({ where: { id: args.id } });
       const data: any = {};
       if (args.name !== undefined) data.name = args.name.trim();
       if (args.order !== undefined) data.order = args.order;
+      if (args.isDone !== undefined) data.isDone = args.isDone;
 
       const column = await db.column.update({
         where: { id: args.id },
         data,
       });
+
+      if (args.isDone !== undefined && args.isDone !== existingColumn?.isDone) {
+        if (args.isDone) {
+          await db.card.updateMany({
+            where: { columnId: args.id, completedAt: null },
+            data: { completedAt: new Date() },
+          });
+        } else {
+          await db.card.updateMany({
+            where: { columnId: args.id },
+            data: { completedAt: null },
+          });
+        }
+      }
+
       return { success: true, column };
     }
 
@@ -993,7 +1014,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       if (lastCard) order = lastCard.order + ORDER_GAP;
 
       const targetCol = await db.column.findUnique({ where: { id: args.columnId } });
-      const completedAt = targetCol?.isDone ? new Date() : null;
+      const completedAt = deriveCompletedAt(targetCol?.isDone, null);
 
       const firstAttemptNumber = await nextCardNumber(args.projectId);
       const card = await withCardNumberRetry(args.projectId, firstAttemptNumber, (number) =>
@@ -1039,8 +1060,11 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       if (args.owner !== undefined) data.owner = args.owner;
       if (args.columnId !== undefined) {
         data.columnId = args.columnId;
-        const targetCol = await db.column.findUnique({ where: { id: args.columnId } });
-        data.completedAt = targetCol?.isDone ? new Date() : null;
+        const [existingCard, targetCol] = await Promise.all([
+          db.card.findUnique({ where: { id: args.id }, select: { completedAt: true } }),
+          db.column.findUnique({ where: { id: args.columnId } }),
+        ]);
+        data.completedAt = deriveCompletedAt(targetCol?.isDone, existingCard?.completedAt);
       }
       if (args.dueDate !== undefined) {
         data.dueDate = args.dueDate ? new Date(args.dueDate) : null;
@@ -1077,8 +1101,11 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     case "move_card": {
       const targetColumnId = args.targetColumnId;
       const newOrder = typeof args.newOrder === "number" ? args.newOrder : 0;
-      const targetCol = await db.column.findUnique({ where: { id: targetColumnId } });
-      const completedAt = targetCol?.isDone ? new Date() : null;
+      const [existingCard, targetCol] = await Promise.all([
+        db.card.findUnique({ where: { id: args.id }, select: { completedAt: true } }),
+        db.column.findUnique({ where: { id: targetColumnId } }),
+      ]);
+      const completedAt = deriveCompletedAt(targetCol?.isDone, existingCard?.completedAt);
 
       const card = await db.card.update({
         where: { id: args.id },
@@ -1096,15 +1123,36 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       if (!Array.isArray(items) || items.length === 0) {
         return { success: false, error: "items array is required" };
       }
-      const updates = items.map((item: any) =>
-        db.card.update({
+
+      const cardIds = items.map((item: any) => item.id);
+      const existingCards = await db.card.findMany({
+        where: { id: { in: cardIds } },
+        select: { id: true, completedAt: true },
+      });
+      const cardById = new Map(existingCards.map((c) => [c.id, c]));
+
+      const columnIds = [...new Set(items.map((item: any) => item.columnId).filter(Boolean))];
+      const columns = await db.column.findMany({
+        where: { id: { in: columnIds } },
+        select: { id: true, isDone: true },
+      });
+      const columnById = new Map(columns.map((c) => [c.id, c]));
+
+      const updates = items.map((item: any) => {
+        const existingCard = cardById.get(item.id);
+        const targetColumn = item.columnId ? columnById.get(item.columnId) : undefined;
+        const completedAt = item.columnId
+          ? deriveCompletedAt(targetColumn?.isDone, existingCard?.completedAt)
+          : undefined;
+        return db.card.update({
           where: { id: item.id },
           data: {
             order: item.order,
             ...(item.columnId ? { columnId: item.columnId } : {}),
+            ...(completedAt !== undefined ? { completedAt } : {}),
           },
-        })
-      );
+        });
+      });
       await db.$transaction(updates);
       return { success: true, count: items.length };
     }
