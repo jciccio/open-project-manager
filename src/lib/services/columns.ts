@@ -1,16 +1,10 @@
 import { db } from "@/lib/db";
 import { safeRevalidatePath } from "@/lib/revalidate";
-
-async function verifyProjectOwnership(projectId: string, userId: string) {
-  const project = await db.project.findFirst({
-    where: { id: projectId, userId },
-  });
-  return !!project;
-}
+import { verifyProjectAccess } from "@/lib/permissions";
 
 export async function createColumn(projectId: string, name: string, isDone: boolean | undefined, userId: string) {
   try {
-    if (!(await verifyProjectOwnership(projectId, userId))) {
+    if (!(await verifyProjectAccess(projectId, userId, "ADMIN"))) {
       return { success: false, error: "Unauthorized" };
     }
 
@@ -53,7 +47,7 @@ export async function updateColumn(
       include: { project: true },
     });
 
-    if (!column || column.project.userId !== userId) {
+    if (!column || !(await verifyProjectAccess(column.projectId, userId, "ADMIN"))) {
       return { success: false, error: "Unauthorized" };
     }
 
@@ -90,7 +84,7 @@ export async function updateColumn(
 
 export async function reorderColumns(projectId: string, orderedColumnIds: string[], userId: string) {
   try {
-    if (!(await verifyProjectOwnership(projectId, userId))) {
+    if (!(await verifyProjectAccess(projectId, userId, "ADMIN"))) {
       return { success: false, error: "Unauthorized" };
     }
 
@@ -117,7 +111,7 @@ export async function deleteColumn(id: string, userId: string) {
       include: { project: true },
     });
 
-    if (!column || column.project.userId !== userId) {
+    if (!column || !(await verifyProjectAccess(column.projectId, userId, "ADMIN"))) {
       return { success: false, error: "Unauthorized" };
     }
 

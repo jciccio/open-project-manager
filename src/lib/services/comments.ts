@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { safeRevalidatePath } from "@/lib/revalidate";
 import { recordActivity } from "@/actions/activity";
+import { verifyProjectAccess } from "@/lib/permissions";
 
 export async function listComments(cardId: string, userId: string) {
   try {
@@ -9,7 +10,7 @@ export async function listComments(cardId: string, userId: string) {
       include: { project: true },
     });
 
-    if (!card || card.project.userId !== userId) {
+    if (!card || !(await verifyProjectAccess(card.projectId, userId, "VIEWER"))) {
       return { success: false, error: "Card not found or access denied" };
     }
 
@@ -36,7 +37,7 @@ export async function addComment(cardId: string, author: string, content: string
       include: { project: true },
     });
 
-    if (!card || card.project.userId !== userId) {
+    if (!card || !(await verifyProjectAccess(card.projectId, userId, "MEMBER"))) {
       return { success: false, error: "Unauthorized" };
     }
 
@@ -50,6 +51,7 @@ export async function addComment(cardId: string, author: string, content: string
 
     await recordActivity({
       cardId,
+      projectId: card.projectId,
       actorUserId: userId,
       type: "comment_added",
       toValue: content.trim().slice(0, 100),
@@ -72,7 +74,7 @@ export async function deleteComment(commentId: string, userId: string) {
       },
     });
 
-    if (!comment || comment.card.project.userId !== userId) {
+    if (!comment || !(await verifyProjectAccess(comment.card.projectId, userId, "MEMBER"))) {
       return { success: false, error: "Unauthorized" };
     }
 
@@ -101,7 +103,7 @@ export async function updateComment(commentId: string, content: string, userId: 
       },
     });
 
-    if (!comment || comment.card.project.userId !== userId) {
+    if (!comment || !(await verifyProjectAccess(comment.card.projectId, userId, "MEMBER"))) {
       return { success: false, error: "Unauthorized" };
     }
 

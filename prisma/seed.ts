@@ -1,7 +1,14 @@
 import { db } from "../src/lib/db";
+import { DEFAULT_CARD_TYPES } from "../src/lib/cardTypeDefaults";
 import bcrypt from "bcryptjs";
 
 async function main() {
+  if (process.env.NODE_ENV === "production" && process.env.SEED_FORCE !== "1") {
+    throw new Error(
+      "Refusing to run the seed script against a production database. Set SEED_FORCE=1 to override."
+    );
+  }
+
   console.log("Seeding database with default user accounts...");
 
   // Clean existing data
@@ -66,15 +73,11 @@ async function main() {
           { name: "Backlog", order: 0 },
           { name: "To Do", order: 1 },
           { name: "In Progress", order: 2 },
-          { name: "Done", order: 3 },
+          { name: "Done", order: 3, isDone: true },
         ],
       },
       cardTypes: {
-        create: [
-          { name: "Task", icon: "CheckSquare", color: "#6366f1" },
-          { name: "Bug", icon: "Bug", color: "#ef4444" },
-          { name: "Feature", icon: "Sparkles", color: "#10b981" },
-        ],
+        create: DEFAULT_CARD_TYPES,
       },
     },
     include: {
@@ -154,15 +157,11 @@ async function main() {
         create: [
           { name: "Ideas", order: 0 },
           { name: "Active", order: 1 },
-          { name: "Completed", order: 2 },
+          { name: "Completed", order: 2, isDone: true },
         ],
       },
       cardTypes: {
-        create: [
-          { name: "Task", icon: "CheckSquare", color: "#6366f1" },
-          { name: "Bug", icon: "Bug", color: "#ef4444" },
-          { name: "Feature", icon: "Sparkles", color: "#10b981" },
-        ],
+        create: DEFAULT_CARD_TYPES,
       },
     },
   });

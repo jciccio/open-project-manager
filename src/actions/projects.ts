@@ -19,7 +19,7 @@ export async function getProjectById(id: string) {
   return projectsService.getProjectById(id, session.userId);
 }
 
-export async function createProject(data: { name: string; description?: string; color?: string; key?: string }) {
+export async function createProject(data: { name: string; description?: string; color?: string; key?: string; visibility?: string }) {
   const session = await getSession();
   if (!session) {
     return { success: false as const, error: "Unauthorized" };
@@ -29,7 +29,7 @@ export async function createProject(data: { name: string; description?: string; 
 
 export async function updateProject(
   id: string,
-  data: { name?: string; description?: string; color?: string }
+  data: { name?: string; description?: string; color?: string; visibility?: string }
 ) {
   const session = await getSession();
   if (!session) {

@@ -26,6 +26,7 @@ export default async function ArchivedProjectsPage() {
       <ArchivedClient
         archivedProjects={archivedProjects as any[]}
         archivedCards={archivedCards as any[]}
+        currentUserId={session.userId || (session as any).id}
       />
     </div>
   );
