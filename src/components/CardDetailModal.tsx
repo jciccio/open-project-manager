@@ -37,6 +37,7 @@ import { getLabels } from "@/actions/labels";
 import { getCardTypes } from "@/actions/cardTypes";
 import { addCardRelation, removeCardRelation, getCardRelations } from "@/actions/relations";
 import { getProjectMembers } from "@/actions/members";
+import { safeHref } from "@/lib/validation/safeUrl";
 
 // Sentinel <option> value for an owner name that predates project members.
 const LEGACY_OWNER = "__legacy_owner__";
@@ -203,6 +204,7 @@ export default function CardDetailModal({
   const [links, setLinks] = useState<Array<any>>((card as any).links || []);
   const [isAddingLink, setIsAddingLink] = useState(false);
   const [newLinkUrl, setNewLinkUrl] = useState("");
+  const [linkError, setLinkError] = useState("");
   const [newLinkTitle, setNewLinkTitle] = useState("");
 
   const [attachments, setAttachments] = useState<Array<any>>((card as any).attachments || []);
@@ -602,6 +604,7 @@ export default function CardDetailModal({
       url = "https://" + url;
     }
 
+    setLinkError("");
     const res = await addCardLink(card.id, url, newLinkTitle.trim() || undefined);
     if (res.success && res.data) {
       setLinks((prev) => [...prev, res.data]);
@@ -609,6 +612,8 @@ export default function CardDetailModal({
       setNewLinkTitle("");
       setIsAddingLink(false);
       onRefresh();
+    } else {
+      setLinkError(res.error || "Failed to add link");
     }
   }
 
@@ -1198,7 +1203,10 @@ export default function CardDetailModal({
                     required
                     placeholder="https://..."
                     value={newLinkUrl}
-                    onChange={(e) => setNewLinkUrl(e.target.value)}
+                    onChange={(e) => {
+                      setNewLinkUrl(e.target.value);
+                      setLinkError("");
+                    }}
                     className="flex-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none"
                   />
                   <input
@@ -1215,6 +1223,9 @@ export default function CardDetailModal({
                     Add
                   </button>
                 </div>
+                {linkError && (
+                  <p role="alert" className="text-[11px] text-red-500 font-semibold">{linkError}</p>
+                )}
               </form>
             )}
 
@@ -1226,7 +1237,7 @@ export default function CardDetailModal({
                     className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 dark:bg-slate-800/50 px-2.5 py-1.5 border border-slate-200 dark:border-slate-800 text-xs"
                   >
                     <a
-                      href={link.url}
+                      href={safeHref(link.url)}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 hover:underline truncate"

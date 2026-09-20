@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import CardDetailModal from "../CardDetailModal";
 import { LanguageProvider } from "../LanguageProvider";
 import { ThemeProvider } from "../ThemeProvider";
-import { updateCard } from "@/actions/cards";
+import { updateCard, addCardLink } from "@/actions/cards";
 import { addComment } from "@/actions/comments";
 
 vi.mock("@/actions/cards", () => ({
@@ -85,6 +85,38 @@ const columns = [{ id: "col1", name: "To Do" }];
 describe("CardDetailModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("shows the server error and keeps the form open when adding a link is rejected", async () => {
+    vi.mocked(addCardLink).mockResolvedValueOnce({
+      success: false,
+      error: "Link URL must be a valid http, https or mailto URL",
+    } as never);
+    renderWithProviders(<CardDetailModal card={buildCard()} columns={columns} onClose={vi.fn()} onRefresh={vi.fn()} />);
+
+    fireEvent.click(screen.getByText("Add Link"));
+    const urlInput = screen.getByPlaceholderText("https://...") as HTMLInputElement;
+    fireEvent.change(urlInput, { target: { value: "javascript:alert(1)" } });
+    fireEvent.submit(urlInput.closest("form")!);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Link URL must be a valid http, https or mailto URL");
+    expect(screen.getByPlaceholderText("https://...")).toBeInTheDocument();
+
+    fireEvent.change(urlInput, { target: { value: "https://example.com" } });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("renders a stored javascript: link without an href", () => {
+    const card = buildCard({
+      links: [
+        { id: "l1", url: "javascript:alert(1)", title: "Bad link" },
+        { id: "l2", url: "https://example.com", title: "Good link" },
+      ],
+    });
+    renderWithProviders(<CardDetailModal card={card} columns={columns} onClose={vi.fn()} onRefresh={vi.fn()} />);
+
+    expect(screen.getByText("Bad link").closest("a")).not.toHaveAttribute("href");
+    expect(screen.getByText("Good link").closest("a")).toHaveAttribute("href", "https://example.com");
   });
 
   it("keeps in-progress title edits across a background project refresh", async () => {
