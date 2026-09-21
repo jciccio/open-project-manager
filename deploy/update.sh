@@ -2,10 +2,15 @@
 set -euo pipefail
 
 # Open Project Manager Updater for Raspberry Pi / Linux
-# Location: /opt/open-project-manager/update.sh
-
-INSTALL_DIR="/opt/open-project-manager"
-SERVICE_NAME="open-project-manager"
+# Auto-resolve repository installation directory
+SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ "$(basename "${SCRIPT_PATH}")" = "deploy" ]; then
+    DEFAULT_INSTALL_DIR="$(cd "${SCRIPT_PATH}/.." && pwd)"
+else
+    DEFAULT_INSTALL_DIR="${SCRIPT_PATH}"
+fi
+INSTALL_DIR="${OPM_INSTALL_DIR:-${DEFAULT_INSTALL_DIR}}"
+SERVICE_NAME="${OPM_SERVICE_NAME:-open-project-manager}"
 BACKUP_DIR="${INSTALL_DIR}/backups"
 
 GREEN='\033[0;32m'
@@ -18,6 +23,34 @@ info() { echo -e "${BLUE}[INFO]${NC} $*"; }
 success() { echo -e "${GREEN}[SUCCESS]${NC} $*"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 error() { echo -e "${RED}[ERROR]${NC} $*"; }
+
+detect_service_user() {
+    local detected_user=""
+    local detected_group=""
+    
+    if command -v systemctl &>/dev/null; then
+        detected_user=$(systemctl show -p User --value "${SERVICE_NAME}" 2>/dev/null || true)
+        detected_group=$(systemctl show -p Group --value "${SERVICE_NAME}" 2>/dev/null || true)
+    fi
+
+    if [ -z "${detected_user}" ] && [ -f "/etc/systemd/system/${SERVICE_NAME}.service" ]; then
+        detected_user=$(grep -E "^User=" "/etc/systemd/system/${SERVICE_NAME}.service" 2>/dev/null | cut -d= -f2 | tr -d ' ' || true)
+        detected_group=$(grep -E "^Group=" "/etc/systemd/system/${SERVICE_NAME}.service" 2>/dev/null | cut -d= -f2 | tr -d ' ' || true)
+    fi
+
+    if [ -z "${detected_user}" ]; then
+        if id "opm" &>/dev/null; then
+            detected_user="opm"
+            detected_group="opm"
+        else
+            detected_user="$(id -un)"
+            detected_group="$(id -gn)"
+        fi
+    fi
+
+    [ -z "${detected_group}" ] && detected_group="${detected_user}"
+    echo "${detected_user}:${detected_group}"
+}
 
 cd "${INSTALL_DIR}"
 
@@ -152,7 +185,7 @@ git fetch --tags origin
 
 info "Preparing clean working tree for checkout..."
 git reset --hard HEAD --quiet
-git clean -fd -e ".env*" -e "dev.db*" -e "backups*" -e "update.sh" -e "docs*" --quiet
+git clean -fd -e ".env*" -e "dev.db*" -e "backups*" -e "data*" -e "uploads*" -e "update.sh" -e "docs*" --quiet
 
 if git show-ref --verify --quiet "refs/tags/${TARGET_REF}"; then
     info "Checking out tag: ${TARGET_REF}..."
@@ -186,52 +219,76 @@ fi
 if [ -f "src/app/api/v1/auth/oidc/login/route.ts" ] && grep -q 'secure: process.env.NODE_ENV === "production"' src/app/api/v1/auth/oidc/login/route.ts 2>/dev/null; then
     sed -i 's/secure: process.env.NODE_ENV === "production"/secure: process.env.COOKIE_SECURE === "false" ? false : process.env.NODE_ENV === "production"/' src/app/api/v1/auth/oidc/login/route.ts
 fi
-if grep -q "next/font/google" src/app/layout.tsx 2>/dev/null; then
-    info "Patching layout.tsx for offline self-hosted fonts..."
-    sed -i '/import { Geist/d' src/app/layout.tsx
-    sed -i '/const geistSans/,/});/d' src/app/layout.tsx
-    sed -i '/const geistMono/,/});/d' src/app/layout.tsx
-    sed -i 's/\${geistSans.variable} \${geistMono.variable} //g' src/app/layout.tsx
-fi
 
-# 5. Dependencies
+# 6. Dependencies
 info "Installing dependencies with frozen lockfile..."
 yarn install --frozen-lockfile --network-timeout 300000
 
-# 6. Database schema & Prisma Client
+# 7. Database schema & Prisma Client
 info "Generating Prisma Client..."
 npx prisma generate
 
 info "Deploying database migrations..."
 npx prisma migrate deploy
 
-# 7. Next.js Standalone Build
+# 8. Next.js Standalone Build
 info "Compiling Next.js standalone application (memory limited to 2048MB)..."
 NODE_OPTIONS="--max-old-space-size=2048" yarn build
 
-info "Synchronizing standalone static assets..."
+info "Synchronizing standalone static assets and data storage..."
 cp -r public .next/standalone/
 cp -r .next/static .next/standalone/.next/
 cp .env .next/standalone/.env
 ln -sf "${INSTALL_DIR}/dev.db" .next/standalone/dev.db
+mkdir -p "${INSTALL_DIR}/data/attachments"
+ln -sfn "${INSTALL_DIR}/data" .next/standalone/data
 
-# 8. Service Restart & Health Verification
+# 9. Synchronize permissions for systemd runtime user
+TARGET_OWNER=$(detect_service_user)
+info "Synchronizing file ownership to service user (${TARGET_OWNER})..."
+if [ "$(id -u)" -eq 0 ]; then
+    chown -R "${TARGET_OWNER}" "${INSTALL_DIR}/.next" "${INSTALL_DIR}/data" "${INSTALL_DIR}/dev.db"* "${INSTALL_DIR}/.env"* 2>/dev/null || true
+elif command -v sudo &>/dev/null; then
+    sudo chown -R "${TARGET_OWNER}" "${INSTALL_DIR}/.next" "${INSTALL_DIR}/data" "${INSTALL_DIR}/dev.db"* "${INSTALL_DIR}/.env"* 2>/dev/null || true
+fi
+chmod -R u+rwX "${INSTALL_DIR}/.next" "${INSTALL_DIR}/data" "${INSTALL_DIR}/dev.db"* 2>/dev/null || true
+
+# 10. Service Restart & Health Verification
+APP_PORT="${PORT:-3000}"
 info "Restarting ${SERVICE_NAME}..."
-sudo systemctl restart "${SERVICE_NAME}"
+if command -v systemctl &>/dev/null; then
+    sudo systemctl restart "${SERVICE_NAME}" || true
 
-info "Verifying service health..."
-sleep 2
+    info "Verifying service health (polling up to 30s for cold start)..."
+    HEALTHY=false
+    MAX_ATTEMPTS=30
+    for ((i=1; i<=MAX_ATTEMPTS; i++)); do
+        if sudo systemctl is-active --quiet "${SERVICE_NAME}" 2>/dev/null; then
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${APP_PORT}/login" || echo "000")
+            if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "307" ]; then
+                HEALTHY=true
+                success "Service is healthy and responding (HTTP ${HTTP_CODE}) after ${i}s."
+                break
+            fi
+        else
+            error "Service ${SERVICE_NAME} stopped unexpectedly during startup!"
+            break
+        fi
+        sleep 1
+    done
 
-if sudo systemctl is-active --quiet "${SERVICE_NAME}"; then
-    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/login || echo "000")
-    if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "307" ]; then
-        success "Service is healthy and responding (HTTP ${HTTP_CODE})."
-    else
-        warn "Service is running, but HTTP response code was: ${HTTP_CODE}"
+    if [ "$HEALTHY" = false ]; then
+        error "Service failed health verification within ${MAX_ATTEMPTS} seconds!"
+        echo ""
+        warn "=== Recent service logs (journalctl) ==="
+        if command -v journalctl &>/dev/null; then
+            sudo journalctl -u "${SERVICE_NAME}" -n 25 --no-pager || true
+        fi
+        echo ""
+        exit 1
     fi
 else
-    error "Service failed to start! Check: journalctl -u ${SERVICE_NAME} -n 20"
-    exit 1
+    info "Systemd not detected in environment, skipping service restart."
 fi
 
 NEW_VERSION=$(git describe --tags --always 2>/dev/null || git rev-parse --short HEAD)

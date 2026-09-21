@@ -427,18 +427,31 @@ pg_dump -U postgres -h localhost -d opm -F c -b -v -f "opm-postgres-$(date +%Y%m
 
 #### Method A: Automated Update Script (Recommended)
 
-Open Project Manager includes a dedicated update utility at `deploy/update.sh` that automatically takes an atomic SQLite backup, checks out the tag/branch, deploys Prisma migrations, compiles the standalone build within memory limits, syncs assets, and restarts the service:
+Open Project Manager includes a dedicated update utility executable directly from the repository root at `./update.sh` (or `deploy/update.sh`). It automatically:
+- Creates an atomic SQLite hot backup.
+- Checks out the specified tag or branch while preserving `.env`, database, and user attachments under `data/attachments`.
+- Deploys Prisma migrations and generates the Prisma client.
+- Compiles the standalone build using webpack within Raspberry Pi memory limits.
+- Synchronizes static assets, environment configuration, and `data/` storage into `.next/standalone`.
+- Synchronizes file ownership (`chown -R`) to the systemd service user (`opm`) so database and build permissions remain intact.
+- Restarts the service and verifies health via a 30-second polling retry window.
 
 ```bash
 cd /opt/open-project-manager
 
 # 1. View available remote tags and current deployed version
-./deploy/update.sh --list
+./update.sh --list
 
-# 2. Run update to a specific tag (e.g. 0.2.0) or main
-./deploy/update.sh 0.2.0
-# Or: ./deploy/update.sh main
+# 2. Run update to a specific tag (e.g. v0.4.0) or main
+./update.sh v0.4.0
+# Or: ./update.sh main
 ```
+
+> **Note on Permissions**: If you run updates under `root` or `sudo`, the updater automatically re-assigns ownership to the service user (`opm`). If you ever need to manually fix permissions:
+> ```bash
+> sudo chown -R opm:opm /opt/open-project-manager
+> sudo systemctl restart open-project-manager
+> ```
 
 #### Method B: Manual Step-by-Step Update
 
