@@ -3,6 +3,7 @@ import { safeRevalidatePath } from "@/lib/revalidate";
 import { recordActivity } from "@/actions/activity";
 import { nextCardNumber, withCardNumberRetry } from "@/lib/cardNumbering";
 import { verifyProjectAccess } from "@/lib/permissions";
+import { SafeUrlSchema } from "@/lib/validation/safeUrl";
 
 export async function createCard(
   data: {
@@ -513,6 +514,12 @@ export async function getCardByIdentifier(identifier: string, userId: string) {
 
 export async function addCardLink(cardId: string, url: string, title: string | undefined, userId: string) {
   try {
+    const parsedUrl = SafeUrlSchema.safeParse(url);
+    if (!parsedUrl.success) {
+      return { success: false, error: "Link URL must be a valid http, https or mailto URL" };
+    }
+    url = parsedUrl.data;
+
     const card = await db.card.findUnique({
       where: { id: cardId },
       include: { project: true },
