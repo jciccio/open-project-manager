@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { useTranslation } from "./LanguageProvider";
 import EditProjectModal from "./EditProjectModal";
 import ErrorBanner from "./ErrorBanner";
+import type { ProjectStats } from "@/lib/services/projectStats";
 
 interface Props {
   project: {
@@ -25,11 +26,12 @@ interface Props {
       columns: number;
     };
   };
+  stats?: ProjectStats;
   currentUserId?: string;
   onDeleteSuccess?: () => void;
 }
 
-export default function ProjectCard({ project, currentUserId, onDeleteSuccess }: Props) {
+export default function ProjectCard({ project, stats, currentUserId, onDeleteSuccess }: Props) {
   const [loading, setLoading] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [error, setError] = useState("");
@@ -195,6 +197,40 @@ export default function ProjectCard({ project, currentUserId, onDeleteSuccess }:
           {project.description || "No description provided."}
         </p>
 
+        {stats && (
+          <div className="mt-4" data-testid="project-stats">
+            {stats.total === 0 ? (
+              <p className="text-xs text-slate-500 dark:text-slate-400">{t("projectCard.noCardsYet")}</p>
+            ) : (
+              <>
+                <div className="flex items-center justify-between gap-2 text-xs mb-1.5">
+                  <span className="font-semibold text-slate-700 dark:text-slate-200">
+                    {t("projectCard.percentComplete", { percent: stats.percentComplete ?? 0 })}
+                  </span>
+                  <span className="text-slate-600 dark:text-slate-400">
+                    {t("projectCard.openCount", { count: stats.open })} · {t("projectCard.doneCount", { count: stats.done })}
+                  </span>
+                </div>
+                <div
+                  role="progressbar"
+                  aria-label={t("projectCard.percentComplete", { percent: stats.percentComplete ?? 0 })}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={stats.percentComplete ?? 0}
+                  className="h-1.5 w-full rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden"
+                >
+                  <div className="h-full rounded-full bg-emerald-500" style={{ width: `${stats.percentComplete ?? 0}%` }} />
+                </div>
+                {stats.overdue > 0 && (
+                  <span className="mt-2 inline-flex rounded-md bg-red-500/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-red-700 dark:text-red-400 border border-red-500/20">
+                    {t("projectCard.overdueCount", { count: stats.overdue })}
+                  </span>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
         {error && <div className="mt-3"><ErrorBanner message={error} /></div>}
       </div>
 
@@ -206,7 +242,7 @@ export default function ProjectCard({ project, currentUserId, onDeleteSuccess }:
           </div>
           <div className="flex items-center gap-1.5">
             <CreditCard className="h-3.5 w-3.5 text-purple-500 dark:text-purple-400" />
-            <span>{project._count?.cards || 0} {t("projectCard.cards")}</span>
+            <span>{stats ? stats.total : project._count?.cards || 0} {t("projectCard.cards")}</span>
           </div>
         </div>
 
