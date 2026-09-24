@@ -10,6 +10,7 @@ export default defineConfig({
       JWT_SECRET: 'test-jwt-secret-do-not-use-in-production',
     },
     setupFiles: ['./vitest.setup.ts'],
+    exclude: ['**/node_modules/**', '**/.kilo/**', '**/.next/**', '**/dist/**'],
     alias: {
       '@': path.resolve(import.meta.dirname || '.', './src'),
     },

@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X, User, Mail, Lock, CheckCircle2, Key, Copy, Eye, EyeOff, Check, Trash2 } from "lucide-react";
+import { X, User, Mail, Lock, CheckCircle2, Key, Copy, Eye, EyeOff, Check, Trash2, Activity } from "lucide-react";
 import { updateUserProfile, listApiTokens, createApiToken, revokeApiToken } from "@/actions/auth";
+import { getTelemetryStatus, updateTelemetryPreference } from "@/actions/telemetry";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "./LanguageProvider";
 import ErrorBanner from "./ErrorBanner";
@@ -44,6 +45,15 @@ export default function UserProfileModal({ user, onClose }: Props) {
   const [tokenError, setTokenError] = useState("");
   const [revokingId, setRevokingId] = useState<string | null>(null);
 
+  const [telemetryInfo, setTelemetryInfo] = useState<{
+    enabled: boolean;
+    disabledReason: string | null;
+    instanceId: string;
+    endpoint: string;
+  } | null>(null);
+  const [telemetryUpdating, setTelemetryUpdating] = useState(false);
+  const [copiedInstanceId, setCopiedInstanceId] = useState(false);
+
   const { t } = useTranslation();
   const router = useRouter();
 
@@ -53,6 +63,14 @@ export default function UserProfileModal({ user, onClose }: Props) {
         if (res.success && res.tokens) setTokens(res.tokens);
       })
       .catch(() => setTokenError("Failed to load API tokens."));
+
+    getTelemetryStatus()
+      .then((res) => {
+        if (res.success && res.data) {
+          setTelemetryInfo(res.data);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   async function handleGenerateToken() {
@@ -117,6 +135,29 @@ export default function UserProfileModal({ user, onClose }: Props) {
       setCopiedHeader(true);
       setTimeout(() => setCopiedHeader(false), 2000);
     });
+  }
+
+  async function handleToggleTelemetry() {
+    if (!telemetryInfo || telemetryUpdating) return;
+    setTelemetryUpdating(true);
+    try {
+      const res = await updateTelemetryPreference(!telemetryInfo.enabled);
+      if (res.success && res.data) {
+        setTelemetryInfo(res.data);
+      }
+    } finally {
+      setTelemetryUpdating(false);
+    }
+  }
+
+  function handleCopyInstanceId() {
+    if (!telemetryInfo?.instanceId) return;
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(telemetryInfo.instanceId).then(() => {
+        setCopiedInstanceId(true);
+        setTimeout(() => setCopiedInstanceId(false), 2000);
+      });
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -374,6 +415,84 @@ export default function UserProfileModal({ user, onClose }: Props) {
                 </ul>
               )}
             </div>
+          </div>
+
+          {/* Telemetry & Diagnostics Section */}
+          <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Activity className="h-4 w-4 text-indigo-500" />
+                <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+                  {t("profileModal.telemetryTitle")}
+                </h3>
+              </div>
+              {telemetryInfo && (
+                <span
+                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wide uppercase ${
+                    telemetryInfo.enabled
+                      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                      : "bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20"
+                  }`}
+                >
+                  {telemetryInfo.enabled
+                    ? t("profileModal.telemetryEnabledBadge")
+                    : t("profileModal.telemetryDisabledBadge")}
+                </span>
+              )}
+            </div>
+
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              {t("profileModal.telemetrySub")}
+            </p>
+
+            {telemetryInfo && (
+              <div className="space-y-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                    {t("profileModal.telemetryStatusLabel")}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleToggleTelemetry}
+                    disabled={telemetryUpdating || Boolean(telemetryInfo.disabledReason && telemetryInfo.disabledReason.includes("environment variable"))}
+                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none disabled:opacity-50 ${
+                      telemetryInfo.enabled ? "bg-indigo-600" : "bg-slate-300 dark:bg-slate-700"
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                        telemetryInfo.enabled ? "translate-x-4" : "translate-x-0"
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {telemetryInfo.disabledReason && (
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                    {telemetryInfo.disabledReason}
+                  </p>
+                )}
+
+                <div className="flex items-center justify-between pt-1 border-t border-slate-200/60 dark:border-slate-700/60 text-[11px]">
+                  <span className="text-slate-500 dark:text-slate-400">
+                    {t("profileModal.telemetryInstanceIdLabel")}:
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleCopyInstanceId}
+                    title="Click to copy instance UUID"
+                    className="flex items-center gap-1 font-mono text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                  >
+                    <span>{telemetryInfo.instanceId.slice(0, 8)}...</span>
+                    {copiedInstanceId ? (
+                      <Check className="h-3 w-3 text-emerald-500" />
+                    ) : (
+                      <Copy className="h-3 w-3" />
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-200 dark:border-slate-800">

@@ -34,6 +34,13 @@ export const en = {
     createdLabel: "Created",
     lastUsedLabel: "Last used",
     neverUsed: "Never used",
+    telemetryTitle: "Anonymous Telemetry & Diagnostics",
+    telemetrySub: "Shares anonymous deployment diagnostics (version, DB type, aggregate counts) to help improve Open Project Manager. Zero personal or task data is ever collected.",
+    telemetryStatusLabel: "Send Anonymous Heartbeat",
+    telemetryEnabledBadge: "Enabled",
+    telemetryDisabledBadge: "Disabled",
+    telemetryInstanceIdLabel: "Instance Identifier",
+    telemetryEnvNotice: "Telemetry is enforced via environment variable ({reason}).",
   },
   dashboard: {
     tagline: "Private Workspace",

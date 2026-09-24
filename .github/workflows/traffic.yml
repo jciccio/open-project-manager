@@ -1,0 +1,28 @@
+name: Archive GitHub Traffic Metrics
+
+on:
+  schedule:
+    # Run once daily at 00:00 UTC
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+jobs:
+  archive-traffic:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Archive Traffic Stats
+        uses: snok/repo-traffic-action@v0.8.2
+        with:
+          # Personal Access Token or default GITHUB_TOKEN
+          # Note: Repository Traffic API requires push/admin access.
+          # If GITHUB_TOKEN does not have traffic read rights on private repos,
+          # a Personal Access Token with repo scope can be set as TRAFFIC_ACTION_TOKEN secret.
+          repo: ${{ github.repository }}
+          traffic_branch: traffic
+        env:
+          TRAFFIC_ACTION_TOKEN: ${{ secrets.TRAFFIC_ACTION_TOKEN || secrets.GITHUB_TOKEN }}

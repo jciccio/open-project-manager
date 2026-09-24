@@ -36,6 +36,13 @@ export const es: TranslationKeys = {
     createdLabel: "Creado",
     lastUsedLabel: "Último uso",
     neverUsed: "Nunca usado",
+    telemetryTitle: "Telemetría Anónima y Diagnóstico",
+    telemetrySub: "Comparte diagnósticos anónimos de despliegue (versión, motor de BD, recuentos agregados) para ayudar a mejorar Open Project Manager. Jamás se recopilan datos personales o de tareas.",
+    telemetryStatusLabel: "Enviar Latido Anónimo",
+    telemetryEnabledBadge: "Activado",
+    telemetryDisabledBadge: "Desactivado",
+    telemetryInstanceIdLabel: "Identificador de Instancia",
+    telemetryEnvNotice: "La telemetría está configurada por variable de entorno ({reason}).",
   },
   dashboard: {
     tagline: "Espacio Privado",
