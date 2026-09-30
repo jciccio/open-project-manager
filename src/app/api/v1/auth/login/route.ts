@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import bcrypt from "bcryptjs";
+import { passwordMatches } from "@/lib/passwords";
 import { SignJWT } from "jose";
 import { JWT_SECRET } from "@/lib/env";
 import { getClientIp } from "@/lib/clientIp";
@@ -39,16 +39,8 @@ export async function POST(request: NextRequest) {
       where: { email: email.toLowerCase().trim() },
     });
 
-    if (!user || !user.passwordHash) {
-      recordLoginFailure(email, ip);
-      return NextResponse.json(
-        { error: "Invalid email or password" },
-        { status: 401 }
-      );
-    }
-
-    const isValid = await bcrypt.compare(password, user.passwordHash);
-    if (!isValid) {
+    const isValid = await passwordMatches(password, user?.passwordHash);
+    if (!user || !isValid) {
       recordLoginFailure(email, ip);
       return NextResponse.json(
         { error: "Invalid email or password" },
