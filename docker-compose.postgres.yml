@@ -57,6 +57,7 @@ services:
       - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
       - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
       - OIDC_REDIRECT_URI=${OIDC_REDIRECT_URI:-}
+      - OPM_ALLOW_REGISTRATION=${OPM_ALLOW_REGISTRATION:-}
     volumes:
       - opm_attachments:/app/data
     restart: unless-stopped

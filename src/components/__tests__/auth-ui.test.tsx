@@ -1,7 +1,7 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import Header from "../Header";
-import LoginPage from "@/app/login/page";
+import { LoginForm } from "@/app/login/LoginForm";
 import { LanguageProvider } from "../LanguageProvider";
 import { ThemeProvider } from "../ThemeProvider";
 
@@ -86,13 +86,22 @@ describe("Authentication & Header UI Components", () => {
     expect(screen.getByText("es")).toBeInTheDocument();
   });
 
-  it("renders LoginPage with email, password inputs, and submit button", () => {
-    renderWithProviders(<LoginPage />);
+  it("renders the login form with email, password inputs, and submit button", () => {
+    renderWithProviders(<LoginForm oidcEnabled={false} registrationOpen={true} />);
 
     expect(screen.getByPlaceholderText("admin@example.com")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("••••••••")).toBeInTheDocument();
     const submitButtons = screen.getAllByRole("button");
     expect(submitButtons.length).toBeGreaterThan(0);
+  });
+
+  it("links to /register only while registration is open", () => {
+    const { unmount } = renderWithProviders(<LoginForm oidcEnabled={false} registrationOpen={true} />);
+    expect(document.querySelector('a[href="/register"]')).not.toBeNull();
+    unmount();
+
+    renderWithProviders(<LoginForm oidcEnabled={false} registrationOpen={false} />);
+    expect(document.querySelector('a[href="/register"]')).toBeNull();
   });
 });
 

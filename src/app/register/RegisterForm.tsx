@@ -1,39 +1,32 @@
 "use client";
 
 import { useState } from "react";
-import { LogIn, Key, Mail, ShieldCheck } from "lucide-react";
+import { UserPlus, Key, Mail, User } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
-import { loginUser } from "@/actions/auth";
-import { useRouter, useSearchParams } from "next/navigation";
+import { registerUser } from "@/actions/auth";
+import { useRouter } from "next/navigation";
 import { useTranslation } from "@/components/LanguageProvider";
-import type { TranslationKeys } from "@/locales/en";
 
-const LOGIN_ERROR_KEYS: Record<string, keyof TranslationKeys["auth"]> = {
-  registration_closed: "registrationClosed",
-  oidc_session_expired: "oidcErrorSessionExpired",
-  oidc_missing_email: "oidcErrorMissingEmail",
-  oidc_email_not_verified: "oidcErrorEmailNotVerified",
-  oidc_failed: "oidcErrorFailed",
-};
-
-export function LoginForm({ oidcEnabled, registrationOpen }: { oidcEnabled: boolean; registrationOpen: boolean }) {
+export function RegisterForm() {
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const { t } = useTranslation();
   const router = useRouter();
-  const searchParams = useSearchParams();
-
-  const errorCode = searchParams.get("error");
-  const errorKey = errorCode ? LOGIN_ERROR_KEYS[errorCode] : undefined;
-  const displayedError = error || (errorKey ? t(`auth.${errorKey}`) : "");
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!email || !password) {
+    if (!name || !email || !password || !confirmPassword) {
       setError(t("auth.fillAllFields"));
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setError(t("auth.passwordsDoNotMatch"));
       return;
     }
 
@@ -41,16 +34,16 @@ export function LoginForm({ oidcEnabled, registrationOpen }: { oidcEnabled: bool
     setError("");
 
     try {
-      const res = await loginUser({ email, password });
+      const res = await registerUser({ name, email, password });
       if (res.success) {
         window.location.href = "/";
       } else {
         setLoading(false);
-        setError(res.error || "Invalid credentials");
+        setError(res.error || "Registration failed");
       }
     } catch (err: any) {
       setLoading(false);
-      setError(err?.message || "An unexpected login error occurred. Please try again.");
+      setError(err?.message || "An unexpected registration error occurred. Please try again.");
     }
   }
 
@@ -69,18 +62,35 @@ export function LoginForm({ oidcEnabled, registrationOpen }: { oidcEnabled: bool
               {t("header.title")}
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              {t("auth.signIn")}
+              {t("auth.createAccount")}
             </p>
           </div>
         </div>
 
-        {displayedError && (
+        {error && (
           <div className="rounded-xl bg-red-500/10 border border-red-500/20 p-3.5 text-xs font-semibold text-red-600 dark:text-red-400 text-center">
-            {displayedError}
+            {error}
           </div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+              {t("auth.fullNameLabel")}
+            </label>
+            <div className="relative">
+              <User className="absolute left-3.5 top-3 h-4 w-4 text-slate-400" />
+              <input
+                type="text"
+                required
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Alex Developer"
+                className="w-full rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 pl-10 pr-4 py-2.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-indigo-500 focus:outline-none"
+              />
+            </div>
+          </div>
+
           <div>
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
               {t("auth.emailLabel")}
@@ -92,7 +102,7 @@ export function LoginForm({ oidcEnabled, registrationOpen }: { oidcEnabled: bool
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@example.com"
+                placeholder="alex@example.com"
                 className="w-full rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 pl-10 pr-4 py-2.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-indigo-500 focus:outline-none"
               />
             </div>
@@ -115,48 +125,45 @@ export function LoginForm({ oidcEnabled, registrationOpen }: { oidcEnabled: bool
             </div>
           </div>
 
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+              {t("auth.confirmPasswordLabel")}
+            </label>
+            <div className="relative">
+              <Key className="absolute left-3.5 top-3 h-4 w-4 text-slate-400" />
+              <input
+                type="password"
+                required
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 pl-10 pr-4 py-2.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-indigo-500 focus:outline-none"
+              />
+            </div>
+          </div>
+
           <button
             type="submit"
             disabled={loading}
             className="w-full flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-indigo-500 shadow-md shadow-indigo-600/20 disabled:opacity-50 transition-all mt-2"
           >
-            <LogIn className="h-4 w-4" />
-            <span>{loading ? t("auth.signingIn") : t("auth.signIn")}</span>
+            <UserPlus className="h-4 w-4" />
+            <span>{loading ? t("auth.registering") : t("auth.createAccount")}</span>
           </button>
         </form>
 
-        {oidcEnabled && (
-          <>
-            <div className="flex items-center gap-3">
-              <div className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
-              <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500">
-                {t("auth.orContinueWith")}
-              </span>
-              <div className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
-            </div>
-            <a
-              href="/api/v1/auth/oidc/login"
-              className="w-full flex items-center justify-center gap-2 rounded-xl border border-slate-300 dark:border-slate-700 px-4 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all"
+        {/* Login Link */}
+        <div className="text-center pt-2 border-t border-slate-200 dark:border-slate-800">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            {t("auth.alreadyHaveAccount")}{" "}
+            <Link
+              href="/login"
+              className="font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
             >
-              <ShieldCheck className="h-4 w-4" />
-              <span>{t("auth.signInWithSso")}</span>
-            </a>
-          </>
-        )}
-
-        {registrationOpen && (
-          <div className="text-center pt-2 border-t border-slate-200 dark:border-slate-800">
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              {t("auth.noAccount")}{" "}
-              <Link
-                href="/register"
-                className="font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
-              >
-                {t("auth.createOneNow")}
-              </Link>
-            </p>
-          </div>
-        )}
+              {t("auth.signIn")}
+            </Link>
+          </p>
+        </div>
       </div>
     </div>
   );

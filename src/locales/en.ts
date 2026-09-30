@@ -284,6 +284,7 @@ export const en = {
     alreadyHaveAccount: "Already have an account?",
     passwordsDoNotMatch: "Passwords do not match.",
     fillAllFields: "Please fill in all fields.",
+    registrationClosed: "Registration is closed. Ask an administrator for an account.",
     orContinueWith: "Or continue with",
     signInWithSso: "Sign in with SSO",
     oidcErrorSessionExpired: "Your sign-in session expired. Please try again.",

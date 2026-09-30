@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { isOidcConfigured } from "@/lib/oidc";
+import { isRegistrationOpen } from "@/lib/registration";
 import { LoginForm } from "./LoginForm";
 
 // isOidcConfigured() reads process.env, which by itself doesn't opt this
@@ -7,10 +8,11 @@ import { LoginForm } from "./LoginForm";
 // at container runtime (not build time) would never be reflected here.
 export const dynamic = "force-dynamic";
 
-export default function LoginPage() {
+export default async function LoginPage() {
+  const registrationOpen = await isRegistrationOpen();
   return (
     <Suspense>
-      <LoginForm oidcEnabled={isOidcConfigured()} />
+      <LoginForm oidcEnabled={isOidcConfigured()} registrationOpen={registrationOpen} />
     </Suspense>
   );
 }
