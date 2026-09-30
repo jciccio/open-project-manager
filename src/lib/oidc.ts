@@ -59,17 +59,40 @@ export interface OidcClaims {
   name?: string;
 }
 
-export type ResolveOidcUserResult =
-  | { ok: true; user: User }
-  | { ok: false; error: "missing_email" | "email_not_verified" };
+export type ResolveOidcUserError =
+  | "missing_email"
+  | "email_not_verified"
+  | "link_required"
+  | "linked_elsewhere"
+  | "subject_in_use";
+
+export type ResolveOidcUserResult = { ok: true; user: User } | { ok: false; error: ResolveOidcUserError };
 
 // Lookup is oidcSubject-first because `sub` is stable for the life of the
-// IdP account, while email can change. Falling back to email only applies
-// on a subject the app hasn't seen before, and only when the IdP asserts
-// the email is verified — otherwise anyone who can register at the IdP
-// with an unverified address could claim an existing local account.
-export async function resolveOidcUser(claims: OidcClaims): Promise<ResolveOidcUserResult> {
+// IdP account, while email can change. An unseen subject is never attached
+// to an account that has a local password: whoever registered that email
+// first could otherwise own the account the SSO user lands in. Those
+// accounts link from the profile instead (linkUserId), which proves the
+// person controls the local account too.
+export async function resolveOidcUser(
+  claims: OidcClaims,
+  options: { linkUserId?: string } = {}
+): Promise<ResolveOidcUserResult> {
   const existingBySubject = await db.user.findUnique({ where: { oidcSubject: claims.sub } });
+
+  if (options.linkUserId) {
+    if (existingBySubject) {
+      return existingBySubject.id === options.linkUserId
+        ? { ok: true, user: existingBySubject }
+        : { ok: false, error: "subject_in_use" };
+    }
+    const target = await db.user.findUnique({ where: { id: options.linkUserId } });
+    if (!target) return { ok: false, error: "link_required" };
+    if (target.oidcSubject) return { ok: false, error: "linked_elsewhere" };
+    const linked = await db.user.update({ where: { id: target.id }, data: { oidcSubject: claims.sub } });
+    return { ok: true, user: linked };
+  }
+
   if (existingBySubject) {
     return { ok: true, user: existingBySubject };
   }
@@ -78,11 +101,17 @@ export async function resolveOidcUser(claims: OidcClaims): Promise<ResolveOidcUs
   if (!email) {
     return { ok: false, error: "missing_email" };
   }
+  if (!claims.emailVerified) {
+    return { ok: false, error: "email_not_verified" };
+  }
 
   const existingByEmail = await db.user.findUnique({ where: { email } });
   if (existingByEmail) {
-    if (!claims.emailVerified) {
-      return { ok: false, error: "email_not_verified" };
+    if (existingByEmail.passwordHash) {
+      return { ok: false, error: "link_required" };
+    }
+    if (existingByEmail.oidcSubject) {
+      return { ok: false, error: "linked_elsewhere" };
     }
     const linked = await db.user.update({
       where: { id: existingByEmail.id },

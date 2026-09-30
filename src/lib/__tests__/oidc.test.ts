@@ -70,7 +70,7 @@ describe("resolveOidcUser()", () => {
     if (second.ok) expect(second.user.id).toBe(createdUserId);
   });
 
-  it("links to an existing password account by verified email", async () => {
+  it("never auto-links a new subject to an account that has a local password", async () => {
     const email = `oidc-link-${Date.now()}@example.com`;
     const existing = await db.user.create({
       data: { email, name: "Existing Password User", passwordHash: "irrelevant-hash" },
@@ -84,12 +84,98 @@ describe("resolveOidcUser()", () => {
       name: "Existing Password User",
     });
 
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toBe("link_required");
+    const unchanged = await db.user.findUnique({ where: { id: existing.id } });
+    expect(unchanged?.oidcSubject).toBeNull();
+  });
+
+  it("links a verified email to a passwordless account that was never linked", async () => {
+    const email = `oidc-passwordless-${Date.now()}@example.com`;
+    const existing = await db.user.create({ data: { email, name: "Passwordless" } });
+    createdUserId = existing.id;
+    const sub = `sub-${Date.now()}`;
+
+    const result = await resolveOidcUser({ sub, email, emailVerified: true });
+
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.user.id).toBe(existing.id);
-      expect(result.user.oidcSubject).not.toBeNull();
-      expect(result.user.passwordHash).toBe("irrelevant-hash");
+      expect(result.user.oidcSubject).toBe(sub);
     }
+  });
+
+  it("does not re-point an account already linked to a different subject", async () => {
+    const email = `oidc-relink-${Date.now()}@example.com`;
+    const existing = await db.user.create({ data: { email, name: "Linked", oidcSubject: `original-${Date.now()}` } });
+    createdUserId = existing.id;
+
+    const result = await resolveOidcUser({ sub: `other-${Date.now()}`, email, emailVerified: true });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toBe("linked_elsewhere");
+    const unchanged = await db.user.findUnique({ where: { id: existing.id } });
+    expect(unchanged?.oidcSubject).toBe(existing.oidcSubject);
+  });
+
+  it("does not provision a new account for an unverified email", async () => {
+    const email = `oidc-unverified-new-${Date.now()}@example.com`;
+
+    const result = await resolveOidcUser({ sub: `sub-${Date.now()}`, email, emailVerified: false });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toBe("email_not_verified");
+    expect(await db.user.findUnique({ where: { email } })).toBeNull();
+  });
+
+  describe("link mode (a signed-in user connecting SSO from their profile)", () => {
+    const extraUserIds: string[] = [];
+
+    afterEach(async () => {
+      for (const id of extraUserIds.splice(0)) await cleanupTestUser(id);
+    });
+
+    it("links the subject to the signed-in account, even one with a password", async () => {
+      const existing = await db.user.create({
+        data: { email: `oidc-linkmode-${Date.now()}@example.com`, name: "Owner", passwordHash: "irrelevant-hash" },
+      });
+      createdUserId = existing.id;
+      const sub = `sub-${Date.now()}`;
+
+      const result = await resolveOidcUser(
+        { sub, email: "someone-else@example.com", emailVerified: false },
+        { linkUserId: existing.id }
+      );
+
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.user.oidcSubject).toBe(sub);
+      const again = await resolveOidcUser({ sub, emailVerified: false }, { linkUserId: existing.id });
+      expect(again.ok).toBe(true);
+    });
+
+    it("refuses a subject that already belongs to another user", async () => {
+      const sub = `sub-taken-${Date.now()}`;
+      const owner = await db.user.create({ data: { email: `oidc-owner-${Date.now()}@example.com`, name: "Owner", oidcSubject: sub } });
+      const other = await db.user.create({ data: { email: `oidc-other-${Date.now()}@example.com`, name: "Other" } });
+      extraUserIds.push(owner.id, other.id);
+
+      const result = await resolveOidcUser({ sub, emailVerified: true }, { linkUserId: other.id });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toBe("subject_in_use");
+    });
+
+    it("refuses when the signed-in account is already linked to another subject", async () => {
+      const linked = await db.user.create({
+        data: { email: `oidc-already-${Date.now()}@example.com`, name: "Linked", oidcSubject: `first-${Date.now()}` },
+      });
+      extraUserIds.push(linked.id);
+
+      const result = await resolveOidcUser({ sub: `second-${Date.now()}`, emailVerified: true }, { linkUserId: linked.id });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toBe("linked_elsewhere");
+    });
   });
 
   it("refuses to link to an existing account when the IdP has not verified the email", async () => {

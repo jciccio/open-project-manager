@@ -14,6 +14,8 @@ const OIDC_ERROR_KEYS: Record<string, keyof TranslationKeys["auth"]> = {
   oidc_missing_email: "oidcErrorMissingEmail",
   oidc_email_not_verified: "oidcErrorEmailNotVerified",
   oidc_failed: "oidcErrorFailed",
+  oidc_link_required: "oidcErrorLinkRequired",
+  oidc_linked_elsewhere: "oidcErrorLinkedElsewhere",
 };
 
 export function LoginForm({ oidcEnabled }: { oidcEnabled: boolean }) {
