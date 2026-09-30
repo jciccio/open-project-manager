@@ -14,6 +14,7 @@
     "test:coverage": "vitest run --coverage",
     "benchmark": "npx tsx scripts/benchmark-memory.ts",
     "load-test": "npx tsx scripts/load-test.ts",
+    "smoke-test": "npx tsx scripts/smoke-test.ts",
     "mcp": "npx tsx scripts/mcp-server.ts",
     "update": "./deploy/update.sh",
     "install-skills": "npx tsx scripts/install-skills.ts",
