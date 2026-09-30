@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { safeRevalidatePath } from "@/lib/revalidate";
-import { recordActivity } from "@/actions/activity";
+import { recordActivity } from "@/lib/services/activity";
 import { nextCardNumber, withCardNumberRetry } from "@/lib/cardNumbering";
 import { verifyProjectAccess } from "@/lib/permissions";
 import { SafeUrlSchema } from "@/lib/validation/safeUrl";

@@ -3,7 +3,7 @@
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { safeRevalidatePath } from "@/lib/revalidate";
-import { recordActivity } from "./activity";
+import { recordActivity } from "@/lib/services/activity";
 import * as cardsService from "@/lib/services/cards";
 import { verifyProjectAccess } from "@/lib/permissions";
 
