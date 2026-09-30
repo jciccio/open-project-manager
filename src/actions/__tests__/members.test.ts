@@ -101,4 +101,15 @@ describe("Project Members Server Actions", () => {
     expect(res.success).toBe(false);
     expect(res.error).toContain("Only project admins and owners");
   });
+
+  it("ignores a client-supplied user id and acts as the session user", async () => {
+    await createSession({ userId: outsiderId, email: outsiderEmail, name: "Outsider" });
+    const addAsOwner = addProjectMember as (...args: unknown[]) => ReturnType<typeof addProjectMember>;
+
+    const res = await addAsOwner(projectId, outsiderEmail, "OWNER", ownerId);
+    expect(res.success).toBe(false);
+    expect(
+      await db.projectMember.findUnique({ where: { projectId_userId: { projectId, userId: outsiderId } } })
+    ).toBeNull();
+  });
 });

@@ -5,7 +5,7 @@ import {
   addProjectMember,
   updateMemberRole,
   removeProjectMember,
-} from "@/actions/members";
+} from "@/lib/services/members";
 
 interface Props {
   params: Promise<{ id: string }>;
