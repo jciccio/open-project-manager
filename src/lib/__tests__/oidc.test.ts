@@ -128,6 +128,20 @@ describe("resolveOidcUser()", () => {
     expect(await db.user.findUnique({ where: { email } })).toBeNull();
   });
 
+  it("provisions an unverified email when OIDC_TRUST_UNVERIFIED_EMAIL=true", async () => {
+    const previous = process.env.OIDC_TRUST_UNVERIFIED_EMAIL;
+    process.env.OIDC_TRUST_UNVERIFIED_EMAIL = "true";
+    try {
+      const email = `oidc-trusted-${Date.now()}@example.com`;
+      const result = await resolveOidcUser({ sub: `sub-${Date.now()}`, email, emailVerified: false });
+      expect(result.ok).toBe(true);
+      if (result.ok) createdUserId = result.user.id;
+    } finally {
+      if (previous === undefined) delete process.env.OIDC_TRUST_UNVERIFIED_EMAIL;
+      else process.env.OIDC_TRUST_UNVERIFIED_EMAIL = previous;
+    }
+  });
+
   describe("link mode (a signed-in user connecting SSO from their profile)", () => {
     const extraUserIds: string[] = [];
 

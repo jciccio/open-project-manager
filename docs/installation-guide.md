@@ -164,6 +164,12 @@ OIDC_REDIRECT_URI=https://opm.example.com/api/v1/auth/oidc/callback
 EOT
 ```
 
+SSO sign-in creates or links an account only when the identity provider marks the email as verified (`email_verified`). Some providers never do: Authentik's default email mapping always sends `email_verified: false`. If your provider controls email addresses itself (no self-service sign-up, users can't change their own email), you can trust them anyway:
+```bash
+echo "OIDC_TRUST_UNVERIFIED_EMAIL=true" >> .env
+```
+Leave it unset if anyone can sign up at your provider or change their email there.
+
 ---
 
 ### Option A: SQLite (Zero-Config Default)

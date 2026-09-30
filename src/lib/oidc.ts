@@ -101,7 +101,7 @@ export async function resolveOidcUser(
   if (!email) {
     return { ok: false, error: "missing_email" };
   }
-  if (!claims.emailVerified) {
+  if (!claims.emailVerified && process.env.OIDC_TRUST_UNVERIFIED_EMAIL !== "true") {
     return { ok: false, error: "email_not_verified" };
   }
 
