@@ -164,6 +164,12 @@ OIDC_REDIRECT_URI=https://opm.example.com/api/v1/auth/oidc/callback
 EOT
 ```
 
+Registration is closed once the first account exists: the first person to open `/register` becomes the first user, and after that the sign-up page redirects to login. To let anyone who can reach the instance create an account, add:
+```bash
+echo "OPM_ALLOW_REGISTRATION=true" >> .env
+```
+SSO users are still created on their first sign-in, since your identity provider decides who can log in.
+
 ---
 
 ### Option A: SQLite (Zero-Config Default)
