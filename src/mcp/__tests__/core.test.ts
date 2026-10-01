@@ -255,6 +255,55 @@ describe("MCP Server Core Tools", () => {
     await executeMcpTool("delete_project", { id: projectId });
   });
 
+  it("rejects parent cycles and deeper nesting through MCP card tools", async () => {
+    const projRes = await executeMcpTool("create_project", { name: "Cycle MCP Project", userId });
+    const projectId = projRes.project!.id;
+    const colId = (projRes.project as any).columns[0].id;
+
+    const a = (await executeMcpTool("create_card", { projectId, columnId: colId, title: "A" })).card!;
+    const b = (await executeMcpTool("create_card", { projectId, columnId: colId, title: "B", parentId: a.id })).card!;
+
+    await expect(executeMcpTool("update_card", { id: a.id, parentId: b.id })).rejects.toThrow(
+      "A card with subtasks cannot be made a subtask"
+    );
+    await expect(executeMcpTool("update_card", { id: a.id, parentId: a.id })).rejects.toThrow(
+      "A card cannot be its own parent"
+    );
+    await expect(
+      executeMcpTool("create_card", { projectId, columnId: colId, title: "C", parentId: b.id })
+    ).rejects.toThrow("Subtasks cannot be nested under another subtask");
+
+    const otherProj = await executeMcpTool("create_project", { name: "Other Cycle Project", userId });
+    const otherColId = (otherProj.project as any).columns[0].id;
+    const foreign = (await executeMcpTool("create_card", { projectId: otherProj.project!.id, columnId: otherColId, title: "F" })).card!;
+    await expect(executeMcpTool("update_card", { id: foreign.id, parentId: a.id })).rejects.toThrow(
+      "Parent card not found in this project"
+    );
+
+    const aAfter = await db.card.findUnique({ where: { id: a.id } });
+    expect(aAfter!.parentId).toBeNull();
+
+    const detached = await executeMcpTool("update_card", { id: b.id, parentId: "" });
+    expect(detached.card!.parentId).toBeNull();
+
+    await executeMcpTool("delete_project", { id: projectId });
+    await executeMcpTool("delete_project", { id: otherProj.project!.id });
+  });
+
+  it("refuses to delete a project's last column through MCP", async () => {
+    const projRes = await executeMcpTool("create_project", { name: "Last Column MCP Project", userId });
+    const projectId = projRes.project!.id;
+    const columnIds: string[] = (projRes.project as any).columns.map((c: { id: string }) => c.id);
+
+    for (const id of columnIds.slice(1)) {
+      await executeMcpTool("delete_column", { id });
+    }
+    await expect(executeMcpTool("delete_column", { id: columnIds[0] })).rejects.toThrow(/at least one column/);
+    expect(await db.column.count({ where: { projectId } })).toBe(1);
+
+    await executeMcpTool("delete_project", { id: projectId });
+  });
+
   it("supports assigneeIds and assignedTo filter in MCP tools", async () => {
     const projRes = await executeMcpTool("create_project", { name: "Assignee MCP Project", userId });
     const projectId = projRes.project!.id;
