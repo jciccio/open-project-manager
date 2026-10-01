@@ -9,6 +9,7 @@ import { getClientIp } from "@/lib/clientIp";
 import { checkLoginRateLimit, recordLoginFailure, recordLoginSuccess } from "@/lib/loginRateLimit";
 import { safeRevalidatePath } from "@/lib/revalidate";
 import { passwordMatches } from "@/lib/passwords";
+import { isRegistrationOpen } from "@/lib/registration";
 
 const loginSchema = z.object({
   email: z.string().trim().min(1),
@@ -22,6 +23,10 @@ export async function registerUser(formData: {
   confirmPassword?: string;
 }) {
   try {
+    if (!(await isRegistrationOpen())) {
+      return { success: false, error: "Registration is closed on this instance." };
+    }
+
     const { name, email, password, confirmPassword } = formData;
 
     if (!name.trim() || !email.trim() || !password) {

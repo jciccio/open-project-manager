@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
-import { listWebhooks, createWebhook } from "@/actions/webhooks";
+import { listWebhooks, createWebhook } from "@/lib/services/webhooks";
 
 export async function GET(request: NextRequest) {
   const session = await getApiSession(request);
