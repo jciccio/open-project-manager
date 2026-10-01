@@ -222,6 +222,13 @@ docker compose build --pull
 docker compose up -d
 ```
 
+#### Smoke-Test a Running Instance:
+After an install or update, check the live instance end to end: login, a project and card over REST and MCP, the rendered board, and cleanup. Use a dedicated test account, never a real user's:
+```bash
+OPM_URL=https://your-host OPM_SMOKE_EMAIL=smoke@example.invalid OPM_SMOKE_PASSWORD=... yarn smoke-test
+```
+It creates a PRIVATE project named `E2E Smoke ...`, deletes it at the end, and exits non-zero if any check fails.
+
 ---
 
 ## ⚙️ Deployment Mode 2: Bare-Metal / Standalone Node.js
