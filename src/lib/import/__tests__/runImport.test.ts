@@ -218,4 +218,23 @@ describe("runImport", () => {
     expect(summary.totals.wouldCreate).toBe(0);
     expect(summary.totals.wouldSkip).toBeGreaterThan(0);
   });
+
+  it("dry run reports a card whose column would not be imported as would_fail, matching the live run", async () => {
+    const fixture = baseFixture();
+    fixture.cards["proj-1"].push({
+      sourceId: "card-bad",
+      columnSourceId: "col-does-not-exist",
+      title: "Orphaned card",
+    });
+    const importer = makeFakeImporter(fixture);
+
+    const dryRun = (await runImport(importer, userId, { dryRun: true })) as ImportDryRunSummary;
+    const badDryRecord = dryRun.records.find((r) => r.sourceId === "card-bad");
+    expect(badDryRecord?.status).toBe("would_fail");
+    expect(badDryRecord?.error).toMatch(/Unknown columnSourceId "col-does-not-exist"/);
+    expect(dryRun.totals.wouldFail).toBe(1);
+
+    const live = (await runImport(importer, userId)) as ImportSummary;
+    expect(live.totals.failed).toBe(dryRun.totals.wouldFail);
+  });
 });
