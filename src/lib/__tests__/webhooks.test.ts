@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import crypto from "crypto";
 import { db } from "@/lib/db";
 import { createTestUser, createTestProject, cleanupTestUser } from "@/test/helpers";
-import { createWebhook } from "@/actions/webhooks";
+import { createWebhook } from "@/lib/services/webhooks";
 import { triggerWebhooks } from "@/lib/webhooks";
 
 describe("triggerWebhooks", () => {

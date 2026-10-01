@@ -164,6 +164,12 @@ OIDC_REDIRECT_URI=https://opm.example.com/api/v1/auth/oidc/callback
 EOT
 ```
 
+Registration is closed once the first account exists: the first person to open `/register` becomes the first user, and after that the sign-up page redirects to login. To let anyone who can reach the instance create an account, add:
+```bash
+echo "OPM_ALLOW_REGISTRATION=true" >> .env
+```
+SSO users are still created on their first sign-in, since your identity provider decides who can log in.
+
 SSO sign-in creates or links an account only when the identity provider marks the email as verified (`email_verified`). Some providers never do: Authentik's default email mapping always sends `email_verified: false`. If your provider controls email addresses itself (no self-service sign-up, users can't change their own email), you can trust them anyway:
 ```bash
 echo "OIDC_TRUST_UNVERIFIED_EMAIL=true" >> .env
@@ -227,6 +233,13 @@ git pull
 docker compose build --pull
 docker compose up -d
 ```
+
+#### Smoke-Test a Running Instance:
+After an install or update, check the live instance end to end: login, a project and card over REST and MCP, the rendered board, and cleanup. Use a dedicated test account, never a real user's:
+```bash
+OPM_URL=https://your-host OPM_SMOKE_EMAIL=smoke@example.invalid OPM_SMOKE_PASSWORD=... yarn smoke-test
+```
+It creates a PRIVATE project named `E2E Smoke ...`, deletes it at the end, and exits non-zero if any check fails.
 
 ---
 

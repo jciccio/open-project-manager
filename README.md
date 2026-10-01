@@ -301,7 +301,11 @@ holder cannot point the importer at an arbitrary host):
 ```bash
 VIKUNJA_URL=http://localhost:3456/api/v1  # Or http://<your-vikunja-host>:3456/api/v1
 VIKUNJA_API_TOKEN=your-vikunja-read-token
+VIKUNJA_IMPORT_USER_EMAIL=you@example.com  # the only OPM account allowed to import over the API
 ```
+
+The Vikunja token is server-wide, so the API route only accepts imports from the
+account named in `VIKUNJA_IMPORT_USER_EMAIL`; without it, use the command line below.
 
 Then trigger it. Always dry-run first — it writes nothing and reports exactly what
 would be created:

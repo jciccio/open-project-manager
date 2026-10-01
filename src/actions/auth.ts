@@ -8,6 +8,7 @@ import bcrypt from "bcryptjs";
 import { getClientIp } from "@/lib/clientIp";
 import { checkLoginRateLimit, recordLoginFailure, recordLoginSuccess } from "@/lib/loginRateLimit";
 import { safeRevalidatePath } from "@/lib/revalidate";
+import { isRegistrationOpen } from "@/lib/registration";
 import { isOidcConfigured } from "@/lib/oidc";
 
 const loginSchema = z.object({
@@ -22,6 +23,10 @@ export async function registerUser(formData: {
   confirmPassword?: string;
 }) {
   try {
+    if (!(await isRegistrationOpen())) {
+      return { success: false, error: "Registration is closed on this instance." };
+    }
+
     const { name, email, password, confirmPassword } = formData;
 
     if (!name.trim() || !email.trim() || !password) {
