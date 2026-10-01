@@ -170,6 +170,12 @@ echo "OPM_ALLOW_REGISTRATION=true" >> .env
 ```
 SSO users are still created on their first sign-in, since your identity provider decides who can log in.
 
+SSO sign-in creates or links an account only when the identity provider marks the email as verified (`email_verified`). Some providers never do: Authentik's default email mapping always sends `email_verified: false`. If your provider controls email addresses itself (no self-service sign-up, users can't change their own email), you can trust them anyway:
+```bash
+echo "OIDC_TRUST_UNVERIFIED_EMAIL=true" >> .env
+```
+Leave it unset if anyone can sign up at your provider or change their email there.
+
 ---
 
 ### Option A: SQLite (Zero-Config Default)

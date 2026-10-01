@@ -58,6 +58,7 @@ services:
       - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
       - OIDC_REDIRECT_URI=${OIDC_REDIRECT_URI:-}
       - OPM_ALLOW_REGISTRATION=${OPM_ALLOW_REGISTRATION:-}
+      - OIDC_TRUST_UNVERIFIED_EMAIL=${OIDC_TRUST_UNVERIFIED_EMAIL:-}
     volumes:
       - opm_attachments:/app/data
     restart: unless-stopped

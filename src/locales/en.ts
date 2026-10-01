@@ -41,6 +41,14 @@ export const en = {
     telemetryDisabledBadge: "Disabled",
     telemetryInstanceIdLabel: "Instance Identifier",
     telemetryEnvNotice: "Telemetry is enforced via environment variable ({reason}).",
+    ssoTitle: "Single Sign-On",
+    ssoLinked: "This account is connected to single sign-on.",
+    ssoNotLinked: "Connect your identity provider account to sign in with single sign-on.",
+    ssoConnect: "Connect single sign-on",
+    ssoLinkSuccess: "Single sign-on connected.",
+    ssoLinkSubjectInUse: "That identity provider account is already connected to a different user.",
+    ssoLinkLinkedElsewhere: "This account is already connected to a different single sign-on identity.",
+    ssoLinkFailed: "Connecting single sign-on failed. Please try again.",
   },
   dashboard: {
     tagline: "Private Workspace",
@@ -292,6 +300,9 @@ export const en = {
       "Your identity provider did not confirm your email is verified, so it can't be linked to an existing account.",
     oidcErrorMissingEmail: "Your identity provider did not provide an email address.",
     oidcErrorFailed: "Sign-in failed. Please try again or contact your administrator.",
+    oidcErrorLinkRequired:
+      "An account with this email already exists. Sign in with your password, then connect single sign-on from Profile Settings.",
+    oidcErrorLinkedElsewhere: "This account is already connected to a different single sign-on identity.",
   },
 };
 

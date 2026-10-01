@@ -43,6 +43,14 @@ export const es: TranslationKeys = {
     telemetryDisabledBadge: "Desactivado",
     telemetryInstanceIdLabel: "Identificador de Instancia",
     telemetryEnvNotice: "La telemetría está configurada por variable de entorno ({reason}).",
+    ssoTitle: "Inicio de Sesión Único",
+    ssoLinked: "Esta cuenta está conectada al inicio de sesión único.",
+    ssoNotLinked: "Conecta la cuenta de tu proveedor de identidad para iniciar sesión con inicio de sesión único.",
+    ssoConnect: "Conectar inicio de sesión único",
+    ssoLinkSuccess: "Inicio de sesión único conectado.",
+    ssoLinkSubjectInUse: "Esa cuenta del proveedor de identidad ya está conectada a otro usuario.",
+    ssoLinkLinkedElsewhere: "Esta cuenta ya está conectada a otra identidad de inicio de sesión único.",
+    ssoLinkFailed: "No se pudo conectar el inicio de sesión único. Inténtalo de nuevo.",
   },
   dashboard: {
     tagline: "Espacio Privado",
@@ -294,5 +302,8 @@ export const es: TranslationKeys = {
       "Tu proveedor de identidad no confirmó que tu correo esté verificado, por lo que no se puede vincular a una cuenta existente.",
     oidcErrorMissingEmail: "Tu proveedor de identidad no proporcionó una dirección de correo electrónico.",
     oidcErrorFailed: "El inicio de sesión falló. Inténtalo de nuevo o contacta a tu administrador.",
+    oidcErrorLinkRequired:
+      "Ya existe una cuenta con este correo. Inicia sesión con tu contraseña y conecta el inicio de sesión único desde Ajustes de Perfil.",
+    oidcErrorLinkedElsewhere: "Esta cuenta ya está conectada a otra identidad de inicio de sesión único.",
   },
 };

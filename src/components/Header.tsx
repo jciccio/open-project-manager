@@ -19,12 +19,13 @@ interface Props {
     name: string;
   } | null;
   archivedCount?: number;
+  ssoLinkResult?: string;
 }
 
-export default function Header({ user, archivedCount = 0 }: Props) {
+export default function Header({ user, archivedCount = 0, ssoLinkResult }: Props) {
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [isLabelModalOpen, setIsLabelModalOpen] = useState(false);
-  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(Boolean(ssoLinkResult));
   const [loggingOut, setLoggingOut] = useState(false);
   const { theme, toggleTheme } = useTheme();
   const { locale, setLocale, t } = useTranslation();
@@ -162,7 +163,14 @@ export default function Header({ user, archivedCount = 0 }: Props) {
       )}
 
       {isProfileModalOpen && user && (
-        <UserProfileModal user={user} onClose={() => setIsProfileModalOpen(false)} />
+        <UserProfileModal
+          user={user}
+          ssoLinkResult={ssoLinkResult}
+          onClose={() => {
+            setIsProfileModalOpen(false);
+            if (ssoLinkResult) router.replace("/");
+          }}
+        />
       )}
     </>
   );
