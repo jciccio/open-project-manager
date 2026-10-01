@@ -29,7 +29,7 @@ export async function createProject(data: { name: string; description?: string; 
 
 export async function updateProject(
   id: string,
-  data: { name?: string; description?: string; color?: string; visibility?: string }
+  data: { name?: string; description?: string | null; color?: string; visibility?: string }
 ) {
   const session = await getSession();
   if (!session) {

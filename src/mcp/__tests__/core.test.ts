@@ -437,6 +437,21 @@ describe("MCP Server Core Tools", () => {
     expect(second.project?.key).toBe("AB2");
   });
 
+  it("rejects non-hex project colors in MCP create_project and update_project", async () => {
+    await expect(executeMcpTool("create_project", { name: "Bad Color MCP", userId, color: "url(x)" })).rejects.toThrow(
+      "Color must be a hex value like #6366f1"
+    );
+
+    const projRes = await executeMcpTool("create_project", { name: "Color MCP", userId, color: "#112233" });
+    const projectId = projRes.project!.id;
+    await expect(executeMcpTool("update_project", { id: projectId, color: "blue" })).rejects.toThrow(
+      "Color must be a hex value like #6366f1"
+    );
+    expect((await db.project.findUnique({ where: { id: projectId } }))!.color).toBe("#112233");
+
+    await executeMcpTool("delete_project", { id: projectId });
+  });
+
   it("scopes get_card_by_identifier to the requesting user's own project", async () => {
     const { user: otherUser } = await createTestUser(`mcp-core-other-${Date.now()}`);
     try {

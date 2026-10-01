@@ -92,4 +92,55 @@ describe("ColorPicker & Project Modal UI Components", () => {
 
     expect(handleUpdate).toHaveBeenCalledWith({ id: "p-edit" });
   });
+
+  it("sends null when the description is cleared, so the old text is removed", async () => {
+    const { updateProject } = await import("@/actions/projects");
+    renderWithProviders(
+      <EditProjectModal
+        project={{ id: "p1", name: "Existing Project", description: "Old text", color: "#ec4899" }}
+        onClose={vi.fn()}
+        onUpdateSuccess={vi.fn()}
+      />
+    );
+
+    fireEvent.change(screen.getByDisplayValue("Old text"), { target: { value: "   " } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+    });
+
+    expect(updateProject).toHaveBeenLastCalledWith("p1", expect.objectContaining({ description: null }));
+  });
+
+  it("marks the selected color with aria-pressed and labels the swatch group", () => {
+    renderWithProviders(<ColorPicker value="#10b981" onChange={vi.fn()} label="Color Theme" />);
+
+    expect(screen.getByRole("group", { name: "Color Theme" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Emerald" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Indigo" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "Custom Color" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByLabelText("Custom Color", { selector: "input" })).toHaveAttribute("type", "color");
+  });
+
+  it("treats a value from a custom palette as selected, not as a custom color", () => {
+    const palette = [
+      { name: "Brand", value: "#123456" },
+      { name: "Accent", value: "#abcdef" },
+    ];
+    renderWithProviders(<ColorPicker value="#123456" onChange={vi.fn()} colors={palette} />);
+
+    expect(screen.getByRole("button", { name: "Brand" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Custom Color" })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("names the swatches in Spanish when the locale is Spanish", async () => {
+    localStorage.setItem("opm_locale", "es");
+    try {
+      renderWithProviders(<ColorPicker value="#6366f1" onChange={vi.fn()} />);
+      expect(await screen.findByRole("button", { name: "Esmeralda" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Azul marino" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Emerald" })).not.toBeInTheDocument();
+    } finally {
+      localStorage.removeItem("opm_locale");
+    }
+  });
 });
