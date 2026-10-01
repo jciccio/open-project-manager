@@ -4,19 +4,19 @@ After=network.target
 
 [Service]
 Type=simple
-# User and Group to run the service under (create with: sudo useradd -r -s /bin/false -m opm)
+# Create the user and give it the paths it writes as shown in docs/installation-guide.md (Method A)
 User=opm
 Group=opm
 
-# Application directory (update to your actual clone path, e.g. /opt/open-project-manager or /home/pi/open-project-manager)
+# Install outside /home: ProtectHome below makes /home read-only for this service.
+# If you cloned somewhere else, change this path in WorkingDirectory, EnvironmentFile, ExecStart and ReadWritePaths.
 WorkingDirectory=/opt/open-project-manager
 
-# Environment configuration
+# Values in .env override these two; set HOSTNAME=127.0.0.1 there when a reverse proxy runs on this host
 Environment=NODE_ENV=production
 Environment=PORT=3000
 Environment=HOSTNAME=0.0.0.0
-# Next.js standalone server needs static assets & public folder copied next to standalone
-EnvironmentFile=-/opt/open-project-manager/.env
+EnvironmentFile=/opt/open-project-manager/.env
 
 # Execution command using the Next.js standalone bundle (lightweight, optimal for Raspberry Pi)
 ExecStart=/usr/bin/node /opt/open-project-manager/.next/standalone/server.js
@@ -32,7 +32,8 @@ SyslogIdentifier=open-project-manager
 
 # Security & Sandboxing hardening
 NoNewPrivileges=true
-ProtectSystem=full
+ProtectSystem=strict
+ReadWritePaths=/opt/open-project-manager
 ProtectHome=read-only
 PrivateTmp=true
 

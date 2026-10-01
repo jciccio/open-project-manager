@@ -245,11 +245,15 @@ ln -sfn "${INSTALL_DIR}/data" .next/standalone/data
 
 # 9. Synchronize permissions for systemd runtime user
 TARGET_OWNER=$(detect_service_user)
+TARGET_GROUP="${TARGET_OWNER#*:}"
 info "Synchronizing file ownership to service user (${TARGET_OWNER})..."
+# SQLite creates its journal next to dev.db, so the service group also needs write access to the install directory itself.
 if [ "$(id -u)" -eq 0 ]; then
     chown -R "${TARGET_OWNER}" "${INSTALL_DIR}/.next" "${INSTALL_DIR}/data" "${INSTALL_DIR}/dev.db"* "${INSTALL_DIR}/.env"* 2>/dev/null || true
+    chgrp "${TARGET_GROUP}" "${INSTALL_DIR}" && chmod g+w "${INSTALL_DIR}" || true
 elif command -v sudo &>/dev/null; then
     sudo chown -R "${TARGET_OWNER}" "${INSTALL_DIR}/.next" "${INSTALL_DIR}/data" "${INSTALL_DIR}/dev.db"* "${INSTALL_DIR}/.env"* 2>/dev/null || true
+    sudo chgrp "${TARGET_GROUP}" "${INSTALL_DIR}" && sudo chmod g+w "${INSTALL_DIR}" || true
 fi
 chmod -R u+rwX "${INSTALL_DIR}/.next" "${INSTALL_DIR}/data" "${INSTALL_DIR}/dev.db"* 2>/dev/null || true
 
