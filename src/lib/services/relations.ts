@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { verifyProjectAccess } from "@/lib/permissions";
 import { safeRevalidatePath } from "@/lib/revalidate";
 
 export async function addCardRelation(
@@ -24,7 +25,12 @@ export async function addCardRelation(
     });
     const targetCard = await db.card.findUnique({ where: { id: targetCardId } });
 
-    if (!sourceCard || !targetCard || sourceCard.project.userId !== userId) {
+    if (
+      !sourceCard ||
+      !targetCard ||
+      !(await verifyProjectAccess(sourceCard.projectId, userId, "MEMBER")) ||
+      !(await verifyProjectAccess(targetCard.projectId, userId, "VIEWER"))
+    ) {
       return { success: false, error: "Unauthorized or card not found" };
     }
 
@@ -52,10 +58,17 @@ export async function removeCardRelation(relationId: string, userId: string) {
   try {
     const relation = await db.cardRelation.findUnique({
       where: { id: relationId },
-      include: { sourceCard: { include: { project: true } } },
+      include: {
+        sourceCard: { select: { projectId: true } },
+        targetCard: { select: { projectId: true } },
+      },
     });
 
-    if (!relation || relation.sourceCard.project.userId !== userId) {
+    if (
+      !relation ||
+      (!(await verifyProjectAccess(relation.sourceCard.projectId, userId, "MEMBER")) &&
+        !(await verifyProjectAccess(relation.targetCard.projectId, userId, "MEMBER")))
+    ) {
       return { success: false, error: "Unauthorized or relation not found" };
     }
 
@@ -70,12 +83,9 @@ export async function removeCardRelation(relationId: string, userId: string) {
 
 export async function getCardRelations(cardId: string, userId: string) {
   try {
-    const card = await db.card.findUnique({
-      where: { id: cardId },
-      include: { project: true },
-    });
+    const card = await db.card.findUnique({ where: { id: cardId } });
 
-    if (!card || card.project.userId !== userId) {
+    if (!card || !(await verifyProjectAccess(card.projectId, userId, "VIEWER"))) {
       return { success: false, error: "Unauthorized or card not found" };
     }
 
