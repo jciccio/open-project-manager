@@ -286,6 +286,7 @@ export const es: TranslationKeys = {
     alreadyHaveAccount: "¿Ya tienes una cuenta?",
     passwordsDoNotMatch: "Las contraseñas no coinciden.",
     fillAllFields: "Por favor, completa todos los campos.",
+    registrationClosed: "El registro está cerrado. Pide una cuenta a un administrador.",
     orContinueWith: "O continúa con",
     signInWithSso: "Iniciar sesión con SSO",
     oidcErrorSessionExpired: "Tu sesión de inicio de sesión expiró. Inténtalo de nuevo.",

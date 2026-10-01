@@ -6,6 +6,57 @@ import { verifyProjectAccess } from "@/lib/permissions";
 import { deriveCompletedAt } from "@/lib/cardCompletion";
 import { SafeUrlSchema } from "@/lib/validation/safeUrl";
 
+async function validateReferencedIds(
+  projectId: string,
+  userId: string,
+  refs: {
+    columnId?: string;
+    typeId?: string | null;
+    labelIds?: string[];
+    assigneeIds?: string[];
+  }
+): Promise<string | null> {
+  if (refs.columnId !== undefined) {
+    const column = await db.column.findUnique({ where: { id: refs.columnId }, select: { projectId: true } });
+    if (!column || column.projectId !== projectId) {
+      return "Invalid column";
+    }
+  }
+
+  if (refs.typeId) {
+    const type = await db.cardType.findUnique({ where: { id: refs.typeId }, select: { projectId: true } });
+    if (!type || type.projectId !== projectId) {
+      return "Invalid card type";
+    }
+  }
+
+  if (refs.labelIds && refs.labelIds.length > 0) {
+    const uniqueLabelIds = new Set(refs.labelIds);
+    const count = await db.label.count({
+      where: {
+        id: { in: refs.labelIds },
+        OR: [{ projectId }, { userId, projectId: null }, { userId: null, projectId: null }],
+      },
+    });
+    if (count !== uniqueLabelIds.size) {
+      return "Invalid label";
+    }
+  }
+
+  if (refs.assigneeIds && refs.assigneeIds.length > 0) {
+    const project = await db.project.findUnique({
+      where: { id: projectId },
+      select: { userId: true, members: { select: { userId: true } } },
+    });
+    const assignable = new Set([project?.userId, ...(project?.members.map((m) => m.userId) ?? [])]);
+    if (refs.assigneeIds.some((assigneeId) => !assignable.has(assigneeId))) {
+      return "Assignees must be members of this project";
+    }
+  }
+
+  return null;
+}
+
 export async function createCard(
   data: {
     projectId: string;
@@ -43,6 +94,16 @@ export async function createCard(
       if (parentCard.parentId) {
         return { success: false, error: "Subtasks cannot be nested under another subtask" };
       }
+    }
+
+    const referenceError = await validateReferencedIds(data.projectId, userId, {
+      columnId: data.columnId,
+      typeId: data.typeId,
+      labelIds: data.labelIds,
+      assigneeIds: data.assigneeIds,
+    });
+    if (referenceError) {
+      return { success: false, error: referenceError };
     }
 
     const ORDER_GAP = 10000;
@@ -177,6 +238,16 @@ export async function updateCard(
       }
     }
 
+    const referenceError = await validateReferencedIds(existingCard.projectId, userId, {
+      columnId: data.columnId,
+      typeId: data.typeId,
+      labelIds: data.labelIds,
+      assigneeIds: data.assigneeIds,
+    });
+    if (referenceError) {
+      return { success: false, error: referenceError };
+    }
+
     let targetColumn = null;
     let completedAtUpdate: Date | null | undefined = undefined;
     if (data.columnId !== undefined && data.columnId !== existingCard.columnId) {
@@ -198,25 +269,19 @@ export async function updateCard(
       completedAt: completedAtUpdate,
     };
 
-    if (data.labelIds !== undefined) {
-      await db.cardLabel.deleteMany({ where: { cardId: id } });
-      if (data.labelIds.length > 0) {
-        updatePayload.labels = {
-          create: data.labelIds.map((labelId) => ({ labelId })),
-        };
-      }
+    if (data.labelIds !== undefined && data.labelIds.length > 0) {
+      updatePayload.labels = {
+        create: data.labelIds.map((labelId) => ({ labelId })),
+      };
     }
 
-    if (data.assigneeIds !== undefined) {
-      await db.cardAssignee.deleteMany({ where: { cardId: id } });
-      if (data.assigneeIds.length > 0) {
-        updatePayload.assignees = {
-          create: data.assigneeIds.map((assigneeId) => ({ userId: assigneeId })),
-        };
-      }
+    if (data.assigneeIds !== undefined && data.assigneeIds.length > 0) {
+      updatePayload.assignees = {
+        create: data.assigneeIds.map((assigneeId) => ({ userId: assigneeId })),
+      };
     }
 
-    const card = await db.card.update({
+    const updateCardQuery = db.card.update({
       where: { id },
       data: updatePayload,
       include: {
@@ -238,6 +303,16 @@ export async function updateCard(
         links: true,
       },
     });
+
+    // deleteMany + update run in one transaction so a failure partway through
+    // never leaves the card with its labels/assignees wiped but not replaced.
+    const transactionOps = [
+      ...(data.labelIds !== undefined ? [db.cardLabel.deleteMany({ where: { cardId: id } })] : []),
+      ...(data.assigneeIds !== undefined ? [db.cardAssignee.deleteMany({ where: { cardId: id } })] : []),
+      updateCardQuery,
+    ] as [typeof updateCardQuery];
+    const results = await db.$transaction(transactionOps);
+    const card = results[results.length - 1];
 
     // Record activity events
     if (data.title !== undefined && data.title !== existingCard.title) {
@@ -399,7 +474,10 @@ export async function moveCard(cardId: string, targetColumnId: string, newOrder:
     }
 
     const targetColumn = await db.column.findUnique({ where: { id: targetColumnId } });
-    const completedAt = deriveCompletedAt(targetColumn?.isDone, existingCard.completedAt);
+    if (!targetColumn || targetColumn.projectId !== existingCard.projectId) {
+      return { success: false, error: "Invalid column" };
+    }
+    const completedAt = deriveCompletedAt(targetColumn.isDone, existingCard.completedAt);
 
     const card = await db.card.update({
       where: { id: cardId },
@@ -581,9 +659,14 @@ export async function reorderCards(items: ReorderItem[], userId: string) {
     const columnIds = [...new Set(items.map((i) => i.columnId).filter((id): id is string => !!id))];
     const columns = await db.column.findMany({
       where: { id: { in: columnIds } },
-      select: { id: true, isDone: true },
+      select: { id: true, projectId: true, isDone: true },
     });
     const columnById = new Map(columns.map((c) => [c.id, c]));
+    for (const item of items) {
+      if (item.columnId && columnById.get(item.columnId)?.projectId !== cardById.get(item.id)!.projectId) {
+        return { success: false, error: "Invalid column" };
+      }
+    }
 
     const updates = items.map((item) => {
       const completedAt = item.columnId

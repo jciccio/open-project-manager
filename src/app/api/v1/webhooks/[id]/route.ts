@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
-import { updateWebhook, deleteWebhook } from "@/actions/webhooks";
+import { updateWebhook, deleteWebhook } from "@/lib/services/webhooks";
 import { db } from "@/lib/db";
 
 interface Props {
