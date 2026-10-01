@@ -7,6 +7,7 @@ import {
   ListPromptsRequestSchema,
   GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import { assertHexColor } from "@/lib/colors";
 import { db } from "@/lib/db";
 import { DEFAULT_CARD_TYPES } from "@/lib/cardTypeDefaults";
 import { nextCardNumber, withCardNumberRetry } from "@/lib/cardNumbering";
@@ -774,7 +775,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
           name: nameStr,
           key: projectKey,
           description: args.description || null,
-          color: args.color || "#6366f1",
+          color: args.color ? assertHexColor(args.color) : "#6366f1",
           visibility: args.visibility || "PRIVATE",
           columns: {
             create: [
@@ -803,7 +804,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       const data: any = {};
       if (args.name !== undefined) data.name = args.name.trim();
       if (args.description !== undefined) data.description = args.description;
-      if (args.color !== undefined) data.color = args.color;
+      if (args.color !== undefined) data.color = assertHexColor(args.color);
       if (args.isArchived !== undefined) data.isArchived = args.isArchived;
 
       const project = await db.project.update({
