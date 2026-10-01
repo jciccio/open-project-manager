@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { safeRevalidatePath } from "@/lib/revalidate";
 import { verifyProjectAccess } from "@/lib/permissions";
+import { lastColumnError } from "@/lib/columnGuards";
 
 export async function createColumn(projectId: string, name: string, isDone: boolean | undefined, userId: string) {
   try {
@@ -88,6 +89,11 @@ export async function reorderColumns(projectId: string, orderedColumnIds: string
       return { success: false, error: "Unauthorized" };
     }
 
+    const ownedCount = await db.column.count({ where: { id: { in: orderedColumnIds }, projectId } });
+    if (new Set(orderedColumnIds).size !== orderedColumnIds.length || ownedCount !== orderedColumnIds.length) {
+      return { success: false, error: "Invalid column" };
+    }
+
     const updates = orderedColumnIds.map((id, index) =>
       db.column.update({
         where: { id },
@@ -113,6 +119,11 @@ export async function deleteColumn(id: string, userId: string) {
 
     if (!column || !(await verifyProjectAccess(column.projectId, userId, "ADMIN"))) {
       return { success: false, error: "Unauthorized" };
+    }
+
+    const lastColumn = await lastColumnError(column.projectId);
+    if (lastColumn) {
+      return { success: false, error: lastColumn };
     }
 
     await db.column.delete({
