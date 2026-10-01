@@ -27,8 +27,10 @@ export function createPrismaClient(): PrismaClient {
   const provider = getDatabaseProvider();
 
   if (provider === "postgresql") {
-    const connectionString =
-      process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/opm";
+    const connectionString = process.env.DATABASE_URL;
+    if (!connectionString) {
+      throw new Error("DATABASE_URL must be set when DATABASE_PROVIDER is postgresql.");
+    }
     const pool = globalForPrisma.pool ?? new Pool({ connectionString });
     if (process.env.NODE_ENV !== "production") {
       globalForPrisma.pool = pool;

@@ -113,7 +113,7 @@ docker compose logs -f
 docker compose down
 ```
 
-> 💡 **Prefer PostgreSQL?** Run `docker compose -f docker-compose.postgres.yml up -d` and seed with `docker compose -f docker-compose.postgres.yml run --rm migrate npx tsx prisma/seed.ts`. See the [Docker Deployment](#-docker-deployment) section below for details.
+> 💡 **Prefer PostgreSQL?** Add `POSTGRES_PASSWORD=$(openssl rand -hex 24)` to `.env`, run `docker compose -f docker-compose.postgres.yml up -d` and seed with `docker compose -f docker-compose.postgres.yml run --rm migrate npx tsx prisma/seed.ts`. See the [Docker Deployment](#-docker-deployment) section below for details.
 
 ---
 
@@ -478,8 +478,9 @@ deployment.
 For production setups with an integrated or centralized PostgreSQL database:
 
 ```bash
-# Create a .env with a real secret
+# Create a .env with a real secret and a database password
 echo "JWT_SECRET=$(openssl rand -base64 32)" > .env
+echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)" >> .env
 
 # Build and launch application alongside Postgres 16
 docker compose -f docker-compose.postgres.yml up -d

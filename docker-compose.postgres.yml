@@ -4,10 +4,8 @@ services:
     container_name: opm-postgres
     environment:
       - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
+      - "POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in a .env file. Generate one with: openssl rand -hex 24}"
       - POSTGRES_DB=opm
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -26,7 +24,7 @@ services:
         DATABASE_PROVIDER: postgresql
     environment:
       - DATABASE_PROVIDER=postgresql
-      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/opm?schema=public
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/opm?schema=public
     depends_on:
       postgres:
         condition: service_healthy
@@ -45,12 +43,12 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      - "3000:3000"
+      - "${OPM_BIND_ADDRESS:-0.0.0.0}:3000:3000"
     environment:
       - NODE_ENV=production
       - PORT=3000
       - DATABASE_PROVIDER=postgresql
-      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/opm?schema=public
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/opm?schema=public
       - UPLOADS_DIR=/app/data/attachments
       - "JWT_SECRET=${JWT_SECRET:?Set JWT_SECRET in a .env file — generate one with: openssl rand -base64 32}"
       - OIDC_ISSUER_URL=${OIDC_ISSUER_URL:-}
@@ -60,6 +58,12 @@ services:
       - OPM_ALLOW_REGISTRATION=${OPM_ALLOW_REGISTRATION:-}
     volumes:
       - opm_attachments:/app/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/login"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
     restart: unless-stopped
 
 volumes:
