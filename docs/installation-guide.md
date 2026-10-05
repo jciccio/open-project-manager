@@ -244,7 +244,7 @@ Bare-metal mode runs Next.js directly on the host using the standalone productio
 ### Step 1: Clone & Configure Environment
 
 ```bash
-# Clone to /opt or your home directory
+# Clone to /opt (the systemd unit makes /home read-only for the service)
 sudo mkdir -p /opt/open-project-manager
 sudo chown -R $USER:$USER /opt/open-project-manager
 git clone https://github.com/jciccio/open-project-manager.git /opt/open-project-manager
@@ -252,10 +252,13 @@ cd /opt/open-project-manager
 
 # Generate .env with JWT_SECRET
 echo "JWT_SECRET=$(openssl rand -base64 32)" > .env
-echo "DATABASE_URL=file:./dev.db" >> .env
+echo "DATABASE_URL=file:/opt/open-project-manager/dev.db" >> .env
+echo "UPLOADS_DIR=/opt/open-project-manager/data/attachments" >> .env
 echo "PORT=3000" >> .env
 echo "HOSTNAME=0.0.0.0" >> .env
 ```
+
+Keep `DATABASE_URL` and `UPLOADS_DIR` absolute. The standalone server changes into `.next/standalone` when it starts, so a relative `file:./dev.db` would make it open an empty database there instead of the one `prisma migrate deploy` creates in the install directory.
 
 ---
 
@@ -296,31 +299,45 @@ To keep Open Project Manager running 24/7 and automatically restart it on Raspbe
 
 #### Method A: Systemd Service (Recommended)
 
-1. Copy the provided systemd service unit template from `deploy/open-project-manager.service`:
+1. Create the `opm` service user and give it the files it writes. SQLite creates a journal file next to `dev.db`, so the group also needs write access to the install directory:
+   ```bash
+   sudo useradd --system --no-create-home --shell /usr/sbin/nologin opm
+   cd /opt/open-project-manager
+   mkdir -p data/attachments
+   sudo chown opm:opm dev.db
+   sudo chown -R opm:opm data
+   sudo chgrp opm /opt/open-project-manager
+   sudo chmod g+w /opt/open-project-manager
+   ```
+
+2. Copy the provided systemd service unit template from `deploy/open-project-manager.service`:
    ```bash
    sudo cp deploy/open-project-manager.service /etc/systemd/system/open-project-manager.service
    ```
 
-2. If you are running under a custom user (e.g. `pi`) or cloned to a path other than `/opt/open-project-manager`, edit the service file:
+3. If you cloned to a path other than `/opt/open-project-manager`, edit the service file and change the path in `WorkingDirectory=`, `EnvironmentFile=`, `ExecStart=` and `ReadWritePaths=`. Keep the install outside `/home`, which the unit makes read-only:
    ```bash
    sudo nano /etc/systemd/system/open-project-manager.service
    ```
-   *Verify `User=`, `Group=`, `WorkingDirectory=`, and `ExecStart=` paths.*
 
-3. Enable and start the service:
+4. Enable and start the service:
    ```bash
    sudo systemctl daemon-reload
    sudo systemctl enable --now open-project-manager
    ```
 
-4. Check status & logs:
+5. Check status, logs, and that the app answers (expect `200`):
    ```bash
    # Check service status
    sudo systemctl status open-project-manager
 
    # Follow real-time application logs
    journalctl -u open-project-manager -f
+
+   curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3000/login
    ```
+
+Settings in `.env` take effect on `sudo systemctl restart open-project-manager`; no rebuild needed.
 
 #### Method B: PM2 Process Manager
 
@@ -329,9 +346,13 @@ To keep Open Project Manager running 24/7 and automatically restart it on Raspbe
    sudo npm install -g pm2
    ```
 
-2. Start Open Project Manager using the pre-configured ecosystem file:
+2. Start Open Project Manager using the pre-configured ecosystem file. PM2 runs the app as the user who starts it, with the settings from the install directory's `.env`:
    ```bash
    pm2 start deploy/ecosystem.config.js
+   ```
+   After editing `.env`, apply it without a rebuild (a plain `pm2 restart open-project-manager` keeps the old values):
+   ```bash
+   pm2 restart deploy/ecosystem.config.js --update-env
    ```
 
 3. Save process list and enable auto-start on boot:
@@ -352,6 +373,13 @@ To keep Open Project Manager running 24/7 and automatically restart it on Raspbe
 ## 🔒 Reverse Proxy & Automatic HTTPS (SSL)
 
 Running Open Project Manager behind a reverse proxy lets you access the app on standard HTTP (80) and HTTPS (443) ports, use a custom domain or `.local` hostname, and enjoy automated TLS encryption.
+
+When the proxy runs on the same host as a bare-metal install, make the app listen on localhost only, so port 3000 can't be used to get around the proxy. Set `HOSTNAME=127.0.0.1` in `.env` and restart:
+```bash
+cd /opt/open-project-manager
+sed -i 's/^HOSTNAME=.*/HOSTNAME=127.0.0.1/' .env
+sudo systemctl restart open-project-manager   # or: pm2 restart deploy/ecosystem.config.js --update-env
+```
 
 ### Option A: Caddy (Recommended - Automatic SSL)
 
