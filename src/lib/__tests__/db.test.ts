@@ -59,5 +59,11 @@ describe("Database Provider & Client Configuration", () => {
       expect(typeof client.$connect).toBe("function");
       expect(typeof client.user.findMany).toBe("function");
     });
+
+    it("refuses to fall back to built-in Postgres credentials when DATABASE_URL is missing", () => {
+      process.env.DATABASE_PROVIDER = "postgresql";
+      delete process.env.DATABASE_URL;
+      expect(() => createPrismaClient()).toThrow("DATABASE_URL must be set when DATABASE_PROVIDER is postgresql.");
+    });
   });
 });

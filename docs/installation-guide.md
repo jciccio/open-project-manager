@@ -191,13 +191,21 @@ docker compose logs -f
 
 The application is now live at: **`http://<RASPBERRY_PI_IP>:3000`**
 
+If you put a reverse proxy on the same host (see [Reverse Proxy & Automatic HTTPS](#-reverse-proxy--automatic-https-ssl)), publish port 3000 on localhost only, so nobody can reach the app around the proxy:
+```bash
+echo "OPM_BIND_ADDRESS=127.0.0.1" >> .env
+docker compose up -d
+```
+
 ---
 
 ### Option B: PostgreSQL (Opt-In)
 
-For production setups using an integrated PostgreSQL 16 database:
+For production setups using an integrated PostgreSQL 16 database. The compose file needs a database password in `.env` (hex keeps it safe inside the connection URL):
 
 ```bash
+echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)" >> .env
+
 # Start PostgreSQL and Open Project Manager
 docker compose -f docker-compose.postgres.yml up -d
 
@@ -208,6 +216,11 @@ docker compose -f docker-compose.postgres.yml run --rm migrate npx tsx prisma/se
 View logs:
 ```bash
 docker compose -f docker-compose.postgres.yml logs -f
+```
+
+PostgreSQL's port isn't published on the host. To open a database shell:
+```bash
+docker compose -f docker-compose.postgres.yml exec postgres psql -U postgres opm
 ```
 
 ---
@@ -227,6 +240,19 @@ git pull
 docker compose build --pull
 docker compose up -d
 ```
+
+On start, the containers give the data volume to the app user (UID 1001) if an older image left it owned by root, so upgrading an existing install needs no manual `chown`.
+
+**Upgrading a PostgreSQL install created before `POSTGRES_PASSWORD` was required:** PostgreSQL keeps the password it was first initialised with (`postgres`), so the compose file now refuses to start until `.env` sets one. Change the database password first, then store the same value in `.env`:
+```bash
+NEW_PASSWORD=$(openssl rand -hex 24)
+docker compose -f docker-compose.postgres.yml exec postgres psql -U postgres -c "ALTER USER postgres PASSWORD '$NEW_PASSWORD'"
+echo "POSTGRES_PASSWORD=$NEW_PASSWORD" >> .env
+git pull
+docker compose -f docker-compose.postgres.yml build --pull
+docker compose -f docker-compose.postgres.yml up -d
+```
+Run the `ALTER USER` step before `git pull`, while the running containers still use the old compose file. The app can't reach the database between that step and the final `up -d`, so run the commands together.
 
 #### Smoke-Test a Running Instance:
 After an install or update, check the live instance end to end: login, a project and card over REST and MCP, the rendered board, and cleanup. Use a dedicated test account, never a real user's:
@@ -550,9 +576,9 @@ yarn install --force
 ```
 
 ### Q3: `EACCES: permission denied` on database file in Docker
-**Cause**: The named volume or host directory was created as root before the non-root `nextjs` user (UID 1001) could access it.  
+**Cause**: The named volume or host directory is owned by root, usually because an older image created it.  
 **Solution**:
-Use the standard `docker-compose.yml` which runs the `migrator` service as UID 1001 with correct volume initialization.
+Rebuild and restart with the current `Dockerfile` (`docker compose build && docker compose up -d`). Both the `migrate` and app containers start as root just long enough to `chown` `/app/data` to UID 1001, then run as that user. For a host directory bind-mounted at `/app/data`, the same applies; if your host forbids the `chown` (for example a read-only or root-squashed NFS export), run `sudo chown -R 1001:1001 <dir>` on the host.
 
 ### Q4: How do I reduce MicroSD card wear on my Raspberry Pi?
 **Solution**:
