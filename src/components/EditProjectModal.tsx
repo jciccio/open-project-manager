@@ -41,7 +41,7 @@ export default function EditProjectModal({ project, onClose, onUpdateSuccess }: 
     try {
       const res = await updateProject(project.id, {
         name: name.trim(),
-        description: description.trim() || undefined,
+        description: description.trim() || null,
         color,
       });
       setLoading(false);
