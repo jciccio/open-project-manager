@@ -307,8 +307,9 @@ VIKUNJA_IMPORT_USER_EMAIL=you@example.com  # the only OPM account allowed to imp
 The Vikunja token is server-wide, so the API route only accepts imports from the
 account named in `VIKUNJA_IMPORT_USER_EMAIL`; without it, use the command line below.
 
-Then trigger it. Always dry-run first — it writes nothing and reports exactly what
-would be created:
+Then trigger it. Always dry-run first. It writes nothing and reports what would be
+created, skipped, or fail (`would_fail`, for example a card whose bucket has no
+matching column):
 
 ```bash
 # Dry run
@@ -340,7 +341,7 @@ How Vikunja concepts land in OPM:
 |---|---|
 | Project | Project |
 | Kanban bucket | Column (the view's `done_bucket_id` becomes `isDone`) |
-| Task | Card (done tasks are forced into the done column, keeping `done_at` as `completedAt`) |
+| Task | Card (done tasks are forced into the done column when the view has one, keeping `done_at` as `completedAt`) |
 | Priority `0…5` | `NONE, LOW, MEDIUM, HIGH, URGENT, URGENT` |
 | Label (instance-wide) | Project label — only labels the imported tasks actually use |
 | Comment | Comment, keeping the original author and timestamp |

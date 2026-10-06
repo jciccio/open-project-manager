@@ -14,6 +14,10 @@ import type {
 
 const ORDER_GAP = 10000;
 
+function unknownColumnError(columnSourceId: string): string {
+  return `Unknown columnSourceId "${columnSourceId}": no matching column was imported for this project`;
+}
+
 interface RunCtx {
   importer: Importer;
   userId: string;
@@ -159,7 +163,7 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
           entityType: "card",
           sourceId: card.sourceId,
           status: "failed",
-          error: `Unknown columnSourceId "${card.columnSourceId}" — no matching column was imported for this project`,
+          error: unknownColumnError(card.columnSourceId),
         });
         continue;
       }
@@ -241,10 +245,23 @@ async function classifyForDryRun(
 
   for await (const project of importer.fetchProjects()) {
     await classify("project", project.sourceId);
-    for await (const col of importer.fetchColumns(project.sourceId)) await classify("column", col.sourceId);
+    const columnSourceIds = new Set<string>();
+    for await (const col of importer.fetchColumns(project.sourceId)) {
+      columnSourceIds.add(col.sourceId);
+      await classify("column", col.sourceId);
+    }
     for await (const ct of importer.fetchCardTypes(project.sourceId)) await classify("cardType", ct.sourceId);
     for await (const lbl of importer.fetchLabels(project.sourceId)) await classify("label", lbl.sourceId);
     for await (const card of importer.fetchCards(project.sourceId)) {
+      if (!columnSourceIds.has(card.columnSourceId)) {
+        records.push({
+          entityType: "card",
+          sourceId: card.sourceId,
+          status: "would_fail",
+          error: unknownColumnError(card.columnSourceId),
+        });
+        continue;
+      }
       await classify("card", card.sourceId);
       for await (const comment of importer.fetchComments(card.sourceId)) {
         await classify("comment", comment.sourceId);
@@ -265,7 +282,8 @@ export async function runImport(
     await classifyForDryRun(importer, userId, importer.name, records);
     const wouldCreate = records.filter((r) => r.status === "would_create").length;
     const wouldSkip = records.filter((r) => r.status === "would_skip").length;
-    return { mode: "dry-run", importRunId, totals: { wouldCreate, wouldSkip }, records };
+    const wouldFail = records.filter((r) => r.status === "would_fail").length;
+    return { mode: "dry-run", importRunId, totals: { wouldCreate, wouldSkip, wouldFail }, records };
   }
 
   const records: ImportRecordResult[] = [];
