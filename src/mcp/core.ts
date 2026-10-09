@@ -9,6 +9,8 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { assertHexColor } from "@/lib/colors";
 import { db } from "@/lib/db";
+import { validateParentCard } from "@/lib/cardParent";
+import { lastColumnError } from "@/lib/columnGuards";
 import { DEFAULT_CARD_TYPES } from "@/lib/cardTypeDefaults";
 import { nextCardNumber, withCardNumberRetry } from "@/lib/cardNumbering";
 import { generateProjectKey } from "@/lib/projectKey";
@@ -881,6 +883,10 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "delete_column": {
+      const columnToDelete = await db.column.findUnique({ where: { id: args.id }, select: { projectId: true } });
+      if (!columnToDelete) throw new Error(`Column with ID ${args.id} not found.`);
+      const lastColumn = await lastColumnError(columnToDelete.projectId);
+      if (lastColumn) throw new Error(lastColumn);
       await db.column.delete({ where: { id: args.id } });
       return { success: true, deletedId: args.id };
     }
@@ -1017,6 +1023,11 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       const targetCol = await db.column.findUnique({ where: { id: args.columnId } });
       const completedAt = deriveCompletedAt(targetCol?.isDone, null);
 
+      if (args.parentId) {
+        const parentError = await validateParentCard(args.projectId, args.parentId);
+        if (parentError) throw new Error(parentError);
+      }
+
       const firstAttemptNumber = await nextCardNumber(args.projectId);
       const card = await withCardNumberRetry(args.projectId, firstAttemptNumber, (number) =>
         db.card.create({
@@ -1071,6 +1082,12 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
         data.dueDate = args.dueDate ? new Date(args.dueDate) : null;
       }
       if (args.parentId !== undefined) {
+        if (args.parentId) {
+          const cardToNest = await db.card.findUnique({ where: { id: args.id }, select: { projectId: true } });
+          if (!cardToNest) throw new Error(`Card with ID ${args.id} not found.`);
+          const parentError = await validateParentCard(cardToNest.projectId, args.parentId, args.id);
+          if (parentError) throw new Error(parentError);
+        }
         data.parentId = args.parentId || null;
       }
       if (args.typeId !== undefined) {
