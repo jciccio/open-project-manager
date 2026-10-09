@@ -24,6 +24,11 @@ function isUnsetDate(value: string | undefined | null): boolean {
   return !value || value.startsWith("0001-01-01");
 }
 
+/** Vikunja serialises unset ids (no done bucket, no bucket outside a view) as `0`. */
+function setId(id: number | undefined | null): number | undefined {
+  return id && id > 0 ? id : undefined;
+}
+
 /** Vikunja priority (0 unset … 5 DO NOW) → OPM priority enum. */
 export function mapPriority(priority: number | undefined): string {
   switch (priority) {
@@ -109,6 +114,8 @@ interface VikunjaBucket {
   id: number;
   title: string;
   position?: number;
+  /** Total tasks in the bucket; `tasks` holds only the first page of them. */
+  count?: number;
   tasks?: VikunjaTask[] | null;
 }
 
@@ -138,6 +145,7 @@ interface BucketLayout {
   buckets: VikunjaBucket[];
   /** taskId → bucketId, from the kanban view. */
   taskBucket: Map<number, number>;
+  bucketRank: Map<number, number>;
   defaultBucketId?: number;
   doneBucketId?: number;
 }
@@ -178,24 +186,33 @@ export class VikunjaImporter implements Importer {
     this.projectIds = config.projectIds?.length ? config.projectIds : undefined;
   }
 
-  private async get<T>(path: string): Promise<T> {
+  private async request<T>(path: string): Promise<{ body: T; totalPages?: number }> {
     const res = await fetch(`${this.baseUrl}${path}`, {
       headers: { Authorization: `Bearer ${this.token}`, Accept: "application/json" },
     });
     if (!res.ok) {
       throw new Error(`Vikunja GET ${path} failed: ${res.status} ${res.statusText}`);
     }
-    return (await res.json()) as T;
+    const totalPages = Number.parseInt(res.headers.get("x-pagination-total-pages") ?? "", 10);
+    return { body: (await res.json()) as T, totalPages: Number.isNaN(totalPages) ? undefined : totalPages };
   }
 
-  /** Walks Vikunja's `page=` pagination until a short page comes back. */
+  private async get<T>(path: string): Promise<T> {
+    return (await this.request<T>(path)).body;
+  }
+
+  /**
+   * Walks Vikunja's `page=` pagination. The server silently caps `per_page` at its
+   * `service.maxitemsperpage`, so a short page alone doesn't mean the end: the
+   * `x-pagination-total-pages` header decides, with the short-page rule only as a fallback.
+   */
   private async *paginate<T>(path: string): AsyncGenerator<T> {
     const separator = path.includes("?") ? "&" : "?";
     for (let page = 1; ; page++) {
-      const batch = await this.get<T[] | null>(`${path}${separator}per_page=${PER_PAGE}&page=${page}`);
-      const items = batch || [];
+      const { body, totalPages } = await this.request<T[] | null>(`${path}${separator}per_page=${PER_PAGE}&page=${page}`);
+      const items = body || [];
       for (const item of items) yield item;
-      if (items.length < PER_PAGE) return;
+      if (totalPages !== undefined ? page >= totalPages : items.length < PER_PAGE) return;
     }
   }
 
@@ -210,26 +227,42 @@ export class VikunjaImporter implements Importer {
     }
 
     // The kanban *view tasks* endpoint returns buckets each carrying their tasks,
-    // which is the only place the bucket a task sits in is exposed reliably.
-    const buckets = await this.get<VikunjaBucket[]>(`/projects/${projectId}/views/${kanban.id}/tasks?per_page=${PER_PAGE}`);
+    // which is the only place the bucket a task sits in is exposed reliably. Each
+    // bucket carries only its first page; the rest come from the same endpoint
+    // filtered to that bucket, which returns a flat, paginated task list.
+    const viewTasksPath = `/projects/${projectId}/views/${kanban.id}/tasks`;
+    const buckets = (await this.get<VikunjaBucket[] | null>(`${viewTasksPath}?per_page=${PER_PAGE}`)) || [];
     const taskBucket = new Map<number, number>();
-    for (const bucket of buckets || []) {
-      for (const task of bucket.tasks || []) taskBucket.set(task.id, bucket.id);
+    for (const bucket of buckets) {
+      const firstPage = bucket.tasks || [];
+      for (const task of firstPage) taskBucket.set(task.id, bucket.id);
+      if (firstPage.length < (bucket.count ?? 0)) {
+        const filter = encodeURIComponent(`bucket_id = ${bucket.id}`);
+        for await (const task of this.paginate<VikunjaTask>(`${viewTasksPath}?filter=${filter}`)) {
+          taskBucket.set(task.id, bucket.id);
+        }
+      }
     }
 
+    const byPosition = [...buckets].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
     const layout: BucketLayout = {
-      buckets: buckets || [],
+      buckets,
       taskBucket,
-      defaultBucketId: kanban.default_bucket_id,
-      doneBucketId: kanban.done_bucket_id,
+      bucketRank: new Map(byPosition.map((bucket, rank) => [bucket.id, rank])),
+      // Vikunja itself falls back to the leftmost bucket when no default is set.
+      defaultBucketId: setId(kanban.default_bucket_id) ?? byPosition[0]?.id,
+      doneBucketId: setId(kanban.done_bucket_id),
     };
     this.layouts.set(projectId, layout);
     return layout;
   }
 
   async *fetchProjects(): AsyncGenerator<ImportProject> {
-    const projects = await this.get<VikunjaProject[]>(`/projects?per_page=100`);
-    for (const project of projects || []) {
+    const seen = new Set<number>();
+    for await (const project of this.paginate<VikunjaProject>(`/projects`)) {
+      // Saved filters come back as pseudo-projects with negative ids, repeated on every page.
+      if (project.id <= 0 || seen.has(project.id)) continue;
+      seen.add(project.id);
       if (this.projectIds && !this.projectIds.includes(project.id)) continue;
       yield {
         sourceId: projectSourceId(project.id),
@@ -246,7 +279,7 @@ export class VikunjaImporter implements Importer {
       yield {
         sourceId: bucketSourceId(bucket.id),
         name: bucket.title,
-        order: bucket.position ?? 0,
+        order: layout.bucketRank.get(bucket.id) ?? 0,
         isDone: bucket.id === layout.doneBucketId,
       };
     }
@@ -265,8 +298,7 @@ export class VikunjaImporter implements Importer {
     }
     if (used.size === 0) return;
 
-    const labels = await this.get<{ id: number; title: string; hex_color?: string }[]>(`/labels?per_page=100`);
-    for (const label of labels || []) {
+    for await (const label of this.paginate<{ id: number; title: string; hex_color?: string }>(`/labels`)) {
       if (!used.has(label.id)) continue;
       yield {
         sourceId: labelSourceId(label.id),
@@ -281,10 +313,12 @@ export class VikunjaImporter implements Importer {
     const layout = await this.layoutFor(projectId);
 
     for await (const task of this.paginate<VikunjaTask>(`/projects/${projectId}/tasks`)) {
-      // A done task always lands in the done column, wherever the kanban view left it.
-      const bucketId = task.done
-        ? layout.doneBucketId ?? layout.taskBucket.get(task.id) ?? task.bucket_id
-        : layout.taskBucket.get(task.id) ?? task.bucket_id ?? layout.defaultBucketId;
+      // A done task lands in the done column when the view has one, wherever the kanban view left it.
+      const bucketId =
+        (task.done ? layout.doneBucketId : undefined) ??
+        layout.taskBucket.get(task.id) ??
+        setId(task.bucket_id) ??
+        layout.defaultBucketId;
 
       const owner = task.assignees?.[0]?.username || task.assignees?.[0]?.name;
       const body = htmlToMarkdown(task.description);
@@ -306,8 +340,7 @@ export class VikunjaImporter implements Importer {
 
   async *fetchComments(cardSourceId: string): AsyncGenerator<ImportComment> {
     const taskId = numericId(cardSourceId);
-    const comments = await this.get<VikunjaComment[]>(`/tasks/${taskId}/comments?per_page=100`);
-    for (const comment of comments || []) {
+    for await (const comment of this.paginate<VikunjaComment>(`/tasks/${taskId}/comments`)) {
       yield {
         sourceId: commentSourceId(comment.id),
         author: comment.author?.username || comment.author?.name || "vikunja",

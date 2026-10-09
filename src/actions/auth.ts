@@ -8,6 +8,9 @@ import bcrypt from "bcryptjs";
 import { getClientIp } from "@/lib/clientIp";
 import { checkLoginRateLimit, recordLoginFailure, recordLoginSuccess } from "@/lib/loginRateLimit";
 import { safeRevalidatePath } from "@/lib/revalidate";
+import { passwordMatches } from "@/lib/passwords";
+import { isRegistrationOpen } from "@/lib/registration";
+import { isOidcConfigured } from "@/lib/oidc";
 
 const loginSchema = z.object({
   email: z.string().trim().min(1),
@@ -21,6 +24,10 @@ export async function registerUser(formData: {
   confirmPassword?: string;
 }) {
   try {
+    if (!(await isRegistrationOpen())) {
+      return { success: false, error: "Registration is closed on this instance." };
+    }
+
     const { name, email, password, confirmPassword } = formData;
 
     if (!name.trim() || !email.trim() || !password) {
@@ -89,13 +96,8 @@ export async function loginUser(formData: { email: string; password: string }) {
       where: { email: email.toLowerCase().trim() },
     });
 
-    if (!user || !user.passwordHash) {
-      recordLoginFailure(email, ip);
-      return { success: false, error: "Invalid email or password." };
-    }
-
-    const isValidPassword = await bcrypt.compare(password, user.passwordHash);
-    if (!isValidPassword) {
+    const isValidPassword = await passwordMatches(password, user?.passwordHash);
+    if (!user || !isValidPassword) {
       recordLoginFailure(email, ip);
       return { success: false, error: "Invalid email or password." };
     }
@@ -124,6 +126,13 @@ export async function logoutUser() {
 
 export async function getCurrentUser() {
   return await getSession();
+}
+
+export async function getSsoStatus() {
+  const session = await getSession();
+  if (!session) return { success: false as const, error: "Unauthorized" };
+  const user = await db.user.findUnique({ where: { id: session.userId }, select: { oidcSubject: true } });
+  return { success: true as const, oidcEnabled: isOidcConfigured(), linked: Boolean(user?.oidcSubject) };
 }
 
 export async function updateUserProfile(data: {

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { createTestUser, createTestProject, cleanupTestUser } from "@/test/helpers";
-import { listWebhooks, createWebhook, updateWebhook, deleteWebhook } from "@/actions/webhooks";
+import { listWebhooks, createWebhook, updateWebhook, deleteWebhook } from "@/lib/services/webhooks";
 
 describe("Webhook Actions", () => {
   let userId: string;

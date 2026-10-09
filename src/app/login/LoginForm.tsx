@@ -9,14 +9,17 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslation } from "@/components/LanguageProvider";
 import type { TranslationKeys } from "@/locales/en";
 
-const OIDC_ERROR_KEYS: Record<string, keyof TranslationKeys["auth"]> = {
+const LOGIN_ERROR_KEYS: Record<string, keyof TranslationKeys["auth"]> = {
+  registration_closed: "registrationClosed",
   oidc_session_expired: "oidcErrorSessionExpired",
   oidc_missing_email: "oidcErrorMissingEmail",
   oidc_email_not_verified: "oidcErrorEmailNotVerified",
   oidc_failed: "oidcErrorFailed",
+  oidc_link_required: "oidcErrorLinkRequired",
+  oidc_linked_elsewhere: "oidcErrorLinkedElsewhere",
 };
 
-export function LoginForm({ oidcEnabled }: { oidcEnabled: boolean }) {
+export function LoginForm({ oidcEnabled, registrationOpen }: { oidcEnabled: boolean; registrationOpen: boolean }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -25,9 +28,9 @@ export function LoginForm({ oidcEnabled }: { oidcEnabled: boolean }) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const oidcErrorCode = searchParams.get("error");
-  const oidcErrorKey = oidcErrorCode ? OIDC_ERROR_KEYS[oidcErrorCode] : undefined;
-  const displayedError = error || (oidcErrorKey ? t(`auth.${oidcErrorKey}`) : "");
+  const errorCode = searchParams.get("error");
+  const errorKey = errorCode ? LOGIN_ERROR_KEYS[errorCode] : undefined;
+  const displayedError = error || (errorKey ? t(`auth.${errorKey}`) : "");
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -143,18 +146,19 @@ export function LoginForm({ oidcEnabled }: { oidcEnabled: boolean }) {
           </>
         )}
 
-        {/* Register Link */}
-        <div className="text-center pt-2 border-t border-slate-200 dark:border-slate-800">
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            {t("auth.noAccount")}{" "}
-            <Link
-              href="/register"
-              className="font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
-            >
-              {t("auth.createOneNow")}
-            </Link>
-          </p>
-        </div>
+        {registrationOpen && (
+          <div className="text-center pt-2 border-t border-slate-200 dark:border-slate-800">
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              {t("auth.noAccount")}{" "}
+              <Link
+                href="/register"
+                className="font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
+              >
+                {t("auth.createOneNow")}
+              </Link>
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

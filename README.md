@@ -113,7 +113,7 @@ docker compose logs -f
 docker compose down
 ```
 
-> 💡 **Prefer PostgreSQL?** Run `docker compose -f docker-compose.postgres.yml up -d` and seed with `docker compose -f docker-compose.postgres.yml run --rm migrate npx tsx prisma/seed.ts`. See the [Docker Deployment](#-docker-deployment) section below for details.
+> 💡 **Prefer PostgreSQL?** Add `POSTGRES_PASSWORD=$(openssl rand -hex 24)` to `.env`, run `docker compose -f docker-compose.postgres.yml up -d` and seed with `docker compose -f docker-compose.postgres.yml run --rm migrate npx tsx prisma/seed.ts`. See the [Docker Deployment](#-docker-deployment) section below for details.
 
 ---
 
@@ -301,10 +301,15 @@ holder cannot point the importer at an arbitrary host):
 ```bash
 VIKUNJA_URL=http://localhost:3456/api/v1  # Or http://<your-vikunja-host>:3456/api/v1
 VIKUNJA_API_TOKEN=your-vikunja-read-token
+VIKUNJA_IMPORT_USER_EMAIL=you@example.com  # the only OPM account allowed to import over the API
 ```
 
-Then trigger it. Always dry-run first — it writes nothing and reports exactly what
-would be created:
+The Vikunja token is server-wide, so the API route only accepts imports from the
+account named in `VIKUNJA_IMPORT_USER_EMAIL`; without it, use the command line below.
+
+Then trigger it. Always dry-run first. It writes nothing and reports what would be
+created, skipped, or fail (`would_fail`, for example a card whose bucket has no
+matching column):
 
 ```bash
 # Dry run
@@ -336,7 +341,7 @@ How Vikunja concepts land in OPM:
 |---|---|
 | Project | Project |
 | Kanban bucket | Column (the view's `done_bucket_id` becomes `isDone`) |
-| Task | Card (done tasks are forced into the done column, keeping `done_at` as `completedAt`) |
+| Task | Card (done tasks are forced into the done column when the view has one, keeping `done_at` as `completedAt`) |
 | Priority `0…5` | `NONE, LOW, MEDIUM, HIGH, URGENT, URGENT` |
 | Label (instance-wide) | Project label — only labels the imported tasks actually use |
 | Comment | Comment, keeping the original author and timestamp |
@@ -474,8 +479,9 @@ deployment.
 For production setups with an integrated or centralized PostgreSQL database:
 
 ```bash
-# Create a .env with a real secret
+# Create a .env with a real secret and a database password
 echo "JWT_SECRET=$(openssl rand -base64 32)" > .env
+echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)" >> .env
 
 # Build and launch application alongside Postgres 16
 docker compose -f docker-compose.postgres.yml up -d
