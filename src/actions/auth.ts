@@ -10,6 +10,7 @@ import { checkLoginRateLimit, recordLoginFailure, recordLoginSuccess } from "@/l
 import { safeRevalidatePath } from "@/lib/revalidate";
 import { passwordMatches } from "@/lib/passwords";
 import { isRegistrationOpen } from "@/lib/registration";
+import { isOidcConfigured } from "@/lib/oidc";
 
 const loginSchema = z.object({
   email: z.string().trim().min(1),
@@ -125,6 +126,13 @@ export async function logoutUser() {
 
 export async function getCurrentUser() {
   return await getSession();
+}
+
+export async function getSsoStatus() {
+  const session = await getSession();
+  if (!session) return { success: false as const, error: "Unauthorized" };
+  const user = await db.user.findUnique({ where: { id: session.userId }, select: { oidcSubject: true } });
+  return { success: true as const, oidcEnabled: isOidcConfigured(), linked: Boolean(user?.oidcSubject) };
 }
 
 export async function updateUserProfile(data: {
