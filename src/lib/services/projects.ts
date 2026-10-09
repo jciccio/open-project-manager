@@ -5,6 +5,7 @@ import { DEFAULT_CARD_TYPES } from "@/lib/cardTypeDefaults";
 import { triggerWebhooks } from "@/lib/webhooks";
 import { generateProjectKey } from "@/lib/projectKey";
 import { getProjectAccess } from "@/lib/permissions";
+import { isHexColor, INVALID_COLOR_ERROR } from "@/lib/colors";
 
 export async function getProjects(userId: string, isArchived = false) {
   try {
@@ -174,6 +175,9 @@ export async function createProject(
     if (!data.name.trim()) {
       return { success: false, error: "Project name is required" };
     }
+    if (data.color !== undefined && !isHexColor(data.color)) {
+      return { success: false, error: INVALID_COLOR_ERROR };
+    }
 
     const projectKey = await generateProjectKey(data.name, data.key, userId);
 
@@ -228,10 +232,14 @@ export async function createProject(
 
 export async function updateProject(
   id: string,
-  data: { name?: string; description?: string; color?: string; visibility?: string },
+  data: { name?: string; description?: string | null; color?: string; visibility?: string },
   userId: string
 ) {
   try {
+    if (data.color !== undefined && !isHexColor(data.color)) {
+      return { success: false, error: INVALID_COLOR_ERROR };
+    }
+
     const access = await getProjectAccess(id, userId, "ADMIN");
     if (!access.hasAccess) {
       return { success: false, error: "Project not found or access denied" };

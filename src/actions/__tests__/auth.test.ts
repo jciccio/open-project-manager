@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, beforeAll, afterAll } from "vitest";
 import {
   registerUser,
   loginUser,
@@ -24,6 +24,15 @@ describe("Auth Server Actions", () => {
   let createdUserId: string | null = null;
   const testEmail = `auth-action-test-${Date.now()}@example.com`;
   const testPass = "SecurePass123!";
+
+  const previousAllowRegistration = process.env.OPM_ALLOW_REGISTRATION;
+  beforeAll(() => {
+    process.env.OPM_ALLOW_REGISTRATION = "true";
+  });
+  afterAll(() => {
+    if (previousAllowRegistration === undefined) delete process.env.OPM_ALLOW_REGISTRATION;
+    else process.env.OPM_ALLOW_REGISTRATION = previousAllowRegistration;
+  });
 
   afterEach(async () => {
     if (createdUserId) {

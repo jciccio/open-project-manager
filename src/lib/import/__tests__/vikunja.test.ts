@@ -4,25 +4,45 @@ import type { ImportCard, ImportColumn, ImportLabel, ImportComment, ImportProjec
 
 const BASE = "http://vikunja.test/api/v1";
 
+interface PagedRoute {
+  paged: true;
+  body: unknown;
+  totalPages: number;
+}
+
+function paged(body: unknown, totalPages: number): PagedRoute {
+  return { paged: true, body, totalPages };
+}
+
+function isPaged(route: unknown): route is PagedRoute {
+  return !!route && typeof route === "object" && "paged" in route;
+}
+
 /** Minimal stand-in for the Vikunja endpoints the adapter touches. */
 function stubVikunja(routes: Record<string, unknown>) {
   return vi.fn(async (url: string) => {
     const path = String(url).slice(BASE.length);
-    // Match on pathname + the query params the adapter varies (page).
+    // Match on pathname + the query params the adapter varies (filter, page).
     const [pathname, query = ""] = path.split("?");
-    const page = Number(new URLSearchParams(query).get("page") || "1");
-    const key = page > 1 ? `${pathname}?page=${page}` : pathname;
+    const params = new URLSearchParams(query);
+    const page = Number(params.get("page") || "1");
+    const filter = params.get("filter");
+    const base = filter ? `${pathname}?filter=${filter}` : pathname;
+    const key = page > 1 ? `${base}${filter ? "&" : "?"}page=${page}` : base;
     if (!(key in routes)) {
       // An un-stubbed paginated follow-up page is simply empty.
       if (page > 1) return jsonResponse([]);
       throw new Error(`unexpected fetch: ${path}`);
     }
-    return jsonResponse(routes[key]);
+    const route = routes[key];
+    if (isPaged(route)) return jsonResponse(route.body, route.totalPages);
+    return jsonResponse(route);
   });
 }
 
-function jsonResponse(body: unknown) {
-  return { ok: true, status: 200, statusText: "OK", json: async () => body } as unknown as Response;
+function jsonResponse(body: unknown, totalPages?: number) {
+  const headers = new Headers(totalPages === undefined ? {} : { "x-pagination-total-pages": String(totalPages) });
+  return { ok: true, status: 200, statusText: "OK", headers, json: async () => body } as unknown as Response;
 }
 
 async function collect<T>(gen: AsyncGenerator<T>): Promise<T[]> {
@@ -162,7 +182,7 @@ describe("VikunjaImporter", () => {
       ["vikunja:bucket:5", "Doing", false],
       ["vikunja:bucket:6", "Done", true],
     ]);
-    expect(columns.map((c) => c.order)).toEqual([1, 2, 3]);
+    expect(columns.map((c) => c.order)).toEqual([0, 1, 2]);
   });
 
   it("fails loudly when the project has no kanban view to map columns from", async () => {
@@ -224,6 +244,103 @@ describe("VikunjaImporter", () => {
         createdAt: "2026-07-20T09:00:00Z",
       },
     ]);
+  });
+
+  it("treats a 0 done/default bucket id as unset instead of a real bucket", async () => {
+    const importer = makeImporter(
+      defaultRoutes({
+        "/projects/2/views": [{ id: 8, view_kind: "kanban", default_bucket_id: 0, done_bucket_id: 0 }],
+        "/projects/2/tasks": [
+          { id: 101, index: 1, title: "Done, filed in Doing", done: true, bucket_id: 0 },
+          { id: 102, index: 2, title: "Open, in Doing", bucket_id: 0 },
+          { id: 999, index: 3, title: "Done, not on the board", done: true, bucket_id: 0 },
+        ],
+      })
+    );
+
+    const columns = await collect(importer.fetchColumns(PROJECT_SID));
+    expect(columns.every((c) => c.isDone === false)).toBe(true);
+
+    const cards = await collect(importer.fetchCards(PROJECT_SID));
+    const byId = Object.fromEntries(cards.map((c) => [c.sourceId, c.columnSourceId]));
+    expect(byId["vikunja:task:101"]).toBe("vikunja:bucket:4");
+    expect(byId["vikunja:task:102"]).toBe("vikunja:bucket:5");
+    // Not in any bucket and no default: Vikunja's own fallback, the leftmost bucket.
+    expect(byId["vikunja:task:999"]).toBe("vikunja:bucket:4");
+    expect(cards.some((c) => c.columnSourceId === "vikunja:bucket:0")).toBe(false);
+  });
+
+  it("pages the rest of a bucket that holds more tasks than the board's first page", async () => {
+    const overflow = Array.from({ length: 79 }, (_, i) => ({ id: 1000 + i }));
+    const filter = "bucket_id = 5";
+    const importer = makeImporter(
+      defaultRoutes({
+        "/projects/2/views/8/tasks": [
+          { id: 4, title: "To-Do", position: 1, count: 1, tasks: [{ id: 101 }] },
+          { id: 5, title: "Doing", position: 2, count: 80, tasks: [{ id: 102 }] },
+          { id: 6, title: "Done", position: 3, count: 0 },
+        ],
+        [`/projects/2/views/8/tasks?filter=${filter}`]: paged([{ id: 102 }, ...overflow.slice(0, 49)], 2),
+        [`/projects/2/views/8/tasks?filter=${filter}&page=2`]: paged(overflow.slice(49), 2),
+        "/projects/2/tasks": paged(
+          [{ id: 101, index: 1, title: "a" }, { id: 102, index: 2, title: "b" }, ...overflow.slice(0, 48).map((t, i) => ({ ...t, index: 10 + i, title: `t${i}`, bucket_id: 0 }))],
+          2
+        ),
+        "/projects/2/tasks?page=2": paged(overflow.slice(48).map((t, i) => ({ ...t, index: 100 + i, title: `u${i}`, bucket_id: 0 })), 2),
+      })
+    );
+
+    const cards = await collect(importer.fetchCards(PROJECT_SID));
+    expect(cards.length).toBe(81);
+    expect(cards.filter((c) => c.columnSourceId === "vikunja:bucket:5").length).toBe(80);
+    expect(cards.some((c) => !c.columnSourceId.match(/^vikunja:bucket:[45]$/))).toBe(false);
+
+    const requested = fetchStub.mock.calls.map(([url]) => String(url));
+    expect(requested).toContain(`${BASE}/projects/2/views/8/tasks?filter=bucket_id%20%3D%205&per_page=50&page=2`);
+    expect(requested.some((u) => u.includes("filter=bucket_id%20%3D%204"))).toBe(false);
+  });
+
+  it("orders columns by bucket rank, so fractional drag positions become integers", async () => {
+    const importer = makeImporter(
+      defaultRoutes({
+        "/projects/2/views/8/tasks": [
+          { id: 4, title: "To-Do", position: 65536 },
+          { id: 5, title: "Doing", position: 32768.5 },
+          { id: 6, title: "Done", position: 98304.25 },
+        ],
+      })
+    );
+    const columns = await collect(importer.fetchColumns(PROJECT_SID));
+
+    expect(columns.map((c) => [c.name, c.order])).toEqual([
+      ["To-Do", 1],
+      ["Doing", 0],
+      ["Done", 2],
+    ]);
+    expect(columns.every((c) => Number.isInteger(c.order))).toBe(true);
+  });
+
+  it("follows x-pagination-total-pages when the server caps per_page below the requested size", async () => {
+    const importer = makeImporter(
+      defaultRoutes({
+        "/projects": paged([{ id: -1, title: "Saved filter" }, { id: 2, title: "Mejengapp" }, { id: 9, title: "Other" }], 2),
+        "/projects?page=2": paged([{ id: -1, title: "Saved filter" }, { id: 55, title: "Fifty-fifth" }], 2),
+        "/labels": paged([{ id: 1, title: "first-page" }], 2),
+        "/labels?page=2": paged([{ id: 7, title: "bug" }], 2),
+        "/tasks/101/comments": paged([{ id: 45, comment: "one" }], 2),
+        "/tasks/101/comments?page=2": paged([{ id: 46, comment: "two" }], 2),
+      }),
+      null
+    );
+
+    const projects = await collect(importer.fetchProjects());
+    expect(projects.map((p) => p.sourceId)).toEqual(["vikunja:project:2", "vikunja:project:9", "vikunja:project:55"]);
+
+    const labels = await collect(importer.fetchLabels(PROJECT_SID));
+    expect(labels.map((l) => l.sourceId)).toEqual(["vikunja:label:7"]);
+
+    const comments = await collect(importer.fetchComments("vikunja:task:101"));
+    expect(comments.map((c) => c.sourceId)).toEqual(["vikunja:comment:45", "vikunja:comment:46"]);
   });
 
   it("yields no card types — Vikunja has no equivalent concept", async () => {

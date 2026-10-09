@@ -164,6 +164,18 @@ OIDC_REDIRECT_URI=https://opm.example.com/api/v1/auth/oidc/callback
 EOT
 ```
 
+Registration is closed once the first account exists: the first person to open `/register` becomes the first user, and after that the sign-up page redirects to login. To let anyone who can reach the instance create an account, add:
+```bash
+echo "OPM_ALLOW_REGISTRATION=true" >> .env
+```
+SSO users are still created on their first sign-in, since your identity provider decides who can log in.
+
+SSO sign-in creates or links an account only when the identity provider marks the email as verified (`email_verified`). Some providers never do: Authentik's default email mapping always sends `email_verified: false`. If your provider controls email addresses itself (no self-service sign-up, users can't change their own email), you can trust them anyway:
+```bash
+echo "OIDC_TRUST_UNVERIFIED_EMAIL=true" >> .env
+```
+Leave it unset if anyone can sign up at your provider or change their email there.
+
 ---
 
 ### Option A: SQLite (Zero-Config Default)
@@ -185,13 +197,21 @@ docker compose logs -f
 
 The application is now live at: **`http://<RASPBERRY_PI_IP>:3000`**
 
+If you put a reverse proxy on the same host (see [Reverse Proxy & Automatic HTTPS](#-reverse-proxy--automatic-https-ssl)), publish port 3000 on localhost only, so nobody can reach the app around the proxy:
+```bash
+echo "OPM_BIND_ADDRESS=127.0.0.1" >> .env
+docker compose up -d
+```
+
 ---
 
 ### Option B: PostgreSQL (Opt-In)
 
-For production setups using an integrated PostgreSQL 16 database:
+For production setups using an integrated PostgreSQL 16 database. The compose file needs a database password in `.env` (hex keeps it safe inside the connection URL):
 
 ```bash
+echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)" >> .env
+
 # Start PostgreSQL and Open Project Manager
 docker compose -f docker-compose.postgres.yml up -d
 
@@ -202,6 +222,11 @@ docker compose -f docker-compose.postgres.yml run --rm migrate npx tsx prisma/se
 View logs:
 ```bash
 docker compose -f docker-compose.postgres.yml logs -f
+```
+
+PostgreSQL's port isn't published on the host. To open a database shell:
+```bash
+docker compose -f docker-compose.postgres.yml exec postgres psql -U postgres opm
 ```
 
 ---
@@ -222,6 +247,26 @@ docker compose build --pull
 docker compose up -d
 ```
 
+On start, the containers give the data volume to the app user (UID 1001) if an older image left it owned by root, so upgrading an existing install needs no manual `chown`.
+
+**Upgrading a PostgreSQL install created before `POSTGRES_PASSWORD` was required:** PostgreSQL keeps the password it was first initialised with (`postgres`), so the compose file now refuses to start until `.env` sets one. Change the database password first, then store the same value in `.env`:
+```bash
+NEW_PASSWORD=$(openssl rand -hex 24)
+docker compose -f docker-compose.postgres.yml exec postgres psql -U postgres -c "ALTER USER postgres PASSWORD '$NEW_PASSWORD'"
+echo "POSTGRES_PASSWORD=$NEW_PASSWORD" >> .env
+git pull
+docker compose -f docker-compose.postgres.yml build --pull
+docker compose -f docker-compose.postgres.yml up -d
+```
+Run the `ALTER USER` step before `git pull`, while the running containers still use the old compose file. The app can't reach the database between that step and the final `up -d`, so run the commands together.
+
+#### Smoke-Test a Running Instance:
+After an install or update, check the live instance end to end: login, a project and card over REST and MCP, the rendered board, and cleanup. Use a dedicated test account, never a real user's:
+```bash
+OPM_URL=https://your-host OPM_SMOKE_EMAIL=smoke@example.invalid OPM_SMOKE_PASSWORD=... yarn smoke-test
+```
+It creates a PRIVATE project named `E2E Smoke ...`, deletes it at the end, and exits non-zero if any check fails.
+
 ---
 
 ## ⚙️ Deployment Mode 2: Bare-Metal / Standalone Node.js
@@ -231,7 +276,7 @@ Bare-metal mode runs Next.js directly on the host using the standalone productio
 ### Step 1: Clone & Configure Environment
 
 ```bash
-# Clone to /opt or your home directory
+# Clone to /opt (the systemd unit makes /home read-only for the service)
 sudo mkdir -p /opt/open-project-manager
 sudo chown -R $USER:$USER /opt/open-project-manager
 git clone https://github.com/jciccio/open-project-manager.git /opt/open-project-manager
@@ -239,10 +284,13 @@ cd /opt/open-project-manager
 
 # Generate .env with JWT_SECRET
 echo "JWT_SECRET=$(openssl rand -base64 32)" > .env
-echo "DATABASE_URL=file:./dev.db" >> .env
+echo "DATABASE_URL=file:/opt/open-project-manager/dev.db" >> .env
+echo "UPLOADS_DIR=/opt/open-project-manager/data/attachments" >> .env
 echo "PORT=3000" >> .env
 echo "HOSTNAME=0.0.0.0" >> .env
 ```
+
+Keep `DATABASE_URL` and `UPLOADS_DIR` absolute. The standalone server changes into `.next/standalone` when it starts, so a relative `file:./dev.db` would make it open an empty database there instead of the one `prisma migrate deploy` creates in the install directory.
 
 ---
 
@@ -283,31 +331,45 @@ To keep Open Project Manager running 24/7 and automatically restart it on Raspbe
 
 #### Method A: Systemd Service (Recommended)
 
-1. Copy the provided systemd service unit template from `deploy/open-project-manager.service`:
+1. Create the `opm` service user and give it the files it writes. SQLite creates a journal file next to `dev.db`, so the group also needs write access to the install directory:
+   ```bash
+   sudo useradd --system --no-create-home --shell /usr/sbin/nologin opm
+   cd /opt/open-project-manager
+   mkdir -p data/attachments
+   sudo chown opm:opm dev.db
+   sudo chown -R opm:opm data
+   sudo chgrp opm /opt/open-project-manager
+   sudo chmod g+w /opt/open-project-manager
+   ```
+
+2. Copy the provided systemd service unit template from `deploy/open-project-manager.service`:
    ```bash
    sudo cp deploy/open-project-manager.service /etc/systemd/system/open-project-manager.service
    ```
 
-2. If you are running under a custom user (e.g. `pi`) or cloned to a path other than `/opt/open-project-manager`, edit the service file:
+3. If you cloned to a path other than `/opt/open-project-manager`, edit the service file and change the path in `WorkingDirectory=`, `EnvironmentFile=`, `ExecStart=` and `ReadWritePaths=`. Keep the install outside `/home`, which the unit makes read-only:
    ```bash
    sudo nano /etc/systemd/system/open-project-manager.service
    ```
-   *Verify `User=`, `Group=`, `WorkingDirectory=`, and `ExecStart=` paths.*
 
-3. Enable and start the service:
+4. Enable and start the service:
    ```bash
    sudo systemctl daemon-reload
    sudo systemctl enable --now open-project-manager
    ```
 
-4. Check status & logs:
+5. Check status, logs, and that the app answers (expect `200`):
    ```bash
    # Check service status
    sudo systemctl status open-project-manager
 
    # Follow real-time application logs
    journalctl -u open-project-manager -f
+
+   curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3000/login
    ```
+
+Settings in `.env` take effect on `sudo systemctl restart open-project-manager`; no rebuild needed.
 
 #### Method B: PM2 Process Manager
 
@@ -316,9 +378,13 @@ To keep Open Project Manager running 24/7 and automatically restart it on Raspbe
    sudo npm install -g pm2
    ```
 
-2. Start Open Project Manager using the pre-configured ecosystem file:
+2. Start Open Project Manager using the pre-configured ecosystem file. PM2 runs the app as the user who starts it, with the settings from the install directory's `.env`:
    ```bash
    pm2 start deploy/ecosystem.config.js
+   ```
+   After editing `.env`, apply it without a rebuild (a plain `pm2 restart open-project-manager` keeps the old values):
+   ```bash
+   pm2 restart deploy/ecosystem.config.js --update-env
    ```
 
 3. Save process list and enable auto-start on boot:
@@ -339,6 +405,13 @@ To keep Open Project Manager running 24/7 and automatically restart it on Raspbe
 ## 🔒 Reverse Proxy & Automatic HTTPS (SSL)
 
 Running Open Project Manager behind a reverse proxy lets you access the app on standard HTTP (80) and HTTPS (443) ports, use a custom domain or `.local` hostname, and enjoy automated TLS encryption.
+
+When the proxy runs on the same host as a bare-metal install, make the app listen on localhost only, so port 3000 can't be used to get around the proxy. Set `HOSTNAME=127.0.0.1` in `.env` and restart:
+```bash
+cd /opt/open-project-manager
+sed -i 's/^HOSTNAME=.*/HOSTNAME=127.0.0.1/' .env
+sudo systemctl restart open-project-manager   # or: pm2 restart deploy/ecosystem.config.js --update-env
+```
 
 ### Option A: Caddy (Recommended - Automatic SSL)
 
@@ -509,9 +582,9 @@ yarn install --force
 ```
 
 ### Q3: `EACCES: permission denied` on database file in Docker
-**Cause**: The named volume or host directory was created as root before the non-root `nextjs` user (UID 1001) could access it.  
+**Cause**: The named volume or host directory is owned by root, usually because an older image created it.  
 **Solution**:
-Use the standard `docker-compose.yml` which runs the `migrator` service as UID 1001 with correct volume initialization.
+Rebuild and restart with the current `Dockerfile` (`docker compose build && docker compose up -d`). Both the `migrate` and app containers start as root just long enough to `chown` `/app/data` to UID 1001, then run as that user. For a host directory bind-mounted at `/app/data`, the same applies; if your host forbids the `chown` (for example a read-only or root-squashed NFS export), run `sudo chown -R 1001:1001 <dir>` on the host.
 
 ### Q4: How do I reduce MicroSD card wear on my Raspberry Pi?
 **Solution**:
