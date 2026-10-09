@@ -93,6 +93,8 @@ export async function verifyToken(token: string): Promise<UserSession | null> {
   }
 }
 
+const LAST_USED_WRITE_INTERVAL_MS = 5 * 60 * 1000;
+
 // Verifies a Bearer token that may be either a plain session JWT or an API
 // token JWT (carries `jti`). API tokens are additionally checked against the
 // ApiToken table so a deleted (revoked) row invalidates an otherwise
@@ -119,10 +121,12 @@ async function verifyBearerToken(token: string): Promise<UserSession | null> {
     return null;
   }
 
-  await db.apiToken.update({
-    where: { id: jti },
-    data: { lastUsedAt: new Date() },
-  });
+  if (!apiToken.lastUsedAt || Date.now() - apiToken.lastUsedAt.getTime() > LAST_USED_WRITE_INTERVAL_MS) {
+    await db.apiToken.update({
+      where: { id: jti },
+      data: { lastUsedAt: new Date() },
+    });
+  }
 
   return {
     userId: payload.userId as string,

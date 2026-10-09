@@ -8,6 +8,7 @@ import bcrypt from "bcryptjs";
 import { getClientIp } from "@/lib/clientIp";
 import { checkLoginRateLimit, recordLoginFailure, recordLoginSuccess } from "@/lib/loginRateLimit";
 import { safeRevalidatePath } from "@/lib/revalidate";
+import { passwordMatches } from "@/lib/passwords";
 import { isRegistrationOpen } from "@/lib/registration";
 
 const loginSchema = z.object({
@@ -94,13 +95,8 @@ export async function loginUser(formData: { email: string; password: string }) {
       where: { email: email.toLowerCase().trim() },
     });
 
-    if (!user || !user.passwordHash) {
-      recordLoginFailure(email, ip);
-      return { success: false, error: "Invalid email or password." };
-    }
-
-    const isValidPassword = await bcrypt.compare(password, user.passwordHash);
-    if (!isValidPassword) {
+    const isValidPassword = await passwordMatches(password, user?.passwordHash);
+    if (!user || !isValidPassword) {
       recordLoginFailure(email, ip);
       return { success: false, error: "Invalid email or password." };
     }
