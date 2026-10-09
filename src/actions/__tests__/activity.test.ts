@@ -3,7 +3,8 @@ import { db } from "@/lib/db";
 import { createProject } from "@/lib/services/projects";
 import { createCard, updateCard, moveCard } from "@/lib/services/cards";
 import { addComment } from "@/lib/services/comments";
-import { getCardActivity } from "@/lib/services/activity";
+import { getCardActivity, recordActivity } from "@/lib/services/activity";
+import * as activityActions from "@/actions/activity";
 
 describe("Card Activity / Audit Trail Actions", () => {
   let userId: string;
@@ -125,5 +126,24 @@ describe("Card Activity / Audit Trail Actions", () => {
     expect(types).toContain("card_created");
     expect(types).toContain("moved");
     expect(types).toContain("comment_added");
+  });
+
+  it("does not expose recordActivity as a Server Action", () => {
+    expect((activityActions as Record<string, unknown>).recordActivity).toBeUndefined();
+  });
+
+  it("records activity through the service and lets project members read it", async () => {
+    const cardRes = await createCard({ projectId, columnId: col1Id, title: "Direct Record Task" }, userId);
+    const cardId = cardRes.data!.id;
+    await recordActivity({ cardId, projectId, actorUserId: userId, type: "custom_event", toValue: "done" });
+
+    const member = await db.user.create({
+      data: { email: "activity_member@example.com", name: "Activity Member", passwordHash: "hash123" },
+    });
+    await db.projectMember.create({ data: { projectId, userId: member.id, role: "VIEWER" } });
+
+    const actRes = await getCardActivity(cardId, member.id);
+    expect(actRes.success).toBe(true);
+    expect(actRes.data!.map((a) => a.type)).toContain("custom_event");
   });
 });
