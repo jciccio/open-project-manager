@@ -56,6 +56,15 @@ describe("Labels & Comments Server Actions", () => {
     expect(getRes.data?.some((l) => l.name === "Feature")).toBe(true);
   });
 
+  it("refuses a duplicate label name in the same project", async () => {
+    expect((await createLabel("Duplicate", "#10b981", projectId)).success).toBe(true);
+
+    const again = await createLabel("Duplicate", "#ef4444", projectId);
+
+    expect(again.success).toBe(false);
+    expect(again.error).toBe("A label with this name already exists");
+  });
+
   it("blocks a second user from listing, creating in, or deleting from a project they don't own", async () => {
     const victimLabelRes = await createLabel("Victim Label", "#10b981", projectId);
     const victimLabelId = victimLabelRes.data!.id;
