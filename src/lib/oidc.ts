@@ -53,6 +53,7 @@ export async function getOidcConfig(): Promise<client.Configuration> {
 }
 
 export interface OidcClaims {
+  iss: string;
   sub: string;
   email?: string;
   emailVerified: boolean;
@@ -68,17 +69,30 @@ export type ResolveOidcUserError =
 
 export type ResolveOidcUserResult = { ok: true; user: User } | { ok: false; error: ResolveOidcUserError };
 
-// Lookup is oidcSubject-first because `sub` is stable for the life of the
-// IdP account, while email can change. An unseen subject is never attached
+// Lookup is (issuer, subject)-first because `sub` is stable for the life of
+// the IdP account, while email can change. `sub` is only unique per issuer, so
+// pointing OIDC_ISSUER_URL at a new IdP must not hand its users the accounts of
+// the old IdP's users with the same `sub`. An unseen subject is never attached
 // to an account that has a local password: whoever registered that email
 // first could otherwise own the account the SSO user lands in. Those
 // accounts link from the profile instead (linkUserId), which proves the
 // person controls the local account too.
+// Accounts linked before the issuer was stored have oidcIssuer NULL. The first
+// login with a matching subject records the current issuer on that account.
+async function findUserBySubject(iss: string, sub: string): Promise<User | null> {
+  const user = await db.user.findUnique({ where: { oidcIssuer_oidcSubject: { oidcIssuer: iss, oidcSubject: sub } } });
+  if (user) return user;
+
+  const legacy = await db.user.findFirst({ where: { oidcIssuer: null, oidcSubject: sub } });
+  if (!legacy) return null;
+  return db.user.update({ where: { id: legacy.id }, data: { oidcIssuer: iss } });
+}
+
 export async function resolveOidcUser(
   claims: OidcClaims,
   options: { linkUserId?: string } = {}
 ): Promise<ResolveOidcUserResult> {
-  const existingBySubject = await db.user.findUnique({ where: { oidcSubject: claims.sub } });
+  const existingBySubject = await findUserBySubject(claims.iss, claims.sub);
 
   if (options.linkUserId) {
     if (existingBySubject) {
@@ -89,7 +103,10 @@ export async function resolveOidcUser(
     const target = await db.user.findUnique({ where: { id: options.linkUserId } });
     if (!target) return { ok: false, error: "link_required" };
     if (target.oidcSubject) return { ok: false, error: "linked_elsewhere" };
-    const linked = await db.user.update({ where: { id: target.id }, data: { oidcSubject: claims.sub } });
+    const linked = await db.user.update({
+      where: { id: target.id },
+      data: { oidcIssuer: claims.iss, oidcSubject: claims.sub },
+    });
     return { ok: true, user: linked };
   }
 
@@ -115,14 +132,14 @@ export async function resolveOidcUser(
     }
     const linked = await db.user.update({
       where: { id: existingByEmail.id },
-      data: { oidcSubject: claims.sub },
+      data: { oidcIssuer: claims.iss, oidcSubject: claims.sub },
     });
     return { ok: true, user: linked };
   }
 
   const name = claims.name?.trim() || email;
   const created = await db.user.create({
-    data: { email, name, oidcSubject: claims.sub },
+    data: { email, name, oidcIssuer: claims.iss, oidcSubject: claims.sub },
   });
   return { ok: true, user: created };
 }
