@@ -63,6 +63,29 @@ async function rowStillExists(entityType: ImportEntityType, localId: string): Pr
   }
 }
 
+async function deleteImportedRow(entityType: ImportEntityType, localId: string): Promise<void> {
+  switch (entityType) {
+    case "project":
+      await db.project.delete({ where: { id: localId } });
+      return;
+    case "column":
+      await db.column.delete({ where: { id: localId } });
+      return;
+    case "cardType":
+      await db.cardType.delete({ where: { id: localId } });
+      return;
+    case "label":
+      await db.label.delete({ where: { id: localId } });
+      return;
+    case "card":
+      await db.card.delete({ where: { id: localId } });
+      return;
+    case "comment":
+      await db.comment.delete({ where: { id: localId } });
+      return;
+  }
+}
+
 /** Creates a record via `create()` unless it's already mapped and the target row is still alive. */
 async function createOrSkip(
   ctx: RunCtx,
@@ -80,7 +103,13 @@ async function createOrSkip(
     }
 
     const localId = await create();
-    await recordMapping(ctx.userId, ctx.source, entityType, sourceId, localId, ctx.importRunId);
+    try {
+      await recordMapping(ctx.userId, ctx.source, entityType, sourceId, localId, ctx.importRunId);
+    } catch (err) {
+      // An unmapped row would be created again on the next run.
+      await deleteImportedRow(entityType, localId).catch(() => {});
+      throw err;
+    }
     return { localId, result: { entityType, sourceId, status: "created", localId } };
   } catch (err) {
     return {

@@ -51,28 +51,31 @@ export async function updateColumn(
       return { success: false, error: "Unauthorized" };
     }
 
-    const updated = await db.column.update({
-      where: { id },
-      data: {
-        name: data.name,
-        order: data.order,
-        isDone: data.isDone,
-      },
-    });
+    const updated = await db.$transaction(async (tx) => {
+      const updatedColumn = await tx.column.update({
+        where: { id },
+        data: {
+          name: data.name,
+          order: data.order,
+          isDone: data.isDone,
+        },
+      });
 
-    if (data.isDone !== undefined && data.isDone !== column.isDone) {
-      if (data.isDone) {
-        await db.card.updateMany({
-          where: { columnId: id, completedAt: null },
-          data: { completedAt: new Date() },
-        });
-      } else {
-        await db.card.updateMany({
-          where: { columnId: id },
-          data: { completedAt: null },
-        });
+      if (data.isDone !== undefined && data.isDone !== column.isDone) {
+        if (data.isDone) {
+          await tx.card.updateMany({
+            where: { columnId: id, completedAt: null },
+            data: { completedAt: new Date() },
+          });
+        } else {
+          await tx.card.updateMany({
+            where: { columnId: id },
+            data: { completedAt: null },
+          });
+        }
       }
-    }
+      return updatedColumn;
+    });
 
     safeRevalidatePath(`/projects/${column.projectId}`);
     return { success: true, data: updated };
