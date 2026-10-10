@@ -237,4 +237,97 @@ describe("runImport", () => {
     const live = (await runImport(importer, userId)) as ImportSummary;
     expect(live.totals.failed).toBe(dryRun.totals.wouldFail);
   });
+
+  describe("a source label shared by two projects", () => {
+    function twoProjectFixture(): FakeData {
+      return {
+        projects: [
+          { sourceId: "proj-a", name: "Project A" },
+          { sourceId: "proj-b", name: "Project B" },
+        ],
+        columns: {
+          "proj-a": [{ sourceId: "col-a", name: "To Do" }],
+          "proj-b": [{ sourceId: "col-b", name: "To Do" }],
+        },
+        cardTypes: {},
+        labels: {
+          "proj-a": [{ sourceId: "label-shared", name: "Shared" }],
+          "proj-b": [{ sourceId: "label-shared", name: "Shared" }],
+        },
+        cards: {
+          "proj-a": [{ sourceId: "card-a", columnSourceId: "col-a", title: "Card A", labelSourceIds: ["label-shared"] }],
+          "proj-b": [{ sourceId: "card-b", columnSourceId: "col-b", title: "Card B", labelSourceIds: ["label-shared"] }],
+        },
+        comments: {},
+      };
+    }
+
+    async function cardLabelProjectId(title: string) {
+      const card = await db.card.findFirst({
+        where: { title, project: { userId } },
+        include: { labels: { include: { label: true } } },
+      });
+      return { card: card!, labelProjectIds: card!.labels.map((l) => l.label.projectId) };
+    }
+
+    it("creates one label per project and points each project's cards at its own label", async () => {
+      await runImport(makeFakeImporter(twoProjectFixture()), userId);
+
+      const projectA = await db.project.findFirst({ where: { userId, name: "Project A" } });
+      const projectB = await db.project.findFirst({ where: { userId, name: "Project B" } });
+      expect(await db.label.count({ where: { projectId: projectA!.id } })).toBe(1);
+      expect(await db.label.count({ where: { projectId: projectB!.id } })).toBe(1);
+
+      expect((await cardLabelProjectId("Card A")).labelProjectIds).toEqual([projectA!.id]);
+      expect((await cardLabelProjectId("Card B")).labelProjectIds).toEqual([projectB!.id]);
+    });
+
+    it("keeps the second project's card labels when the first project is deleted", async () => {
+      await runImport(makeFakeImporter(twoProjectFixture()), userId);
+
+      const projectA = await db.project.findFirst({ where: { userId, name: "Project A" } });
+      await db.project.delete({ where: { id: projectA!.id } });
+
+      expect((await cardLabelProjectId("Card B")).labelProjectIds.length).toBe(1);
+    });
+
+    it("is idempotent on re-run and the dry run agrees", async () => {
+      const importer = makeFakeImporter(twoProjectFixture());
+      await runImport(importer, userId);
+
+      const dryRun = (await runImport(importer, userId, { dryRun: true })) as ImportDryRunSummary;
+      expect(dryRun.totals.wouldCreate).toBe(0);
+
+      const second = (await runImport(importer, userId)) as ImportSummary;
+      expect(second.totals.created).toBe(0);
+      expect(await db.label.count({ where: { project: { userId } } })).toBe(2);
+    });
+
+    it("reuses a mapping recorded before labels were keyed per project, but only within its own project", async () => {
+      const importer = makeFakeImporter(twoProjectFixture());
+      await runImport(importer, userId);
+      const projectA = await db.project.findFirst({ where: { userId, name: "Project A" } });
+      const labelA = await db.label.findFirst({ where: { projectId: projectA!.id } });
+      const projectB = await db.project.findFirst({ where: { userId, name: "Project B" } });
+
+      await db.importRecord.deleteMany({ where: { userId, entityType: "label" } });
+      await db.label.deleteMany({ where: { projectId: projectB!.id } });
+      await db.importRecord.create({
+        data: { userId, source: "fake", entityType: "label", sourceId: "label-shared", localId: labelA!.id, importRunId: "pre-fix" },
+      });
+
+      const dryRun = (await runImport(importer, userId, { dryRun: true })) as ImportDryRunSummary;
+      expect(dryRun.records.filter((r) => r.entityType === "label").map((r) => r.status)).toEqual([
+        "would_skip",
+        "would_create",
+      ]);
+
+      const rerun = (await runImport(importer, userId)) as ImportSummary;
+      const labelResults = rerun.records.filter((r) => r.entityType === "label");
+      expect(labelResults.map((r) => r.status)).toEqual(["skipped", "created"]);
+      expect(labelResults[0].localId).toBe(labelA!.id);
+      expect(await db.label.count({ where: { projectId: projectA!.id } })).toBe(1);
+      expect(await db.label.count({ where: { projectId: projectB!.id } })).toBe(1);
+    });
+  });
 });
