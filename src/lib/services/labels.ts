@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { safeRevalidatePath } from "@/lib/revalidate";
 import { verifyProjectAccess } from "@/lib/permissions";
+import { createScopedLabel, LabelExistsError } from "@/lib/scopedLabels";
 
 export async function getLabels(projectId: string | undefined, userId: string) {
   try {
@@ -35,19 +36,18 @@ export async function createLabel(name: string, color: string | undefined, proje
       if (!hasAccess) return { success: false, error: "Unauthorized" };
     }
 
-    const label = await db.label.create({
-      data: {
-        projectId: projectId || null,
-        userId: projectId ? null : userId,
-        name: name.trim(),
-        color: color || "#3b82f6",
-      },
+    const label = await createScopedLabel({
+      projectId: projectId || null,
+      userId: projectId ? null : userId,
+      name,
+      color: color || "#3b82f6",
     });
 
     safeRevalidatePath("/");
     if (projectId) safeRevalidatePath(`/projects/${projectId}`);
     return { success: true, data: label };
   } catch (error) {
+    if (error instanceof LabelExistsError) return { success: false, error: error.message };
     console.error("Error creating label:", error);
     return { success: false, error: "Failed to create label or label exists" };
   }
