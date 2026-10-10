@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { deleteRowsAndAttachmentFiles } from "@/lib/attachmentCleanup";
 import { safeRevalidatePath } from "@/lib/revalidate";
 import { verifyProjectAccess } from "@/lib/permissions";
 
@@ -115,9 +116,11 @@ export async function deleteColumn(id: string, userId: string) {
       return { success: false, error: "Unauthorized" };
     }
 
-    await db.column.delete({
-      where: { id },
-    });
+    await deleteRowsAndAttachmentFiles({ card: { columnId: id } }, () =>
+      db.column.delete({
+        where: { id },
+      })
+    );
 
     safeRevalidatePath(`/projects/${column.projectId}`);
     return { success: true };
