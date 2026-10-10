@@ -8,6 +8,7 @@ import {
   GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { assertHexColor } from "@/lib/colors";
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { DEFAULT_CARD_TYPES } from "@/lib/cardTypeDefaults";
 import { nextCardNumber, withCardNumberRetry } from "@/lib/cardNumbering";
@@ -858,24 +859,27 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       if (args.order !== undefined) data.order = args.order;
       if (args.isDone !== undefined) data.isDone = args.isDone;
 
-      const column = await db.column.update({
-        where: { id: args.id },
-        data,
-      });
+      const column = await db.$transaction(async (tx) => {
+        const updatedColumn = await tx.column.update({
+          where: { id: args.id },
+          data,
+        });
 
-      if (args.isDone !== undefined && args.isDone !== existingColumn?.isDone) {
-        if (args.isDone) {
-          await db.card.updateMany({
-            where: { columnId: args.id, completedAt: null },
-            data: { completedAt: new Date() },
-          });
-        } else {
-          await db.card.updateMany({
-            where: { columnId: args.id },
-            data: { completedAt: null },
-          });
+        if (args.isDone !== undefined && args.isDone !== existingColumn?.isDone) {
+          if (args.isDone) {
+            await tx.card.updateMany({
+              where: { columnId: args.id, completedAt: null },
+              data: { completedAt: new Date() },
+            });
+          } else {
+            await tx.card.updateMany({
+              where: { columnId: args.id },
+              data: { completedAt: null },
+            });
+          }
         }
-      }
+        return updatedColumn;
+      });
 
       return { success: true, column };
     }
@@ -1393,21 +1397,26 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       const filterJson =
         typeof args.filterJson === "object" ? JSON.stringify(args.filterJson) : args.filterJson;
 
-      if (args.isDefault) {
-        await db.savedView.updateMany({
-          where: { projectId: args.projectId, isDefault: true },
-          data: { isDefault: false },
-        });
-      }
+      const savedView = await db.$transaction(
+        async (tx) => {
+          if (args.isDefault) {
+            await tx.savedView.updateMany({
+              where: { projectId: args.projectId, isDefault: true },
+              data: { isDefault: false },
+            });
+          }
 
-      const savedView = await db.savedView.create({
-        data: {
-          projectId: args.projectId,
-          name: args.name.trim(),
-          filterJson: filterJson || "{}",
-          isDefault: !!args.isDefault,
+          return tx.savedView.create({
+            data: {
+              projectId: args.projectId,
+              name: args.name.trim(),
+              filterJson: filterJson || "{}",
+              isDefault: !!args.isDefault,
+            },
+          });
         },
-      });
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+      );
       return { success: true, savedView };
     }
 
@@ -1418,23 +1427,27 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
         data.filterJson =
           typeof args.filterJson === "object" ? JSON.stringify(args.filterJson) : args.filterJson;
       }
-      if (args.isDefault !== undefined) {
-        data.isDefault = args.isDefault;
-        if (args.isDefault) {
-          const existing = await db.savedView.findUnique({ where: { id: args.id } });
-          if (existing) {
-            await db.savedView.updateMany({
-              where: { projectId: existing.projectId, isDefault: true, id: { not: args.id } },
-              data: { isDefault: false },
-            });
-          }
-        }
-      }
+      if (args.isDefault !== undefined) data.isDefault = args.isDefault;
 
-      const savedView = await db.savedView.update({
-        where: { id: args.id },
-        data,
-      });
+      const savedView = await db.$transaction(
+        async (tx) => {
+          if (args.isDefault) {
+            const existing = await tx.savedView.findUnique({ where: { id: args.id } });
+            if (existing) {
+              await tx.savedView.updateMany({
+                where: { projectId: existing.projectId, isDefault: true, id: { not: args.id } },
+                data: { isDefault: false },
+              });
+            }
+          }
+
+          return tx.savedView.update({
+            where: { id: args.id },
+            data,
+          });
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+      );
       return { success: true, savedView };
     }
 

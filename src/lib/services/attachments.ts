@@ -53,22 +53,30 @@ export async function uploadAttachment(
 
     fs.writeFileSync(filePath, data.contentBuffer);
 
-    const attachment = await db.attachment.create({
-      data: {
-        cardId: data.cardId,
-        filename: data.filename,
-        storageKey,
-        url: "",
-        size: data.contentBuffer.length,
-        mimeType: data.mimeType || null,
-        uploadedBy: data.uploadedBy || userId,
-      },
-    });
+    let updated;
+    try {
+      updated = await db.$transaction(async (tx) => {
+        const attachment = await tx.attachment.create({
+          data: {
+            cardId: data.cardId,
+            filename: data.filename,
+            storageKey,
+            url: "",
+            size: data.contentBuffer.length,
+            mimeType: data.mimeType || null,
+            uploadedBy: data.uploadedBy || userId,
+          },
+        });
 
-    const updated = await db.attachment.update({
-      where: { id: attachment.id },
-      data: { url: `/api/v1/attachments/${attachment.id}` },
-    });
+        return tx.attachment.update({
+          where: { id: attachment.id },
+          data: { url: `/api/v1/attachments/${attachment.id}` },
+        });
+      });
+    } catch (error) {
+      await fs.promises.unlink(filePath).catch(() => {});
+      throw error;
+    }
 
     safeRevalidatePath(`/projects/${card.projectId}`);
     return { success: true, data: updated };

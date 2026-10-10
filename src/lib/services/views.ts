@@ -1,6 +1,16 @@
 import { db } from "@/lib/db";
 import { safeRevalidatePath } from "@/lib/revalidate";
 import { verifyProjectAccess } from "@/lib/permissions";
+import { Prisma } from "@prisma/client";
+
+// Serializable so two concurrent "make this the default" calls can't both
+// clear the old default and both set theirs.
+const SERIALIZABLE = { isolationLevel: Prisma.TransactionIsolationLevel.Serializable };
+const CONCURRENT_CHANGE_ERROR = "Another change to this project's views happened at the same time. Try again.";
+
+function isSerializationConflict(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034";
+}
 
 export async function getSavedViews(projectId: string, userId: string) {
   try {
@@ -35,27 +45,30 @@ export async function createSavedView(
     const hasAccess = await verifyProjectAccess(projectId, userId, "MEMBER");
     if (!hasAccess) return { success: false, error: "Project not found or access denied" };
 
-    // If setting as default, unset other defaults in the project
-    if (data.isDefault) {
-      await db.savedView.updateMany({
-        where: { projectId, isDefault: true },
-        data: { isDefault: false },
-      });
-    }
+    const savedView = await db.$transaction(async (tx) => {
+      // If setting as default, unset other defaults in the project
+      if (data.isDefault) {
+        await tx.savedView.updateMany({
+          where: { projectId, isDefault: true },
+          data: { isDefault: false },
+        });
+      }
 
-    const savedView = await db.savedView.create({
-      data: {
-        projectId,
-        name: data.name.trim(),
-        filterJson: data.filterJson || "{}",
-        isDefault: !!data.isDefault,
-      },
-    });
+      return tx.savedView.create({
+        data: {
+          projectId,
+          name: data.name.trim(),
+          filterJson: data.filterJson || "{}",
+          isDefault: !!data.isDefault,
+        },
+      });
+    }, SERIALIZABLE);
 
     safeRevalidatePath(`/projects/${projectId}`);
 
     return { success: true, data: savedView };
   } catch (error) {
+    if (isSerializationConflict(error)) return { success: false, error: CONCURRENT_CHANGE_ERROR };
     console.error("Error creating saved view:", error);
     return { success: false, error: "Failed to create saved view or name already exists" };
   }
@@ -79,26 +92,29 @@ export async function updateSavedView(
       return { success: false, error: "Saved view not found or access denied" };
     }
 
-    if (data.isDefault) {
-      await db.savedView.updateMany({
-        where: { projectId: existing.projectId, isDefault: true, id: { not: id } },
-        data: { isDefault: false },
-      });
-    }
+    const savedView = await db.$transaction(async (tx) => {
+      if (data.isDefault) {
+        await tx.savedView.updateMany({
+          where: { projectId: existing.projectId, isDefault: true, id: { not: id } },
+          data: { isDefault: false },
+        });
+      }
 
-    const savedView = await db.savedView.update({
-      where: { id },
-      data: {
-        name: data.name !== undefined ? data.name.trim() : undefined,
-        filterJson: data.filterJson !== undefined ? data.filterJson : undefined,
-        isDefault: data.isDefault !== undefined ? data.isDefault : undefined,
-      },
-    });
+      return tx.savedView.update({
+        where: { id },
+        data: {
+          name: data.name !== undefined ? data.name.trim() : undefined,
+          filterJson: data.filterJson !== undefined ? data.filterJson : undefined,
+          isDefault: data.isDefault !== undefined ? data.isDefault : undefined,
+        },
+      });
+    }, SERIALIZABLE);
 
     safeRevalidatePath(`/projects/${existing.projectId}`);
 
     return { success: true, data: savedView };
   } catch (error) {
+    if (isSerializationConflict(error)) return { success: false, error: CONCURRENT_CHANGE_ERROR };
     console.error(`Error updating saved view ${id}:`, error);
     return { success: false, error: "Failed to update saved view" };
   }
