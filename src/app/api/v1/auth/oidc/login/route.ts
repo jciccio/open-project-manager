@@ -15,38 +15,45 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL("/login", new URL(getOidcRedirectUri()).origin));
   }
 
-  const config = await getOidcConfig();
-  const codeVerifier = client.randomPKCECodeVerifier();
-  const codeChallenge = await client.calculatePKCECodeChallenge(codeVerifier);
-  const state = client.randomState();
-  const nonce = client.randomNonce();
+  const publicOrigin = new URL(getOidcRedirectUri()).origin;
 
-  const authorizationUrl = client.buildAuthorizationUrl(config, {
-    redirect_uri: getOidcRedirectUri(),
-    scope: "openid email profile",
-    code_challenge: codeChallenge,
-    code_challenge_method: "S256",
-    state,
-    nonce,
-  });
+  try {
+    const config = await getOidcConfig();
+    const codeVerifier = client.randomPKCECodeVerifier();
+    const codeChallenge = await client.calculatePKCECodeChallenge(codeVerifier);
+    const state = client.randomState();
+    const nonce = client.randomNonce();
 
-  const response = NextResponse.redirect(authorizationUrl);
-  const isSecure = await determineCookieSecurity();
-  const cookieOptions = {
-    httpOnly: true,
-    secure: isSecure,
-    sameSite: "lax" as const,
-    path: "/",
-    maxAge: OIDC_COOKIE_MAX_AGE,
-  };
-  response.cookies.set("opm_oidc_verifier", codeVerifier, cookieOptions);
-  response.cookies.set("opm_oidc_state", state, cookieOptions);
-  response.cookies.set("opm_oidc_nonce", nonce, cookieOptions);
-  if (linkMode) {
-    response.cookies.set("opm_oidc_link", "1", cookieOptions);
-  } else {
-    response.cookies.delete("opm_oidc_link");
+    const authorizationUrl = client.buildAuthorizationUrl(config, {
+      redirect_uri: getOidcRedirectUri(),
+      scope: "openid email profile",
+      code_challenge: codeChallenge,
+      code_challenge_method: "S256",
+      state,
+      nonce,
+    });
+
+    const response = NextResponse.redirect(authorizationUrl);
+    const isSecure = await determineCookieSecurity();
+    const cookieOptions = {
+      httpOnly: true,
+      secure: isSecure,
+      sameSite: "lax" as const,
+      path: "/",
+      maxAge: OIDC_COOKIE_MAX_AGE,
+    };
+    response.cookies.set("opm_oidc_verifier", codeVerifier, cookieOptions);
+    response.cookies.set("opm_oidc_state", state, cookieOptions);
+    response.cookies.set("opm_oidc_nonce", nonce, cookieOptions);
+    if (linkMode) {
+      response.cookies.set("opm_oidc_link", "1", cookieOptions);
+    } else {
+      response.cookies.delete("opm_oidc_link");
+    }
+
+    return response;
+  } catch (error) {
+    console.error("OIDC login error:", error);
+    return NextResponse.redirect(new URL("/login?error=oidc_failed", publicOrigin));
   }
-
-  return response;
 }
