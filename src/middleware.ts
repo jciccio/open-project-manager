@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { jwtVerify } from "jose";
 import { JWT_SECRET } from "@/lib/env";
+import { API_TOKEN_AUDIENCE, SESSION_AUDIENCE, hasAllowedClaims } from "@/lib/tokenClaims";
 
 const PUBLIC_PATHS = [
   "/login",
@@ -24,8 +25,8 @@ export async function middleware(request: NextRequest) {
   let isAuthenticated = false;
   if (token) {
     try {
-      await jwtVerify(token, JWT_SECRET, { algorithms: ["HS256"] });
-      isAuthenticated = true;
+      const { payload } = await jwtVerify(token, JWT_SECRET, { algorithms: ["HS256"] });
+      isAuthenticated = hasAllowedClaims(payload, [SESSION_AUDIENCE, API_TOKEN_AUDIENCE]);
     } catch {
       isAuthenticated = false;
     }
