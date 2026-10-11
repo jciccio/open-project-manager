@@ -45,7 +45,7 @@ A lightweight, fast, and self-hosted project management web application inspired
   - Kanban board filter toggle to show or hide subtasks from column lanes to prevent board clutter.
 - 🔗 **Card Dependencies & Relations**: Connect cards with `BLOCKS`, `BLOCKED_BY`, and `RELATES_TO` relationship links.
 - 📎 **File Attachments**: Upload, stream, list, and delete card attachments (documents, images, logs) via UI, REST API, and base64 MCP tools.
-- 📄 **Card Cursoring & Pagination**: Cursor-based pagination (`limit` & `cursor`) for large project card listings.
+- 📄 **Card Cursoring & Pagination**: Cursor-based pagination (`limit` & `cursor`) for large project card listings. Archived cards are left out unless you pass `isArchived=true`.
 - 💬 **In-Place Comment Editing & Feeds**: Discuss tasks and edit comments in-place across UI, REST API (`PATCH /api/v1/comments/:id`), and MCP tools.
 - 🐳 **Official Docker Image & Compose**: Multi-stage `Dockerfile` standalone build and single-command `docker-compose.yml` (SQLite) & `docker-compose.postgres.yml` (PostgreSQL) orchestration with automated migration bootstrapping.
 - 🪶 **Flexible Database Engine**: Single `.sqlite` file database stored locally (`dev.db`) by default, with opt-in PostgreSQL support via connection string (`DATABASE_URL=postgresql://...`).
@@ -269,8 +269,9 @@ curl -X GET http://localhost:3000/api/v1/cards/by-identifier/OPM-1 \
 ```
 
 ### 7. Paginated Card Listing
+Pass the `nextCursor` value from the previous response as `cursor` to fetch the next page. `nextCursor` is `null` on the last page.
 ```bash
-curl -X GET "http://localhost:3000/api/v1/cards?projectId=PROJECT_ID&limit=10&cursor=CURSOR_CARD_ID" \
+curl -X GET "http://localhost:3000/api/v1/cards?projectId=PROJECT_ID&limit=10&cursor=NEXT_CURSOR" \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
 ```
 
