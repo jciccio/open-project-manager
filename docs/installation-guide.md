@@ -163,6 +163,12 @@ OIDC_CLIENT_SECRET=your_client_secret
 OIDC_REDIRECT_URI=https://opm.example.com/api/v1/auth/oidc/callback
 EOT
 ```
+All four variables are required. If only some are set, SSO stays off and the server logs which ones are missing.
+
+The issuer URL must use `https:`. For an identity provider on your LAN without TLS, opt in to plain `http:`:
+```bash
+echo "OIDC_ALLOW_INSECURE=true" >> .env
+```
 
 Registration is closed once the first account exists: the first person to open `/register` becomes the first user, and after that the sign-up page redirects to login. To let anyone who can reach the instance create an account, add:
 ```bash
