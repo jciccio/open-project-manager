@@ -171,6 +171,61 @@ describe("REST API: Cards", () => {
     expect(body.nextCursor).not.toBeNull();
   });
 
+  describe("cursor pagination edge cases on GET /api/v1/cards", () => {
+    const seedCards = (titles: string[], extra: Record<string, unknown> = {}) =>
+      db.card.createMany({
+        data: titles.map((title, i) => ({ projectId, columnId, title, number: i + 1, order: (i + 1) * 10, ...extra })),
+      });
+
+    const listCards = async (params: string) => {
+      const res = await getCardsRoute(
+        new NextRequest(`http://localhost/api/v1/cards?projectId=${projectId}&${params}`, {
+          headers: { authorization: `Bearer ${token}` },
+        })
+      );
+      return { status: res.status, body: await res.json() };
+    };
+
+    it("continues past a cursor card that was deleted between pages", async () => {
+      await seedCards(["A", "B", "C"]);
+      const page1 = await listCards("limit=2");
+      await db.card.delete({ where: { id: page1.body.data[1].id } });
+
+      const page2 = await listCards(`limit=2&cursor=${page1.body.nextCursor}`);
+
+      expect(page2.body.data.map((c: { title: string }) => c.title)).toEqual(["C"]);
+      expect(page2.body.nextCursor).toBeNull();
+    });
+
+    it("returns no nextCursor on the last page when the total is an exact multiple of limit", async () => {
+      await seedCards(["A", "B", "C", "D"]);
+      const page1 = await listCards("limit=2");
+
+      const page2 = await listCards(`limit=2&cursor=${page1.body.nextCursor}`);
+
+      expect(page2.body.data.map((c: { title: string }) => c.title)).toEqual(["C", "D"]);
+      expect(page2.body.nextCursor).toBeNull();
+    });
+
+    it("rejects a malformed cursor, including a plain card id", async () => {
+      await seedCards(["A"]);
+      const cardId = (await db.card.findFirstOrThrow({ where: { projectId } })).id;
+
+      expect((await listCards("cursor=not-a-cursor")).status).toBe(400);
+      expect((await listCards(`cursor=${cardId}`)).status).toBe(400);
+      expect((await listCards(`cursor=${Buffer.from(JSON.stringify(["10", cardId])).toString("base64url")}`)).status).toBe(400);
+    });
+
+    it("excludes archived cards unless isArchived=true, matching MCP list_cards", async () => {
+      await seedCards(["Active"]);
+      await db.card.create({ data: { projectId, columnId, title: "Archived", number: 99, isArchived: true } });
+
+      expect((await listCards("")).body.data.map((c: { title: string }) => c.title)).toEqual(["Active"]);
+      expect((await listCards("isArchived=true")).body.data.map((c: { title: string }) => c.title)).toEqual(["Archived"]);
+      expect((await listCards("isArchived=yes")).status).toBe(400);
+    });
+  });
+
   it("filters by query across title and description on GET /api/v1/cards", async () => {
     const createOne = async (title: string, description?: string) => {
       const req = new NextRequest("http://localhost/api/v1/cards", {

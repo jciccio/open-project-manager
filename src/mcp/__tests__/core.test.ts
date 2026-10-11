@@ -117,6 +117,49 @@ describe("MCP Server Core Tools", () => {
     await executeMcpTool("delete_project", { id: projectId });
   });
 
+  describe("list_cards cursor pagination edge cases", () => {
+    let projectId: string;
+
+    beforeEach(async () => {
+      const projRes = await executeMcpTool("create_project", { name: "Cursor Edge Project", userId });
+      projectId = projRes.project!.id;
+      const columnId = (projRes.project as any).columns[0].id;
+      await db.card.createMany({
+        data: ["A", "B", "C", "D"].map((title, i) => ({ projectId, columnId, title, number: i + 1, order: (i + 1) * 10 })),
+      });
+    });
+
+    const titles = (res: { cards?: { title: string }[] }) => res.cards!.map((c) => c.title);
+
+    it("continues past a cursor card that was deleted between pages", async () => {
+      const page1 = await executeMcpTool("list_cards", { projectId, limit: 3 });
+      await db.card.delete({ where: { id: page1.cards![2].id } });
+
+      const page2 = await executeMcpTool("list_cards", { projectId, limit: 3, cursor: page1.nextCursor });
+
+      expect(titles(page2)).toEqual(["D"]);
+      expect(page2.nextCursor).toBeNull();
+    });
+
+    it("returns no nextCursor on the last page when the total is an exact multiple of limit", async () => {
+      const page1 = await executeMcpTool("list_cards", { projectId, limit: 2 });
+
+      const page2 = await executeMcpTool("list_cards", { projectId, limit: 2, cursor: page1.nextCursor });
+
+      expect(titles(page2)).toEqual(["C", "D"]);
+      expect(page2.nextCursor).toBeNull();
+    });
+
+    it("rejects a malformed cursor, including a plain card id", async () => {
+      const cardId = (await db.card.findFirstOrThrow({ where: { projectId } })).id;
+
+      await expect(executeMcpTool("list_cards", { projectId, cursor: "not-a-cursor" })).rejects.toThrow("Invalid cursor");
+      await expect(executeMcpTool("list_cards", { projectId, cursor: cardId })).rejects.toThrow("Invalid cursor");
+      const wrongShape = Buffer.from(JSON.stringify(["10", cardId])).toString("base64url");
+      await expect(executeMcpTool("list_cards", { projectId, cursor: wrongShape })).rejects.toThrow("Invalid cursor");
+    });
+  });
+
   it("defaults to a bounded page size when list_cards is called with no limit or cursor", async () => {
     const projRes = await executeMcpTool("create_project", { name: "Default Limit MCP Project", userId });
     const projectId = projRes.project!.id;
