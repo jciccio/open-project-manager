@@ -1,12 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Trash2, Layers, ChevronLeft, ChevronRight, CheckCircle2 } from "lucide-react";
+import { Plus, Trash2, Layers, ChevronLeft, ChevronRight, Pencil } from "lucide-react";
 import TaskCard from "./TaskCard";
 import { createCard } from "@/actions/cards";
 import { deleteColumn } from "@/actions/columns";
 import { useTranslation } from "./LanguageProvider";
 import ErrorBanner from "./ErrorBanner";
+import ColumnGroupIcon from "./ColumnGroupIcon";
+import ColumnEditForm from "./ColumnEditForm";
 
 interface Props {
   column: {
@@ -15,6 +17,9 @@ interface Props {
     name: string;
     order: number;
     isDone?: boolean;
+    group?: string | null;
+    color?: string | null;
+    description?: string | null;
     cards: Array<any>;
   };
   onCardClick: (card: any) => void;
@@ -46,6 +51,7 @@ export default function KanbanColumn({
   const [isHoveredOver, setIsHoveredOver] = useState(false);
   const [loading, setLoading] = useState(false);
   const [deletingColumn, setDeletingColumn] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
   const [error, setError] = useState("");
   const { t } = useTranslation();
 
@@ -126,14 +132,18 @@ export default function KanbanColumn({
       {/* Column Header */}
       <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-300 dark:border-slate-800">
         <div className="flex items-center gap-2">
-          {column.isDone ? (
-            <span title="Done Column">
-              <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
-            </span>
-          ) : (
-            <span className="flex h-2.5 w-2.5 rounded-full bg-indigo-600 dark:bg-indigo-500 shrink-0" />
-          )}
-          <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100">{column.name}</h3>
+          <ColumnGroupIcon
+            group={column.group}
+            isDone={column.isDone}
+            color={column.color}
+            label={t(`kanban.columnGroups.${column.group ?? (column.isDone ? "COMPLETED" : "UNSTARTED")}`)}
+          />
+          <h3
+            className="font-bold text-sm text-slate-900 dark:text-slate-100"
+            title={column.description || undefined}
+          >
+            {column.name}
+          </h3>
           <span className="rounded-full bg-slate-300/80 dark:bg-slate-800 px-2 py-0.5 text-[11px] font-semibold text-slate-700 dark:text-slate-400">
             {column.cards?.length || 0}
           </span>
@@ -161,6 +171,15 @@ export default function KanbanColumn({
           )}
 
           <button
+            onClick={() => setIsEditing((editing) => !editing)}
+            className="rounded-lg p-1 text-slate-500 hover:bg-slate-300 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-colors"
+            title={t("kanban.editColumn")}
+            aria-label={t("kanban.editColumn")}
+            aria-expanded={isEditing}
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+          <button
             onClick={() => setIsAdding(true)}
             className="rounded-lg p-1.5 text-slate-600 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-colors"
             title={t("kanban.addCard")}
@@ -177,6 +196,17 @@ export default function KanbanColumn({
           </button>
         </div>
       </div>
+
+      {isEditing && (
+        <ColumnEditForm
+          column={column}
+          onSaved={() => {
+            setIsEditing(false);
+            onRefresh();
+          }}
+          onCancel={() => setIsEditing(false)}
+        />
+      )}
 
       {error && <div className="mb-3"><ErrorBanner message={error} /></div>}
 

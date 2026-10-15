@@ -1,8 +1,19 @@
 import { db } from "@/lib/db";
 import { safeRevalidatePath } from "@/lib/revalidate";
 import { verifyProjectAccess } from "@/lib/permissions";
+import {
+  parseColumnCreate,
+  parseColumnUpdate,
+  type ColumnDetailsInput,
+  type ColumnUpdateInput,
+} from "@/lib/validation/columns";
 
-export async function createColumn(projectId: string, name: string, isDone: boolean | undefined, userId: string) {
+export async function createColumn(
+  projectId: string,
+  name: string,
+  details: ColumnDetailsInput,
+  userId: string
+) {
   try {
     if (!(await verifyProjectAccess(projectId, userId, "ADMIN"))) {
       return { success: false, error: "Unauthorized" };
@@ -10,6 +21,11 @@ export async function createColumn(projectId: string, name: string, isDone: bool
 
     if (!name.trim()) {
       return { success: false, error: "Column name is required" };
+    }
+
+    const parsed = parseColumnCreate({ ...details, name });
+    if (!parsed.success) {
+      return { success: false, error: parsed.error };
     }
 
     const lastColumn = await db.column.findFirst({
@@ -22,9 +38,12 @@ export async function createColumn(projectId: string, name: string, isDone: bool
     const column = await db.column.create({
       data: {
         projectId,
-        name: name.trim(),
+        name: parsed.data.name,
         order: newOrder,
-        isDone: isDone ?? false,
+        isDone: parsed.isDone,
+        group: parsed.group,
+        color: parsed.data.color,
+        description: parsed.data.description,
       },
     });
 
@@ -38,7 +57,7 @@ export async function createColumn(projectId: string, name: string, isDone: bool
 
 export async function updateColumn(
   id: string,
-  data: { name?: string; order?: number; isDone?: boolean },
+  input: ColumnUpdateInput,
   userId: string
 ) {
   try {
@@ -51,17 +70,26 @@ export async function updateColumn(
       return { success: false, error: "Unauthorized" };
     }
 
+    const parsed = parseColumnUpdate(input, column.group);
+    if (!parsed.success) {
+      return { success: false, error: parsed.error };
+    }
+    const data = parsed.data;
+
     const updated = await db.column.update({
       where: { id },
       data: {
         name: data.name,
         order: data.order,
-        isDone: data.isDone,
+        isDone: parsed.isDone,
+        group: parsed.group,
+        color: data.color,
+        description: data.description,
       },
     });
 
-    if (data.isDone !== undefined && data.isDone !== column.isDone) {
-      if (data.isDone) {
+    if (parsed.isDone !== column.isDone) {
+      if (parsed.isDone) {
         await db.card.updateMany({
           where: { columnId: id, completedAt: null },
           data: { completedAt: new Date() },

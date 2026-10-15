@@ -1,3 +1,4 @@
+import { isClosedColumn } from "@/lib/columnGroups";
 import { db } from "@/lib/db";
 import { verifyProjectAccess } from "@/lib/permissions";
 import { safeRevalidatePath } from "@/lib/revalidate";
@@ -115,6 +116,7 @@ export async function getCardRelations(cardId: string, userId: string) {
       identifier: `${r.targetCard.project.key}-${r.targetCard.number}`,
       columnName: r.targetCard.column.name,
       isDone: r.targetCard.column.isDone,
+      isClosed: isClosedColumn(r.targetCard.column),
       direction: "outgoing" as const,
     }));
 
@@ -131,6 +133,7 @@ export async function getCardRelations(cardId: string, userId: string) {
         identifier: `${r.sourceCard.project.key}-${r.sourceCard.number}`,
         columnName: r.sourceCard.column.name,
         isDone: r.sourceCard.column.isDone,
+        isClosed: isClosedColumn(r.sourceCard.column),
         direction: "incoming" as const,
       };
     });

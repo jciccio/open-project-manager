@@ -13,6 +13,8 @@ import { DEFAULT_CARD_TYPES } from "@/lib/cardTypeDefaults";
 import { nextCardNumber, withCardNumberRetry } from "@/lib/cardNumbering";
 import { generateProjectKey } from "@/lib/projectKey";
 import { deriveCompletedAt } from "@/lib/cardCompletion";
+import { DEFAULT_PROJECT_COLUMNS, isClosedColumn, parseColumnGroupFilter } from "@/lib/columnGroups";
+import { parseColumnCreate, parseColumnUpdate } from "@/lib/validation/columns";
 
 const DEFAULT_LIST_CARDS_LIMIT = 100;
 
@@ -21,6 +23,10 @@ function requireUserId(providedUserId?: string): string {
   throw new Error(
     "userId is required — MCP tool calls must include an authenticated userId."
   );
+}
+
+function emptyToNull(value: unknown) {
+  return value === "" ? null : value;
 }
 
 export const MCP_TOOLS = [
@@ -136,7 +142,18 @@ export const MCP_TOOLS = [
         projectId: { type: "string", description: "Target project ID" },
         name: { type: "string", description: "Column name" },
         order: { type: "number", description: "Optional column order position index" },
-        isDone: { type: "boolean", description: "Whether cards in this column count as complete (default: false)" },
+        isDone: {
+          type: "boolean",
+          description: "Shorthand for group COMPLETED (true). Must agree with group when both are given.",
+        },
+        group: {
+          type: "string",
+          enum: ["BACKLOG", "UNSTARTED", "STARTED", "COMPLETED", "CANCELLED"],
+          description:
+            "State group. COMPLETED columns are done (cards get completedAt); CANCELLED columns are closed without completing.",
+        },
+        color: { type: "string", description: "Hex color like #6366f1, or empty string to clear" },
+        description: { type: "string", description: "Column description, or empty string to clear" },
       },
       required: ["projectId", "name"],
     },
@@ -147,14 +164,26 @@ export const MCP_TOOLS = [
   },
   {
     name: "update_column",
-    description: "Update column title, position order, or done-state. Flipping isDone bulk-updates completedAt on the column's cards.",
+    description:
+      "Update a column's name, position, state group, color or description. Moving into or out of the COMPLETED group bulk-updates completedAt on the column's cards.",
     inputSchema: {
       type: "object",
       properties: {
         id: { type: "string", description: "Column ID" },
         name: { type: "string", description: "New column name" },
         order: { type: "number", description: "New order position index" },
-        isDone: { type: "boolean", description: "Whether cards in this column count as complete" },
+        isDone: {
+          type: "boolean",
+          description: "Shorthand for group COMPLETED (true). Must agree with group when both are given.",
+        },
+        group: {
+          type: "string",
+          enum: ["BACKLOG", "UNSTARTED", "STARTED", "COMPLETED", "CANCELLED"],
+          description:
+            "State group. COMPLETED columns are done (cards get completedAt); CANCELLED columns are closed without completing.",
+        },
+        color: { type: "string", description: "Hex color like #6366f1, or empty string to clear" },
+        description: { type: "string", description: "Column description, or empty string to clear" },
       },
       required: ["id"],
     },
@@ -191,6 +220,11 @@ export const MCP_TOOLS = [
         query: { type: "string", description: "Free-text search across card title and description (case-insensitive substring match)" },
         parentId: { type: "string", description: "Filter by parent card ID" },
         typeId: { type: "string", description: "Filter by card type ID" },
+        columnGroup: {
+          type: "array",
+          items: { type: "string", enum: ["BACKLOG", "UNSTARTED", "STARTED", "COMPLETED", "CANCELLED"] },
+          description: "Only cards whose column is in one of these state groups",
+        },
         isArchived: { type: "boolean", description: "Filter by archived status (default: false)" },
         limit: { type: "number", description: "Maximum number of cards to return (1-100, default 100)" },
         cursor: { type: "string", description: "Cursor card ID for pagination (returns items after this card ID)" },
@@ -781,12 +815,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
           color: args.color ? assertHexColor(args.color) : "#6366f1",
           visibility: args.visibility || "PRIVATE",
           columns: {
-            create: [
-              { name: "Backlog", order: 0, isDone: false },
-              { name: "To Do", order: 1, isDone: false },
-              { name: "In Progress", order: 2, isDone: false },
-              { name: "Done", order: 3, isDone: true },
-            ],
+            create: DEFAULT_PROJECT_COLUMNS.map((column) => ({ ...column })),
           },
           cardTypes: {
             create: DEFAULT_CARD_TYPES,
@@ -832,6 +861,14 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "create_column": {
+      const parsed = parseColumnCreate({
+        name: args.name,
+        isDone: args.isDone,
+        group: args.group,
+        color: emptyToNull(args.color),
+        description: emptyToNull(args.description),
+      });
+      if (!parsed.success) throw new Error(parsed.error);
       let order = args.order;
       if (order === undefined) {
         const lastCol = await db.column.findFirst({
@@ -843,9 +880,12 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       const column = await db.column.create({
         data: {
           projectId: args.projectId,
-          name: args.name.trim(),
+          name: parsed.data.name,
           order,
-          isDone: args.isDone ?? false,
+          isDone: parsed.isDone,
+          group: parsed.group,
+          color: parsed.data.color,
+          description: parsed.data.description,
         },
       });
       return { success: true, column };
@@ -853,18 +893,34 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
 
     case "update_column": {
       const existingColumn = await db.column.findUnique({ where: { id: args.id } });
-      const data: any = {};
-      if (args.name !== undefined) data.name = args.name.trim();
-      if (args.order !== undefined) data.order = args.order;
-      if (args.isDone !== undefined) data.isDone = args.isDone;
+      if (!existingColumn) throw new Error(`Column with ID ${args.id} not found.`);
+      const parsed = parseColumnUpdate(
+        {
+          name: args.name,
+          order: args.order,
+          isDone: args.isDone,
+          group: args.group,
+          color: emptyToNull(args.color),
+          description: emptyToNull(args.description),
+        },
+        existingColumn.group
+      );
+      if (!parsed.success) throw new Error(parsed.error);
 
       const column = await db.column.update({
         where: { id: args.id },
-        data,
+        data: {
+          name: parsed.data.name,
+          order: parsed.data.order,
+          isDone: parsed.isDone,
+          group: parsed.group,
+          color: parsed.data.color,
+          description: parsed.data.description,
+        },
       });
 
-      if (args.isDone !== undefined && args.isDone !== existingColumn?.isDone) {
-        if (args.isDone) {
+      if (parsed.isDone !== existingColumn.isDone) {
+        if (parsed.isDone) {
           await db.card.updateMany({
             where: { columnId: args.id, completedAt: null },
             data: { completedAt: new Date() },
@@ -905,6 +961,11 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
         where.parentId = args.parentId || null;
       }
       if (args.typeId) where.typeId = args.typeId;
+      if (args.columnGroup !== undefined) {
+        const groupFilter = parseColumnGroupFilter(args.columnGroup);
+        if (!groupFilter.success) throw new Error(groupFilter.error);
+        where.column = { group: { in: groupFilter.groups } };
+      }
 
       let limit: number = DEFAULT_LIST_CARDS_LIMIT;
       if (typeof args.limit === "number") {
@@ -920,7 +981,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
         where,
         orderBy: [{ order: "asc" }, { id: "asc" }],
         include: {
-          column: { select: { name: true } },
+          column: { select: { name: true, group: true } },
           type: true,
           labels: { include: { label: true } },
           assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
@@ -1250,6 +1311,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
           identifier: `${r.targetCard.project.key}-${r.targetCard.number}`,
           columnName: r.targetCard.column.name,
           isDone: r.targetCard.column.isDone,
+          isClosed: isClosedColumn(r.targetCard.column),
           direction: "outgoing",
         })),
         ...incoming.map((r) => ({
@@ -1260,6 +1322,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
           identifier: `${r.sourceCard.project.key}-${r.sourceCard.number}`,
           columnName: r.sourceCard.column.name,
           isDone: r.sourceCard.column.isDone,
+          isClosed: isClosedColumn(r.sourceCard.column),
           direction: "incoming",
         })),
       ];

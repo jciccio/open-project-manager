@@ -30,7 +30,7 @@ A lightweight, fast, and self-hosted project management web application inspired
 - 📊 **Multiple Project Views**: Switch between Kanban Board, Structured List View, Analytics & Graphs (Recharts), and Monthly Calendar View.
 - 🏷️ **Human-Friendly Card Identifiers**: Stable per-project human keys (`PROJ-123`) with instant lookup API (`GET /api/v1/cards/by-identifier/:id`).
 - 📁 **Project & Card Archiving**: Archive completed projects or individual cards (`isArchived: true`) to maintain clean active views.
-- 📋 **Customizable & Reorganizable Board Columns**: Create custom columns and reorder columns left/right with instant SQLite persistence.
+- 📋 **Customizable & Reorganizable Board Columns**: Create custom columns and reorder columns left/right with instant SQLite persistence. Each column belongs to a state group (Backlog, Unstarted, Started, Completed, Cancelled) and can carry a color and a description. Cards in Completed columns get a completion timestamp; Cancelled columns close cards without completing them.
 - 🎯 **Rich Task Card Metadata**:
   - **Story Points**: Track task estimation points.
   - **Priority Levels**: Explicit `NONE`, `LOW`, `MEDIUM`, `HIGH`, or `URGENT` priorities.
@@ -340,7 +340,7 @@ How Vikunja concepts land in OPM:
 | Vikunja | Open Project Manager |
 |---|---|
 | Project | Project |
-| Kanban bucket | Column (the view's `done_bucket_id` becomes `isDone`) |
+| Kanban bucket | Column (the view's `done_bucket_id` becomes the Completed group; other buckets are Unstarted) |
 | Task | Card (done tasks are forced into the done column when the view has one, keeping `done_at` as `completedAt`) |
 | Priority `0…5` | `NONE, LOW, MEDIUM, HIGH, URGENT, URGENT` |
 | Label (instance-wide) | Project label — only labels the imported tasks actually use |

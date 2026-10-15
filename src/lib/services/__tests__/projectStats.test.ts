@@ -80,6 +80,24 @@ describe("getProjectStats", () => {
     expect(stats.overdue).toBe(1);
   });
 
+  it("leaves cancelled cards out of open, overdue and the completion percentage", async () => {
+    const cancelledColumnId = (
+      await db.column.create({ data: { projectId, name: "Won't Do", order: 3, group: "CANCELLED" } })
+    ).id;
+    await addCard(todoColumnId);
+    await addCard(doneColumnId);
+    await addCard(cancelledColumnId, { dueDate: new Date("2026-09-01T00:00:00Z") });
+    await addCard(cancelledColumnId);
+
+    const stats = (await getProjectStats([projectId], userId, NOW))[projectId];
+
+    expect(stats.total).toBe(4);
+    expect(stats.done).toBe(1);
+    expect(stats.open).toBe(1);
+    expect(stats.overdue).toBe(0);
+    expect(stats.percentComplete).toBe(50);
+  });
+
   it("returns zeros and a null percentage for a project with no cards", async () => {
     const stats = (await getProjectStats([emptyProjectId], userId, NOW))[emptyProjectId];
 

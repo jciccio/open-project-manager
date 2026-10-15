@@ -70,10 +70,10 @@ async function main() {
       color: "#6366f1",
       columns: {
         create: [
-          { name: "Backlog", order: 0 },
-          { name: "To Do", order: 1 },
-          { name: "In Progress", order: 2 },
-          { name: "Done", order: 3, isDone: true },
+          { name: "Backlog", order: 0, group: "BACKLOG" },
+          { name: "To Do", order: 1, group: "UNSTARTED" },
+          { name: "In Progress", order: 2, group: "STARTED" },
+          { name: "Done", order: 3, isDone: true, group: "COMPLETED" },
         ],
       },
       cardTypes: {
@@ -155,9 +155,9 @@ async function main() {
       color: "#ec4899",
       columns: {
         create: [
-          { name: "Ideas", order: 0 },
-          { name: "Active", order: 1 },
-          { name: "Completed", order: 2, isDone: true },
+          { name: "Ideas", order: 0, group: "BACKLOG" },
+          { name: "Active", order: 1, group: "STARTED" },
+          { name: "Completed", order: 2, isDone: true, group: "COMPLETED" },
         ],
       },
       cardTypes: {
