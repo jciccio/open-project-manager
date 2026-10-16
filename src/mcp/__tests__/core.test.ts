@@ -575,5 +575,55 @@ describe("MCP Server Core Tools", () => {
 
     await executeMcpTool("delete_project", { id: projectId });
   });
-});
 
+  it("stores a description via create_label and updates it via update_label", async () => {
+    const projRes = await executeMcpTool("create_project", { name: "MCP Label Description Project", userId });
+    const projectId = projRes.project!.id;
+
+    const created = await executeMcpTool("create_label", {
+      name: "Blog Draft",
+      color: "#f59e0b",
+      projectId,
+      description: "Draft posts awaiting review",
+    });
+    expect(created.label).toMatchObject({ name: "Blog Draft", description: "Draft posts awaiting review" });
+
+    const listed = await executeMcpTool("list_labels", { projectId });
+    const labels = listed.labels as unknown as { id: string; description: string | null }[];
+    expect(labels.find((l) => l.id === created.label!.id)?.description).toBe("Draft posts awaiting review");
+
+    const updated = await executeMcpTool("update_label", {
+      id: created.label!.id,
+      color: "#10b981",
+      description: "",
+      userId,
+    });
+    expect(updated.label).toMatchObject({ color: "#10b981", description: null });
+
+    await expect(
+      executeMcpTool("update_label", { id: created.label!.id, color: "green", userId })
+    ).rejects.toThrow(/hex/);
+    await expect(executeMcpTool("create_label", { name: "Bad", color: "green" })).rejects.toThrow(/hex/);
+
+    await executeMcpTool("delete_project", { id: projectId });
+  });
+
+  it("refuses update_label for a user who cannot manage the label", async () => {
+    const projRes = await executeMcpTool("create_project", { name: "MCP Label Owner Project", userId });
+    const projectId = projRes.project!.id;
+    const created = await executeMcpTool("create_label", { name: "Owned", projectId });
+
+    const { user: other } = await createTestUser(`mcp-label-other-${Date.now()}`);
+    try {
+      await expect(
+        executeMcpTool("update_label", { id: created.label!.id, description: "hijacked", userId: other.id })
+      ).rejects.toThrow(/Unauthorized/);
+      await expect(executeMcpTool("update_label", { id: created.label!.id, description: "x" })).rejects.toThrow(
+        /userId is required/
+      );
+    } finally {
+      await cleanupTestUser(other.id);
+      await executeMcpTool("delete_project", { id: projectId });
+    }
+  });
+});

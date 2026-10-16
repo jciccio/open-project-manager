@@ -502,10 +502,29 @@ export const MCP_TOOLS = [
       properties: {
         name: { type: "string", description: "Label name" },
         color: { type: "string", description: "Color hex code (default: #3b82f6)" },
+        description: { type: "string", description: "Optional description of what the label means or how to use it" },
         projectId: { type: "string", description: "Optional project ID scope" },
         userId: { type: "string", description: "Optional user ID scope" },
       },
       required: ["name"],
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
+  },
+  {
+    name: "update_label",
+    description: "Update a label's color or description.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Label ID" },
+        color: { type: "string", description: "New color hex code" },
+        description: { type: "string", description: "New description, or empty string to clear" },
+        userId: { type: "string", description: "Acting user ID" },
+      },
+      required: ["id"],
     },
     annotations: {
       readOnlyHint: false,
@@ -1280,15 +1299,32 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case "create_label": {
+      const { parseLabelDetails } = await import("@/lib/validation/labels");
+      const details = parseLabelDetails({ color: args.color || undefined, description: args.description });
+      if (!details.success) throw new Error(details.error);
       const label = await db.label.create({
         data: {
           name: args.name.trim(),
-          color: args.color || "#3b82f6",
+          color: details.data.color || "#3b82f6",
+          description: details.data.description ?? null,
           projectId: args.projectId || null,
           userId: args.projectId ? null : (args.userId || null),
         },
       });
       return { success: true, label };
+    }
+
+    case "update_label": {
+      const { updateLabel } = await import("@/lib/services/labels");
+      const res = await updateLabel(
+        args.id,
+        { color: args.color, description: args.description },
+        requireUserId(args.userId)
+      );
+      if (!res.success) {
+        throw new Error(res.error || "Failed to update label");
+      }
+      return { success: true, label: res.data };
     }
 
     case "list_card_types": {

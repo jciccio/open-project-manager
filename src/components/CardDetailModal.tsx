@@ -174,7 +174,7 @@ export default function CardDetailModal({
   const [subtaskLoadingId, setSubtaskLoadingId] = useState<string | null>(null);
 
   const [availableLabels, setAvailableLabels] = useState<
-    Array<{ id: string; name: string; color: string }>
+    Array<{ id: string; name: string; color: string; description?: string | null }>
   >([]);
   const [availableCardTypes, setAvailableCardTypes] = useState<
     Array<{ id: string; name: string; icon: string; color: string }>
@@ -885,6 +885,7 @@ export default function CardDetailModal({
                         : "opacity-60 hover:opacity-100 text-white"
                     }`}
                     style={{ backgroundColor: lbl.color }}
+                    title={lbl.description || undefined}
                   >
                     {lbl.name}
                   </button>
