@@ -66,7 +66,7 @@ describe("OIDC routes", () => {
     const email = `oidc-route-pw-${Date.now()}@example.com`;
     const user = await db.user.create({ data: { email, name: "Password User", passwordHash: "hash" } });
     userIds.push(user.id);
-    idTokenClaims.current = { sub: `sub-${Date.now()}`, email, email_verified: true };
+    idTokenClaims.current = { iss: "https://idp.example.com", sub: `sub-${Date.now()}`, email, email_verified: true };
 
     const res = await callback();
 
@@ -81,7 +81,7 @@ describe("OIDC routes", () => {
     userIds.push(user.id);
     await createSession({ userId: user.id, email: user.email, name: user.name });
     const sub = `sub-link-${Date.now()}`;
-    idTokenClaims.current = { sub, email: user.email, email_verified: true };
+    idTokenClaims.current = { iss: "https://idp.example.com", sub, email: user.email, email_verified: true };
 
     const res = await callback("opm_oidc_link=1");
 
@@ -90,7 +90,7 @@ describe("OIDC routes", () => {
   });
 
   it("treats a link-mode callback without a session as expired", async () => {
-    idTokenClaims.current = { sub: `sub-${Date.now()}`, email: "x@example.com", email_verified: true };
+    idTokenClaims.current = { iss: "https://idp.example.com", sub: `sub-${Date.now()}`, email: "x@example.com", email_verified: true };
 
     const res = await callback("opm_oidc_link=1");
 

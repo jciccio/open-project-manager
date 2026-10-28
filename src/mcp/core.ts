@@ -8,12 +8,19 @@ import {
   GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { assertHexColor } from "@/lib/colors";
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { deleteRowsAndAttachmentFiles } from "@/lib/attachmentCleanup";
+import { validateParentCard } from "@/lib/cardParent";
+import { lastColumnError } from "@/lib/columnGuards";
 import { DEFAULT_CARD_TYPES } from "@/lib/cardTypeDefaults";
 import { nextCardNumber, withCardNumberRetry } from "@/lib/cardNumbering";
+import { cardPage, cardPageQuery, decodeCardCursor } from "@/lib/cardPagination";
 import { generateProjectKey } from "@/lib/projectKey";
+import { createScopedLabel } from "@/lib/scopedLabels";
 import { verifyProjectAccess } from "@/lib/permissions";
 import { deriveCompletedAt } from "@/lib/cardCompletion";
+import { cardTextSearch } from "@/lib/cardSearch";
 
 const DEFAULT_LIST_CARDS_LIMIT = 100;
 
@@ -194,7 +201,7 @@ export const MCP_TOOLS = [
         typeId: { type: "string", description: "Filter by card type ID" },
         isArchived: { type: "boolean", description: "Filter by archived status (default: false)" },
         limit: { type: "number", description: "Maximum number of cards to return (1-100, default 100)" },
-        cursor: { type: "string", description: "Cursor card ID for pagination (returns items after this card ID)" },
+        cursor: { type: "string", description: "The nextCursor value from the previous page (returns the cards after it)" },
       },
     },
     annotations: {
@@ -845,7 +852,7 @@ export async function executeMcpTool(
     case "delete_project": {
       const existingProject = await db.project.findUnique({ where: { id: args.id } });
       if (!existingProject || !(await verifyProjectAccess(existingProject.id, userId, "OWNER"))) throw new Error(`Project with ID ${args.id} not found.`);
-      await db.project.delete({ where: { id: args.id } });
+      await deleteRowsAndAttachmentFiles({ card: { projectId: args.id } }, () => db.project.delete({ where: { id: args.id } }));
       return { success: true, deletedId: args.id };
     }
 
@@ -892,24 +899,27 @@ export async function executeMcpTool(
       if (args.order !== undefined) data.order = args.order;
       if (args.isDone !== undefined) data.isDone = args.isDone;
 
-      const column = await db.column.update({
-        where: { id: args.id },
-        data,
-      });
+      const column = await db.$transaction(async (tx) => {
+        const updatedColumn = await tx.column.update({
+          where: { id: args.id },
+          data,
+        });
 
-      if (args.isDone !== undefined && args.isDone !== existingColumn?.isDone) {
-        if (args.isDone) {
-          await db.card.updateMany({
-            where: { columnId: args.id, completedAt: null },
-            data: { completedAt: new Date() },
-          });
-        } else {
-          await db.card.updateMany({
-            where: { columnId: args.id },
-            data: { completedAt: null },
-          });
+        if (args.isDone !== undefined && args.isDone !== existingColumn?.isDone) {
+          if (args.isDone) {
+            await tx.card.updateMany({
+              where: { columnId: args.id, completedAt: null },
+              data: { completedAt: new Date() },
+            });
+          } else {
+            await tx.card.updateMany({
+              where: { columnId: args.id },
+              data: { completedAt: null },
+            });
+          }
         }
-      }
+        return updatedColumn;
+      });
 
       return { success: true, column };
     }
@@ -917,7 +927,9 @@ export async function executeMcpTool(
     case "delete_column": {
       const existingColumn = await db.column.findUnique({ where: { id: args.id } });
       if (!existingColumn || !(await verifyProjectAccess(existingColumn.projectId, userId, "ADMIN"))) throw new Error(`Column with ID ${args.id} not found.`);
-      await db.column.delete({ where: { id: args.id } });
+      const lastColumn = await lastColumnError(existingColumn.projectId);
+      if (lastColumn) throw new Error(lastColumn);
+      await deleteRowsAndAttachmentFiles({ card: { columnId: args.id } }, () => db.column.delete({ where: { id: args.id } }));
       return { success: true, deletedId: args.id };
     }
 
@@ -932,10 +944,7 @@ export async function executeMcpTool(
       if (args.owner) where.owner = { contains: args.owner };
       if (args.assignedTo) where.assignees = { some: { userId: args.assignedTo } };
       if (args.query) {
-        where.OR = [
-          { title: { contains: args.query } },
-          { description: { contains: args.query } },
-        ];
+        where.OR = cardTextSearch(String(args.query));
       }
 
       if (args.parentId !== undefined) {
@@ -953,9 +962,11 @@ export async function executeMcpTool(
         }
       }
 
+      const after = args.cursor ? decodeCardCursor(String(args.cursor)) : null;
+      if (args.cursor && !after) throw new Error("Invalid cursor");
+
       const queryOptions: any = {
-        where,
-        orderBy: [{ order: "asc" }, { id: "asc" }],
+        ...cardPageQuery(where, after, limit),
         include: {
           column: { select: { name: true } },
           type: true,
@@ -965,16 +976,9 @@ export async function executeMcpTool(
           children: { select: { id: true, number: true, title: true, completedAt: true } },
           _count: { select: { comments: true } },
         },
-        take: limit,
       };
 
-      if (args.cursor) {
-        queryOptions.cursor = { id: args.cursor };
-        queryOptions.skip = 1;
-      }
-
-      const cards = await db.card.findMany(queryOptions);
-      const nextCursor = cards.length === limit ? cards[cards.length - 1].id : null;
+      const { cards, nextCursor } = cardPage(await db.card.findMany(queryOptions), limit);
       return { success: true, cards, nextCursor };
     }
 
@@ -1058,6 +1062,11 @@ export async function executeMcpTool(
       const targetCol = await db.column.findUnique({ where: { id: args.columnId } });
       const completedAt = deriveCompletedAt(targetCol?.isDone, null);
 
+      if (args.parentId) {
+        const parentError = await validateParentCard(args.projectId, args.parentId);
+        if (parentError) throw new Error(parentError);
+      }
+
       const firstAttemptNumber = await nextCardNumber(args.projectId);
       const card = await withCardNumberRetry(args.projectId, firstAttemptNumber, (number) =>
         db.card.create({
@@ -1115,6 +1124,12 @@ export async function executeMcpTool(
         data.dueDate = args.dueDate ? new Date(args.dueDate) : null;
       }
       if (args.parentId !== undefined) {
+        if (args.parentId) {
+          const cardToNest = await db.card.findUnique({ where: { id: args.id }, select: { projectId: true } });
+          if (!cardToNest) throw new Error(`Card with ID ${args.id} not found.`);
+          const parentError = await validateParentCard(cardToNest.projectId, args.parentId, args.id);
+          if (parentError) throw new Error(parentError);
+        }
         data.parentId = args.parentId || null;
       }
       if (args.typeId !== undefined) {
@@ -1213,7 +1228,7 @@ export async function executeMcpTool(
     case "delete_card": {
       const existingCard = await db.card.findUnique({ where: { id: args.id } });
       if (!existingCard || !(await verifyProjectAccess(existingCard.projectId, userId, "MEMBER"))) throw new Error(`Card with ID ${args.id} not found.`);
-      await db.card.delete({ where: { id: args.id } });
+      await deleteRowsAndAttachmentFiles({ cardId: args.id }, () => db.card.delete({ where: { id: args.id } }));
       return { success: true, deletedId: args.id };
     }
 
@@ -1371,14 +1386,12 @@ export async function executeMcpTool(
       const { parseLabelDetails } = await import("@/lib/validation/labels");
       const details = parseLabelDetails({ color: args.color || undefined, description: args.description });
       if (!details.success) throw new Error(details.error);
-      const label = await db.label.create({
-        data: {
-          name: args.name.trim(),
-          color: details.data.color || "#3b82f6",
-          description: details.data.description ?? null,
-          projectId: args.projectId || null,
-          userId: args.projectId ? null : userId,
-        },
+      const label = await createScopedLabel({
+        name: args.name,
+        color: details.data.color || "#3b82f6",
+        description: details.data.description ?? null,
+        projectId: args.projectId || null,
+        userId: args.projectId ? null : userId,
       });
       return { success: true, label };
     }
@@ -1521,21 +1534,26 @@ export async function executeMcpTool(
       const filterJson =
         typeof args.filterJson === "object" ? JSON.stringify(args.filterJson) : args.filterJson;
 
-      if (args.isDefault) {
-        await db.savedView.updateMany({
-          where: { projectId: args.projectId, isDefault: true },
-          data: { isDefault: false },
-        });
-      }
+      const savedView = await db.$transaction(
+        async (tx) => {
+          if (args.isDefault) {
+            await tx.savedView.updateMany({
+              where: { projectId: args.projectId, isDefault: true },
+              data: { isDefault: false },
+            });
+          }
 
-      const savedView = await db.savedView.create({
-        data: {
-          projectId: args.projectId,
-          name: args.name.trim(),
-          filterJson: filterJson || "{}",
-          isDefault: !!args.isDefault,
+          return tx.savedView.create({
+            data: {
+              projectId: args.projectId,
+              name: args.name.trim(),
+              filterJson: filterJson || "{}",
+              isDefault: !!args.isDefault,
+            },
+          });
         },
-      });
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+      );
       return { success: true, savedView };
     }
 
@@ -1549,20 +1567,27 @@ export async function executeMcpTool(
         data.filterJson =
           typeof args.filterJson === "object" ? JSON.stringify(args.filterJson) : args.filterJson;
       }
-      if (args.isDefault !== undefined) {
-        data.isDefault = args.isDefault;
-        if (args.isDefault) {
-          await db.savedView.updateMany({
-            where: { projectId: existing.projectId, isDefault: true, id: { not: args.id } },
-            data: { isDefault: false },
-          });
-        }
-      }
+      if (args.isDefault !== undefined) data.isDefault = args.isDefault;
 
-      const savedView = await db.savedView.update({
-        where: { id: args.id },
-        data,
-      });
+      const savedView = await db.$transaction(
+        async (tx) => {
+          if (args.isDefault) {
+            const existing = await tx.savedView.findUnique({ where: { id: args.id } });
+            if (existing) {
+              await tx.savedView.updateMany({
+                where: { projectId: existing.projectId, isDefault: true, id: { not: args.id } },
+                data: { isDefault: false },
+              });
+            }
+          }
+
+          return tx.savedView.update({
+            where: { id: args.id },
+            data,
+          });
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+      );
       return { success: true, savedView };
     }
 

@@ -1,7 +1,6 @@
 import { db } from "../lib/db";
 import bcrypt from "bcryptjs";
-import { SignJWT } from "jose";
-import { JWT_SECRET } from "../lib/env";
+import { signToken } from "../lib/auth";
 
 export async function createTestUser(suffix = Date.now().toString()) {
   const email = `test-${suffix}@example.com`;
@@ -15,15 +14,7 @@ export async function createTestUser(suffix = Date.now().toString()) {
     },
   });
 
-  const token = await new SignJWT({
-    userId: user.id,
-    email: user.email,
-    name: user.name,
-  })
-    .setProtectedHeader({ alg: "HS256" })
-    .setIssuedAt()
-    .setExpirationTime("1h")
-    .sign(JWT_SECRET);
+  const token = await signToken({ userId: user.id, email: user.email, name: user.name }, 60 * 60);
 
   return { user, token };
 }
