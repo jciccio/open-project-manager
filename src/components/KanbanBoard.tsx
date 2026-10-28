@@ -330,7 +330,7 @@ export default function KanbanBoard({ project }: Props) {
                   <Users className="h-3.5 w-3.5 text-indigo-500" />
                   <span>Members</span>
                   {project.members && project.members.length > 0 && (
-                    <span className="rounded-full bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 px-1.5 py-0.2 text-[10px] font-bold">
+                    <span className="rounded-full bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 px-1.5 py-0.5 text-[10px] font-bold">
                       {project.members.length}
                     </span>
                   )}

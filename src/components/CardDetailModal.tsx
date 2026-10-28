@@ -43,6 +43,7 @@ import { safeHref } from "@/lib/validation/safeUrl";
 const LEGACY_OWNER = "__legacy_owner__";
 import { useTranslation } from "./LanguageProvider";
 import MarkdownEditor from "./MarkdownEditor";
+import { MarkdownRenderer } from "./MarkdownRenderer";
 import CardTypeManagerModal from "./CardTypeManagerModal";
 import { CardTypeIcon } from "./cardTypeIcons";
 
@@ -1342,7 +1343,7 @@ export default function CardDetailModal({
                 >
                   <MessageSquare className="h-3.5 w-3.5" />
                   <span>{t("cardModal.tabComments")}</span>
-                  <span className="ml-1 rounded-full bg-slate-200 dark:bg-slate-800 px-1.5 py-0.2 text-[10px] text-slate-700 dark:text-slate-300">
+                  <span className="ml-1 rounded-full bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-700 dark:text-slate-300">
                     {comments.length}
                   </span>
                 </button>
@@ -1357,7 +1358,7 @@ export default function CardDetailModal({
                 >
                   <History className="h-3.5 w-3.5" />
                   <span>{t("cardModal.tabActivity")}</span>
-                  <span className="ml-1 rounded-full bg-slate-200 dark:bg-slate-800 px-1.5 py-0.2 text-[10px] text-slate-700 dark:text-slate-300">
+                  <span className="ml-1 rounded-full bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-700 dark:text-slate-300">
                     {activities.length}
                   </span>
                 </button>
@@ -1446,9 +1447,9 @@ export default function CardDetailModal({
                               </button>
                             </div>
                           ) : (
-                            <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
-                              {c.content}
-                            </p>
+                            <div className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
+                              <MarkdownRenderer content={c.content} />
+                            </div>
                           )}
                         </div>
                         {editingCommentId !== c.id && (
