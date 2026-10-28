@@ -18,6 +18,14 @@ function unknownColumnError(columnSourceId: string): string {
   return `Unknown columnSourceId "${columnSourceId}": no matching column was imported for this project`;
 }
 
+function parseDueDate(dueDate: string | undefined): Date | null {
+  if (!dueDate) return null;
+  const match = dueDate.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (match) return new Date(`${match[1]}T00:00:00Z`);
+  const d = new Date(dueDate);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 interface RunCtx {
   importer: Importer;
   userId: string;
@@ -232,7 +240,7 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
                     priority: card.priority || "NONE",
                     points: card.points ?? null,
                     owner: card.owner ?? null,
-                    dueDate: card.dueDate ? new Date(card.dueDate) : null,
+                    dueDate: parseDueDate(card.dueDate),
                     completedAt: card.completedAt ? new Date(card.completedAt) : null,
                     typeId: card.typeSourceId ? cardTypeMap.get(card.typeSourceId) ?? null : null,
                     labels:

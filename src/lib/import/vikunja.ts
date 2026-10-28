@@ -30,6 +30,16 @@ function isUnsetDate(value: string | undefined | null): boolean {
   return !value || value.startsWith("0001-01-01");
 }
 
+/** Normalises an RFC3339 due timestamp to UTC midnight for the calendar date in the source offset. */
+export function normalizeDueDateToUtcMidnight(value: string | undefined | null): string | undefined {
+  if (!value || isUnsetDate(value)) return undefined;
+  const match = value.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (!match) return undefined;
+  const dateStr = `${match[1]}T00:00:00Z`;
+  const d = new Date(dateStr);
+  return Number.isNaN(d.getTime()) ? undefined : dateStr;
+}
+
 /** Vikunja serialises unset ids (no done bucket, no bucket outside a view) as `0`. */
 function setId(id: number | undefined | null): number | undefined {
   return id && id > 0 ? id : undefined;
@@ -333,7 +343,7 @@ export class VikunjaImporter implements Importer {
         description,
         priority: mapPriority(task.priority),
         owner: owner || undefined,
-        dueDate: isUnsetDate(task.due_date) ? undefined : task.due_date,
+        dueDate: normalizeDueDateToUtcMidnight(task.due_date),
         completedAt: isUnsetDate(task.done_at) ? undefined : task.done_at,
         labelSourceIds: (task.labels || []).map((l) => labelSourceId(l.id)),
       };

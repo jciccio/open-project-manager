@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { VikunjaImporter, htmlToMarkdown, mapPriority } from "../vikunja";
+import { VikunjaImporter, htmlToMarkdown, mapPriority, normalizeDueDateToUtcMidnight } from "../vikunja";
 import type { ImportCard, ImportColumn, ImportLabel, ImportComment, ImportProject } from "../types";
 
 const BASE = "http://vikunja.test/api/v1";
@@ -223,6 +223,16 @@ describe("VikunjaImporter", () => {
 
     expect(cards.find((c) => c.sourceId === "vikunja:task:101")!.completedAt).toBeUndefined();
     expect(cards.find((c) => c.sourceId === "vikunja:task:102")!.dueDate).toBeUndefined();
+  });
+
+  it("normalizes RFC3339 timestamps with timezone offsets to source calendar date at UTC midnight", () => {
+    expect(normalizeDueDateToUtcMidnight("2026-09-01T23:55:00-05:00")).toBe("2026-09-01T00:00:00Z");
+    expect(normalizeDueDateToUtcMidnight("2026-09-01T01:15:00+03:00")).toBe("2026-09-01T00:00:00Z");
+    expect(normalizeDueDateToUtcMidnight("2026-09-01T12:00:00Z")).toBe("2026-09-01T00:00:00Z");
+    expect(normalizeDueDateToUtcMidnight("2026-09-01")).toBe("2026-09-01T00:00:00Z");
+    expect(normalizeDueDateToUtcMidnight("0001-01-01T00:00:00Z")).toBeUndefined();
+    expect(normalizeDueDateToUtcMidnight(null)).toBeUndefined();
+    expect(normalizeDueDateToUtcMidnight("")).toBeUndefined();
   });
 
   it("imports only the labels this project's tasks actually use", async () => {
