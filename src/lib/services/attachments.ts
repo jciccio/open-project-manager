@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { removeAttachmentFiles } from "@/lib/attachmentCleanup";
 import { safeRevalidatePath } from "@/lib/revalidate";
 import fs from "fs";
 import { UPLOADS_DIR, MAX_ATTACHMENT_BYTES, getAttachmentFilePath } from "@/lib/attachmentStorage";
@@ -110,14 +111,7 @@ export async function deleteAttachment(attachmentId: string, userId: string) {
 
     await db.attachment.delete({ where: { id: attachmentId } });
 
-    const filePath = getAttachmentFilePath(attachment.storageKey);
-    if (fs.existsSync(filePath)) {
-      try {
-        fs.unlinkSync(filePath);
-      } catch (err) {
-        console.error("Failed to delete attachment file from disk:", err);
-      }
-    }
+    await removeAttachmentFiles([attachment.storageKey]);
 
     safeRevalidatePath(`/projects/${attachment.card.projectId}`);
     return { success: true, data: { id: attachmentId } };
