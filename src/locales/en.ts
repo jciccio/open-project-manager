@@ -248,6 +248,7 @@ export const en = {
     create: "Create Project",
     creating: "Creating...",
     nameRequired: "Project name is required",
+    failedToCreate: "Failed to create project.",
   },
   editProjectModal: {
     title: "Edit Project",
@@ -260,6 +261,7 @@ export const en = {
     save: "Save Changes",
     saving: "Saving...",
     nameRequired: "Project name is required",
+    failedToUpdate: "Failed to update project.",
   },
   colorNames: {
     indigo: "Indigo",
@@ -334,6 +336,9 @@ export const en = {
     alreadyHaveAccount: "Already have an account?",
     passwordsDoNotMatch: "Passwords do not match.",
     fillAllFields: "Please fill in all fields.",
+    invalidCredentials: "Invalid email or password.",
+    failedToLogin: "Failed to log in. Please try again.",
+    unexpectedError: "An unexpected error occurred. Please try again.",
     registrationClosed: "Registration is closed. Ask an administrator for an account.",
     orContinueWith: "Or continue with",
     signInWithSso: "Sign in with SSO",

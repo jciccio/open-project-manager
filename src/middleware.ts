@@ -47,6 +47,10 @@ export async function middleware(request: NextRequest) {
   // Handle Page routes
   if (!isAuthenticated && !isPublicPath) {
     const loginUrl = new URL("/login", request.url);
+    if (pathname !== "/" || request.nextUrl.search) {
+      const returnTo = `${pathname}${request.nextUrl.search}`;
+      loginUrl.searchParams.set("returnTo", returnTo);
+    }
     return NextResponse.redirect(loginUrl);
   }
 

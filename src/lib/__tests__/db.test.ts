@@ -60,6 +60,14 @@ describe("Database Provider & Client Configuration", () => {
       expect(typeof client.user.findMany).toBe("function");
     });
 
+    it("configures SQLite with WAL journal mode pragma", async () => {
+      delete process.env.DATABASE_PROVIDER;
+      delete process.env.DATABASE_URL;
+      const client = createPrismaClient();
+      const result = await client.$queryRawUnsafe<Array<{ journal_mode: string }>>("PRAGMA journal_mode;");
+      expect(result[0].journal_mode.toLowerCase()).toBe("wal");
+    });
+
     it("refuses to fall back to built-in Postgres credentials when DATABASE_URL is missing", () => {
       process.env.DATABASE_PROVIDER = "postgresql";
       delete process.env.DATABASE_URL;
