@@ -64,6 +64,20 @@ async function recordMapping(
   });
 }
 
+// Imported labels are project rows, so one source label used by two projects
+// needs one mapping per project.
+function labelMappingKey(projectSourceId: string, labelSourceId: string): string {
+  return `${projectSourceId}/${labelSourceId}`;
+}
+
+/** Mappings recorded before labels were keyed per project; reusable only within the label's own project. */
+async function findLegacyLabelInProject(userId: string, source: string, labelSourceId: string, projectLocalId: string) {
+  const legacy = await findExistingMapping(userId, source, "label", labelSourceId);
+  if (!legacy) return undefined;
+  const label = await db.label.findUnique({ where: { id: legacy.localId }, select: { projectId: true } });
+  return label?.projectId === projectLocalId ? legacy.localId : undefined;
+}
+
 async function rowStillExists(entityType: ImportEntityType, localId: string): Promise<boolean> {
   switch (entityType) {
     case "project":
@@ -86,10 +100,12 @@ async function createOrSkip(
   ctx: RunCtx,
   entityType: ImportEntityType,
   sourceId: string,
-  create: () => Promise<string>
+  create: () => Promise<string>,
+  options: { mappingKey?: string; findLegacy?: () => Promise<string | undefined> } = {}
 ): Promise<{ localId?: string; result: ImportRecordResult }> {
+  const mappingKey = options.mappingKey ?? sourceId;
   try {
-    const existing = await findExistingMapping(ctx.userId, ctx.source, entityType, sourceId);
+    const existing = await findExistingMapping(ctx.userId, ctx.source, entityType, mappingKey);
     if (existing && (await rowStillExists(entityType, existing.localId))) {
       return {
         localId: existing.localId,
@@ -97,8 +113,17 @@ async function createOrSkip(
       };
     }
 
+    const legacyLocalId = existing ? undefined : await options.findLegacy?.();
+    if (legacyLocalId) {
+      await recordMapping(ctx.userId, ctx.source, entityType, mappingKey, legacyLocalId, ctx.importRunId);
+      return {
+        localId: legacyLocalId,
+        result: { entityType, sourceId, status: "skipped", localId: legacyLocalId },
+      };
+    }
+
     const localId = await create();
-    await recordMapping(ctx.userId, ctx.source, entityType, sourceId, localId, ctx.importRunId);
+    await recordMapping(ctx.userId, ctx.source, entityType, mappingKey, localId, ctx.importRunId);
     return { localId, result: { entityType, sourceId, status: "created", localId } };
   } catch (err) {
     return {
@@ -177,12 +202,21 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
         const labelMap = new Map<string, string>();
         try {
           for await (const lbl of ctx.importer.fetchLabels(projectRec.sourceId)) {
-            const { localId, result } = await createOrSkip(ctx, "label", lbl.sourceId, async () => {
-              const created = await db.label.create({
-                data: { projectId: projectLocalId, name: lbl.name, color: lbl.color || "#3b82f6" },
-              });
-              return created.id;
-            });
+            const { localId, result } = await createOrSkip(
+              ctx,
+              "label",
+              lbl.sourceId,
+              async () => {
+                const created = await db.label.create({
+                  data: { projectId: projectLocalId, name: lbl.name, color: lbl.color || "#3b82f6" },
+                });
+                return created.id;
+              },
+              {
+                mappingKey: labelMappingKey(projectRec.sourceId, lbl.sourceId),
+                findLegacy: () => findLegacyLabelInProject(ctx.userId, ctx.source, lbl.sourceId, projectLocalId),
+              }
+            );
             records.push(result);
             if (localId) labelMap.set(lbl.sourceId, localId);
           }
@@ -318,16 +352,21 @@ async function classifyForDryRun(
   source: string,
   records: ImportDryRunRecordResult[]
 ) {
+  async function liveMapping(entityType: ImportEntityType, mappingKey: string) {
+    const existing = await findExistingMapping(userId, source, entityType, mappingKey);
+    return existing && (await rowStillExists(entityType, existing.localId)) ? existing : undefined;
+  }
+
   async function classify(entityType: ImportEntityType, sourceId: string) {
-    const existing = await findExistingMapping(userId, source, entityType, sourceId);
-    const alreadyImported = !!existing && (await rowStillExists(entityType, existing.localId));
+    const alreadyImported = !!(await liveMapping(entityType, sourceId));
     records.push({ entityType, sourceId, status: alreadyImported ? "would_skip" : "would_create" });
   }
 
   try {
     for await (const project of importer.fetchProjects()) {
       try {
-        await classify("project", project.sourceId);
+        const projectMapping = await liveMapping("project", project.sourceId);
+        records.push({ entityType: "project", sourceId: project.sourceId, status: projectMapping ? "would_skip" : "would_create" });
         const columnSourceIds = new Set<string>();
         try {
           for await (const col of importer.fetchColumns(project.sourceId)) {
@@ -355,7 +394,14 @@ async function classifyForDryRun(
         }
 
         try {
-          for await (const lbl of importer.fetchLabels(project.sourceId)) await classify("label", lbl.sourceId);
+          for await (const lbl of importer.fetchLabels(project.sourceId)) {
+            const mapped = !!(await liveMapping("label", labelMappingKey(project.sourceId, lbl.sourceId)));
+            const legacy =
+              !mapped && projectMapping
+                ? !!(await findLegacyLabelInProject(userId, source, lbl.sourceId, projectMapping.localId))
+                : false;
+            records.push({ entityType: "label", sourceId: lbl.sourceId, status: mapped || legacy ? "would_skip" : "would_create" });
+          }
         } catch (err) {
           records.push({
             entityType: "label",
