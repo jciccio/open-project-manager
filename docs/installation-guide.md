@@ -323,6 +323,12 @@ npx prisma migrate deploy
 npx tsx prisma/seed.ts
 ```
 
+> [!IMPORTANT]
+> **Migration Hygiene & Baselining**:
+> - Always initialize and upgrade production and standalone databases with `npx prisma migrate deploy` rather than `prisma db push`.
+> - If an existing SQLite database was originally populated using `prisma db push`, running `prisma migrate deploy` over it without baselining can cause SQLite table-redefinition scripts (such as `20260821212451_add_oidc_support`) to recreate tables without newly pushed columns (like `oidcSubject`). Baseline existing databases using `npx prisma migrate resolve --applied <migration_name>` first.
+> - **Migration Timestamps**: In the historical migration sequence, `20260821212442_catch_up_missing_migrations` and `20260821212451_add_oidc_support` were timestamped back to 2026-08-21 during integration; they are tracked and applied in lockstep with the codebase across both SQLite (`prisma/migrations`) and PostgreSQL (`prisma/migrations-postgres`).
+
 ---
 
 ### Step 4: Configure Auto-Start Daemon (Systemd or PM2)
