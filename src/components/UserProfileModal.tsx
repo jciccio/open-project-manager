@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X, User, Mail, Lock, CheckCircle2, Key, Copy, Eye, EyeOff, Check, Trash2, Activity } from "lucide-react";
-import { updateUserProfile, listApiTokens, createApiToken, revokeApiToken } from "@/actions/auth";
+import { X, User, Mail, Lock, CheckCircle2, Key, Copy, Eye, EyeOff, Check, Trash2, Activity, ShieldCheck } from "lucide-react";
+import { updateUserProfile, listApiTokens, createApiToken, revokeApiToken, getSsoStatus } from "@/actions/auth";
 import { getTelemetryStatus, updateTelemetryPreference } from "@/actions/telemetry";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "./LanguageProvider";
@@ -15,7 +15,14 @@ interface Props {
     name: string;
   };
   onClose: () => void;
+  ssoLinkResult?: string;
 }
+
+const SSO_LINK_MESSAGES = {
+  linked: "ssoLinkSuccess",
+  subject_in_use: "ssoLinkSubjectInUse",
+  linked_elsewhere: "ssoLinkLinkedElsewhere",
+} as const;
 
 interface ApiTokenSummary {
   id: string;
@@ -25,7 +32,7 @@ interface ApiTokenSummary {
   expiresAt: Date | null;
 }
 
-export default function UserProfileModal({ user, onClose }: Props) {
+export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props) {
   const [name, setName] = useState(user.name);
   const [email, setEmail] = useState(user.email);
   const [currentPassword, setCurrentPassword] = useState("");
@@ -54,10 +61,22 @@ export default function UserProfileModal({ user, onClose }: Props) {
   const [telemetryUpdating, setTelemetryUpdating] = useState(false);
   const [copiedInstanceId, setCopiedInstanceId] = useState(false);
 
+  const [ssoStatus, setSsoStatus] = useState<{ oidcEnabled: boolean; linked: boolean } | null>(null);
+
   const { t } = useTranslation();
   const router = useRouter();
 
+  const ssoLinkMessageKey = ssoLinkResult
+    ? SSO_LINK_MESSAGES[ssoLinkResult as keyof typeof SSO_LINK_MESSAGES] ?? "ssoLinkFailed"
+    : null;
+
   useEffect(() => {
+    getSsoStatus()
+      .then((res) => {
+        if (res.success) setSsoStatus({ oidcEnabled: res.oidcEnabled, linked: res.linked });
+      })
+      .catch(() => setSsoStatus(null));
+
     listApiTokens()
       .then((res) => {
         if (res.success && res.tokens) setTokens(res.tokens);
@@ -292,6 +311,37 @@ export default function UserProfileModal({ user, onClose }: Props) {
               </div>
             </div>
           </div>
+
+          {(ssoStatus?.oidcEnabled || ssoLinkMessageKey) && (
+            <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-2">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-indigo-500" />
+                <h4 className="text-xs font-bold text-slate-900 dark:text-white">{t("profileModal.ssoTitle")}</h4>
+              </div>
+              {ssoLinkMessageKey && (
+                <p
+                  role="status"
+                  className={`text-[11px] ${ssoLinkResult === "linked" ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}
+                >
+                  {t(`profileModal.${ssoLinkMessageKey}`)}
+                </p>
+              )}
+              {ssoStatus && (
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  {ssoStatus.linked ? t("profileModal.ssoLinked") : t("profileModal.ssoNotLinked")}
+                </p>
+              )}
+              {ssoStatus?.oidcEnabled && !ssoStatus.linked && (
+                <a
+                  href="/api/v1/auth/oidc/login?link=1"
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  {t("profileModal.ssoConnect")}
+                </a>
+              )}
+            </div>
+          )}
 
           {/* Developer API Token Section */}
           <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-3">

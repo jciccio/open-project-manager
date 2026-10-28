@@ -8,11 +8,17 @@ opm.example.com {
     # Compress responses (gzip / zstd)
     encode gzip zstd
 
+    header {
+        X-Content-Type-Options "nosniff"
+        Strict-Transport-Security "max-age=31536000"
+    }
+
     # Reverse proxy to Open Project Manager Next.js app
     reverse_proxy localhost:3000 {
         # Preserve client IP and headers
         header_up Host {host}
         header_up X-Real-IP {remote_host}
+        # Overwrite, don't append: the app rate-limits logins by the first X-Forwarded-For entry
         header_up X-Forwarded-For {remote_host}
         header_up X-Forwarded-Proto {scheme}
     }

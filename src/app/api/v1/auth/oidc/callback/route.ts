@@ -1,16 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as client from "openid-client";
-import { createSession } from "@/lib/auth";
+import { createSession, getSession } from "@/lib/auth";
 import { getOidcConfig, getOidcRedirectUri, isOidcConfigured, resolveOidcUser } from "@/lib/oidc";
 
-const OIDC_COOKIE_NAMES = ["opm_oidc_verifier", "opm_oidc_state", "opm_oidc_nonce"] as const;
+const OIDC_COOKIE_NAMES = ["opm_oidc_verifier", "opm_oidc_state", "opm_oidc_nonce", "opm_oidc_link"] as const;
 
-function redirectToLogin(publicOrigin: string, error: string) {
-  const response = NextResponse.redirect(new URL(`/login?error=${error}`, publicOrigin));
+function redirectClearingFlow(url: URL) {
+  const response = NextResponse.redirect(url);
   for (const name of OIDC_COOKIE_NAMES) {
     response.cookies.delete(name);
   }
   return response;
+}
+
+function redirectToLogin(publicOrigin: string, error: string) {
+  return redirectClearingFlow(new URL(`/login?error=${error}`, publicOrigin));
 }
 
 export async function GET(request: NextRequest) {
@@ -28,6 +32,7 @@ export async function GET(request: NextRequest) {
   const codeVerifier = request.cookies.get("opm_oidc_verifier")?.value;
   const expectedState = request.cookies.get("opm_oidc_state")?.value;
   const expectedNonce = request.cookies.get("opm_oidc_nonce")?.value;
+  const linkMode = request.cookies.get("opm_oidc_link")?.value === "1";
 
   if (!codeVerifier || !expectedState || !expectedNonce) {
     return redirectToLogin(publicOrigin, "oidc_session_expired");
@@ -48,12 +53,24 @@ export async function GET(request: NextRequest) {
       throw new Error("OIDC callback did not return ID token claims");
     }
 
-    const result = await resolveOidcUser({
-      sub: claims.sub,
-      email: typeof claims.email === "string" ? claims.email : undefined,
-      emailVerified: claims.email_verified === true,
-      name: typeof claims.name === "string" ? claims.name : undefined,
-    });
+    const linkSession = linkMode ? await getSession() : null;
+    if (linkMode && !linkSession) {
+      return redirectToLogin(publicOrigin, "oidc_session_expired");
+    }
+
+    const result = await resolveOidcUser(
+      {
+        sub: claims.sub,
+        email: typeof claims.email === "string" ? claims.email : undefined,
+        emailVerified: claims.email_verified === true,
+        name: typeof claims.name === "string" ? claims.name : undefined,
+      },
+      { linkUserId: linkSession?.userId }
+    );
+
+    if (linkSession) {
+      return redirectClearingFlow(new URL(`/?sso_link=${result.ok ? "linked" : result.error}`, publicOrigin));
+    }
 
     if (!result.ok) {
       return redirectToLogin(publicOrigin, `oidc_${result.error}`);

@@ -37,3 +37,23 @@ export const DEFAULT_PROJECT_COLOR = "#6366f1";
 export function isPresetColor(color: string): boolean {
   return PRESET_HEX_COLORS.some((c) => c.toLowerCase() === color.toLowerCase());
 }
+
+const HEX_COLOR_PATTERN = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
+
+export const INVALID_COLOR_ERROR = "Color must be a hex value like #6366f1";
+
+export function isHexColor(color: string): boolean {
+  return HEX_COLOR_PATTERN.test(color);
+}
+
+export function assertHexColor(color: string): string {
+  if (!isHexColor(color)) throw new Error(INVALID_COLOR_ERROR);
+  return color;
+}
+
+export function colorNameKey(name: string): string {
+  return name
+    .split(/\s+/)
+    .map((word, i) => (i === 0 ? word.toLowerCase() : word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()))
+    .join("");
+}

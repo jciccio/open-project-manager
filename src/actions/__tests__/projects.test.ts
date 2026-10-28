@@ -87,6 +87,29 @@ describe("Projects Server Actions", () => {
     expect(res.error).toBe("Project name is required");
   });
 
+  it("clears a project description when updated with null", async () => {
+    const createRes = await createProject({ name: "Described", description: "Old text" });
+    const projectId = createRes.data!.id;
+
+    const res = await updateProject(projectId, { description: null });
+    expect(res.success).toBe(true);
+    expect((await db.project.findUnique({ where: { id: projectId } }))!.description).toBeNull();
+  });
+
+  it("rejects a project color that isn't a hex value", async () => {
+    const createRes = await createProject({ name: "Bad Color", color: "red;background:url(x)" });
+    expect(createRes.success).toBe(false);
+    expect(createRes.error).toBe("Color must be a hex value like #6366f1");
+
+    const okRes = await createProject({ name: "Good Color", color: "#ABCDEF" });
+    expect(okRes.success).toBe(true);
+
+    const updateRes = await updateProject(okRes.data!.id, { color: "javascript:alert(1)" });
+    expect(updateRes.success).toBe(false);
+    expect(updateRes.error).toBe("Color must be a hex value like #6366f1");
+    expect((await db.project.findUnique({ where: { id: okRes.data!.id } }))!.color).toBe("#ABCDEF");
+  });
+
   it("fetches user projects list", async () => {
     await createProject({ name: "P1" });
     await createProject({ name: "P2" });

@@ -4,7 +4,13 @@ import {
   PRESET_HEX_COLORS,
   DEFAULT_PROJECT_COLOR,
   isPresetColor,
+  isHexColor,
+  assertHexColor,
+  INVALID_COLOR_ERROR,
+  colorNameKey,
 } from "../colors";
+import { en } from "@/locales/en";
+import { es } from "@/locales/es";
 
 describe("colors module", () => {
   it("exports a rich palette of at least 20 curated colors", () => {
@@ -31,5 +37,33 @@ describe("colors module", () => {
     expect(isPresetColor("#6366f1")).toBe(true);
     expect(isPresetColor("#6366F1")).toBe(true);
     expect(isPresetColor("#123456")).toBe(false);
+  });
+
+  it("accepts only #rgb and #rrggbb hex colors", () => {
+    for (const ok of ["#fff", "#6366f1", "#ABCDEF", ...PRESET_HEX_COLORS]) expect(isHexColor(ok)).toBe(true);
+    for (const bad of ["", "red", "#12345", "#1234567", "6366f1", "#gggggg", "#fff;background:url(x)"]) {
+      expect(isHexColor(bad)).toBe(false);
+    }
+  });
+
+  it("asserts valid hex colors or throws INVALID_COLOR_ERROR", () => {
+    expect(assertHexColor("#6366f1")).toBe("#6366f1");
+    expect(assertHexColor("#fff")).toBe("#fff");
+    expect(() => assertHexColor("invalid")).toThrow(INVALID_COLOR_ERROR);
+    expect(() => assertHexColor("#12345")).toThrow(INVALID_COLOR_ERROR);
+  });
+
+  it("converts color names to camelCase keys with colorNameKey", () => {
+    expect(colorNameKey("Teal")).toBe("teal");
+    expect(colorNameKey("Deep Violet")).toBe("deepViolet");
+    expect(colorNameKey("Dark Emerald")).toBe("darkEmerald");
+  });
+
+  it("has an English and a Spanish name for every preset color", () => {
+    for (const c of PROJECT_COLORS) {
+      const key = colorNameKey(c.name) as keyof typeof en.colorNames;
+      expect(en.colorNames[key]).toBe(c.name);
+      expect(es.colorNames[key]).toBeTruthy();
+    }
   });
 });

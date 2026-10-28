@@ -218,4 +218,53 @@ describe("runImport", () => {
     expect(summary.totals.wouldCreate).toBe(0);
     expect(summary.totals.wouldSkip).toBeGreaterThan(0);
   });
+
+  it("dry run reports a card whose column would not be imported as would_fail, matching the live run", async () => {
+    const fixture = baseFixture();
+    fixture.cards["proj-1"].push({
+      sourceId: "card-bad",
+      columnSourceId: "col-does-not-exist",
+      title: "Orphaned card",
+    });
+    const importer = makeFakeImporter(fixture);
+
+    const dryRun = (await runImport(importer, userId, { dryRun: true })) as ImportDryRunSummary;
+    const badDryRecord = dryRun.records.find((r) => r.sourceId === "card-bad");
+    expect(badDryRecord?.status).toBe("would_fail");
+    expect(badDryRecord?.error).toMatch(/Unknown columnSourceId "col-does-not-exist"/);
+    expect(dryRun.totals.wouldFail).toBe(1);
+
+    const live = (await runImport(importer, userId)) as ImportSummary;
+    expect(live.totals.failed).toBe(dryRun.totals.wouldFail);
+  });
+
+  it("catches iteration errors in child entities and records them as failures without aborting the run", async () => {
+    const importer: Importer = {
+      name: "faulty",
+      async *fetchProjects() {
+        yield { sourceId: "p-error", name: "Faulty Project" };
+        yield { sourceId: "p-healthy", name: "Healthy Project" };
+      },
+      async *fetchColumns(projectSourceId) {
+        if (projectSourceId === "p-error") {
+          throw new Error("Simulated adapter 500 error fetching columns");
+        }
+        yield { sourceId: "col-ok", name: "Backlog" };
+      },
+      async *fetchCardTypes() {},
+      async *fetchLabels() {},
+      async *fetchCards() {},
+      async *fetchComments() {},
+    };
+
+    const summary = (await runImport(importer, userId)) as ImportSummary;
+    expect(summary.totals.failed).toBe(1);
+    const failedRecord = summary.records.find((r) => r.status === "failed");
+    expect(failedRecord?.error).toMatch(/Simulated adapter 500/);
+
+    const healthyProject = summary.records.find((r) => r.sourceId === "p-healthy" && r.status === "created");
+    expect(healthyProject).toBeDefined();
+    const healthyColumn = summary.records.find((r) => r.sourceId === "col-ok" && r.status === "created");
+    expect(healthyColumn).toBeDefined();
+  });
 });

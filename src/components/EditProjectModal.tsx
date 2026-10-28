@@ -41,7 +41,7 @@ export default function EditProjectModal({ project, onClose, onUpdateSuccess }: 
     try {
       const res = await updateProject(project.id, {
         name: name.trim(),
-        description: description.trim() || undefined,
+        description: description.trim() || null,
         color,
       });
       setLoading(false);
@@ -54,11 +54,15 @@ export default function EditProjectModal({ project, onClose, onUpdateSuccess }: 
         }
         onClose();
       } else {
-        setError(res.error || "Failed to update project");
+        const errorMsg =
+          res.error === "Project name is required"
+            ? t("editProjectModal.nameRequired")
+            : t("editProjectModal.failedToUpdate");
+        setError(errorMsg);
       }
-    } catch (err: any) {
+    } catch {
       setLoading(false);
-      setError(err?.message || "Failed to update project");
+      setError(t("editProjectModal.failedToUpdate"));
     }
   }
 

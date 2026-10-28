@@ -1,8 +1,8 @@
 "use client";
 
-import { useRef } from "react";
+import { useId, useRef } from "react";
 import { Check, Pipette } from "lucide-react";
-import { PROJECT_COLORS, ColorOption, isPresetColor } from "@/lib/colors";
+import { PROJECT_COLORS, ColorOption, colorNameKey } from "@/lib/colors";
 import { useTranslation } from "./LanguageProvider";
 
 interface Props {
@@ -23,8 +23,16 @@ export default function ColorPicker({
   size = "md",
 }: Props) {
   const customInputRef = useRef<HTMLInputElement>(null);
+  const labelId = useId();
   const { t } = useTranslation();
-  const isCustom = !isPresetColor(value);
+  const isCustom = !colors.some((c) => c.value.toLowerCase() === value.toLowerCase());
+  const customColorLabel = t("newProjectModal.customColor") || "Custom Color";
+
+  function swatchName(color: ColorOption): string {
+    const key = `colorNames.${colorNameKey(color.name)}`;
+    const translated = t(key);
+    return translated === key ? color.name : translated;
+  }
 
   const swatchSizeClass = size === "sm" ? "h-6 w-6" : "h-7 w-7";
 
@@ -32,9 +40,9 @@ export default function ColorPicker({
     <div>
       {label && (
         <div className="flex items-center justify-between mb-2">
-          <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+          <span id={labelId} className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
             {label}
-          </label>
+          </span>
           <div className="flex items-center gap-1.5">
             <span
               className="inline-block h-3 w-3 rounded-full border border-slate-300 dark:border-slate-700"
@@ -47,16 +55,21 @@ export default function ColorPicker({
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-2 p-2 rounded-xl bg-slate-50 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800">
+      <div
+        role="group"
+        aria-labelledby={label ? labelId : undefined}
+        className="flex flex-wrap items-center gap-2 p-2 rounded-xl bg-slate-50 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800">
         {colors.map((c) => {
           const isSelected = value.toLowerCase() === c.value.toLowerCase();
+          const name = swatchName(c);
           return (
             <button
               type="button"
               key={c.value}
               onClick={() => onChange(c.value)}
-              title={c.name}
-              aria-label={c.name}
+              title={name}
+              aria-label={name}
+              aria-pressed={isSelected}
               className={`relative ${swatchSizeClass} rounded-full transition-all duration-150 flex items-center justify-center ${
                 isSelected
                   ? "ring-2 ring-indigo-500 ring-offset-2 dark:ring-offset-slate-900 scale-110 shadow-sm"
@@ -76,8 +89,9 @@ export default function ColorPicker({
             <button
               type="button"
               onClick={() => customInputRef.current?.click()}
-              title={t("newProjectModal.customColor") || "Custom Color"}
-              aria-label={t("newProjectModal.customColor") || "Custom Color"}
+              title={customColorLabel}
+              aria-label={customColorLabel}
+              aria-pressed={isCustom}
               className={`relative ${swatchSizeClass} rounded-full border-2 border-dashed transition-all duration-150 flex items-center justify-center overflow-hidden ${
                 isCustom
                   ? "border-indigo-500 ring-2 ring-indigo-500 ring-offset-2 dark:ring-offset-slate-900 scale-110 shadow-sm"
@@ -98,6 +112,7 @@ export default function ColorPicker({
               type="color"
               value={value.startsWith("#") ? value : "#6366f1"}
               onChange={(e) => onChange(e.target.value)}
+              aria-label={customColorLabel}
               className="sr-only"
               tabIndex={-1}
             />

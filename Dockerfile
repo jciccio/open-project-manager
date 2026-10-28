@@ -6,6 +6,8 @@ WORKDIR /app
 # uid/gid — both write into the same mounted data volume.
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
+COPY deploy/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN apk add --no-cache su-exec && chmod 755 /usr/local/bin/docker-entrypoint.sh
 
 # 2. Dependencies stage
 FROM base AS deps
@@ -50,14 +52,12 @@ RUN yarn build
 #    schema engine, @prisma/config, effect, etc. — that the Next.js
 #    standalone trace deliberately excludes to keep the runner image small.
 #
-# Runs as the same non-root `nextjs` user as the runner stage: on a fresh
-# named volume, Docker seeds the volume's initial content from whichever
-# image's /app/data first mounts it, and if this stage created dev.db as
-# root (the default before this fix), the runner's `nextjs` user could read
-# it but never write it — breaking every write, including registration.
+# Starts as root only long enough for docker-entrypoint.sh to give /app/data
+# to `nextjs` (a volume left root-owned by an older image can't be written
+# otherwise), then runs the migration as `nextjs`, the same user as the runner.
 FROM builder AS migrator
 RUN mkdir -p /app/data && chown nextjs:nodejs /app/data
-USER nextjs
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["npx", "prisma", "migrate", "deploy"]
 
 # 5. Runner stage
@@ -77,8 +77,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
 RUN mkdir -p /app/data && chown nextjs:nodejs /app/data
 
-USER nextjs
-
 EXPOSE 3000
 
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["node", "server.js"]

@@ -13,26 +13,15 @@ import { db } from "../src/lib/db";
 import { runImport } from "../src/lib/import/runImport";
 import { VikunjaImporter } from "../src/lib/import/vikunja";
 import type { ImportSummary, ImportDryRunSummary } from "../src/lib/import/types";
+import { parseImportVikunjaArgs, type ImportVikunjaArgs } from "./import-vikunja-args";
 
-interface Args {
-  user?: string;
-  projectIds: number[];
-  dryRun: boolean;
-}
-
-function parseArgs(argv: string[]): Args {
-  const args: Args = { projectIds: [], dryRun: false };
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    if (arg === "--dry-run") args.dryRun = true;
-    else if (arg === "--user") args.user = argv[++i];
-    else if (arg === "--project") args.projectIds.push(Number(argv[++i]));
-    else {
-      console.error(`Unknown argument: ${arg}`);
-      process.exit(2);
-    }
+function parseArgs(argv: string[]): ImportVikunjaArgs {
+  try {
+    return parseImportVikunjaArgs(argv);
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(2);
   }
-  return args;
 }
 
 async function resolveUserId(identifier?: string): Promise<string> {
@@ -75,8 +64,12 @@ async function main() {
   const summary = await runImport(importer, userId, { dryRun: args.dryRun });
 
   if (summary.mode === "dry-run") {
-    const { wouldCreate, wouldSkip } = (summary as ImportDryRunSummary).totals;
-    console.log(`\nWould create ${wouldCreate}, would skip ${wouldSkip} (nothing was written).`);
+    const dryRun = summary as ImportDryRunSummary;
+    const { wouldCreate, wouldSkip, wouldFail } = dryRun.totals;
+    console.log(`\nWould create ${wouldCreate}, would skip ${wouldSkip}, would fail ${wouldFail} (nothing was written).`);
+    for (const record of dryRun.records.filter((r) => r.status === "would_fail")) {
+      console.error(`  WOULD FAIL ${record.entityType} ${record.sourceId}: ${record.error}`);
+    }
   } else {
     const live = summary as ImportSummary;
     console.log(`\nCreated ${live.totals.created}, skipped ${live.totals.skipped}, failed ${live.totals.failed}.`);

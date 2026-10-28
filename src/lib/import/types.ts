@@ -72,7 +72,8 @@ export interface ImportRecordResult {
 export interface ImportDryRunRecordResult {
   entityType: ImportEntityType;
   sourceId: string;
-  status: "would_create" | "would_skip";
+  status: "would_create" | "would_skip" | "would_fail";
+  error?: string;
 }
 
 export interface ImportSummary {
@@ -85,7 +86,7 @@ export interface ImportSummary {
 export interface ImportDryRunSummary {
   mode: "dry-run";
   importRunId: string;
-  totals: { wouldCreate: number; wouldSkip: number };
+  totals: { wouldCreate: number; wouldSkip: number; wouldFail: number };
   records: ImportDryRunRecordResult[];
 }
 

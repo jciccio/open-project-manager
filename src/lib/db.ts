@@ -1,6 +1,7 @@
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
+import Database from "better-sqlite3";
 import path from "path";
 import { Pool } from "pg";
 
@@ -27,8 +28,10 @@ export function createPrismaClient(): PrismaClient {
   const provider = getDatabaseProvider();
 
   if (provider === "postgresql") {
-    const connectionString =
-      process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/opm";
+    const connectionString = process.env.DATABASE_URL;
+    if (!connectionString) {
+      throw new Error("DATABASE_URL must be set when DATABASE_PROVIDER is postgresql.");
+    }
     const pool = globalForPrisma.pool ?? new Pool({ connectionString });
     if (process.env.NODE_ENV !== "production") {
       globalForPrisma.pool = pool;
@@ -42,6 +45,17 @@ export function createPrismaClient(): PrismaClient {
   const dbPath = path.isAbsolute(relativePath)
     ? relativePath
     : path.join(/*turbopackIgnore: true*/ process.cwd(), relativePath);
+
+  // Ensure WAL mode is active on file-backed databases
+  if (dbPath !== ":memory:") {
+    try {
+      const initDb = new Database(dbPath);
+      initDb.pragma("journal_mode = WAL");
+      initDb.close();
+    } catch {
+      // Ignore if directory doesn't exist yet or during build-time evaluation
+    }
+  }
 
   const adapter = new PrismaBetterSqlite3({ url: dbPath });
   return new PrismaClient({ adapter });
