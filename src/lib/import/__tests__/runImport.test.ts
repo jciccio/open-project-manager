@@ -237,4 +237,34 @@ describe("runImport", () => {
     const live = (await runImport(importer, userId)) as ImportSummary;
     expect(live.totals.failed).toBe(dryRun.totals.wouldFail);
   });
+
+  it("catches iteration errors in child entities and records them as failures without aborting the run", async () => {
+    const importer: Importer = {
+      name: "faulty",
+      async *fetchProjects() {
+        yield { sourceId: "p-error", name: "Faulty Project" };
+        yield { sourceId: "p-healthy", name: "Healthy Project" };
+      },
+      async *fetchColumns(projectSourceId) {
+        if (projectSourceId === "p-error") {
+          throw new Error("Simulated adapter 500 error fetching columns");
+        }
+        yield { sourceId: "col-ok", name: "Backlog" };
+      },
+      async *fetchCardTypes() {},
+      async *fetchLabels() {},
+      async *fetchCards() {},
+      async *fetchComments() {},
+    };
+
+    const summary = (await runImport(importer, userId)) as ImportSummary;
+    expect(summary.totals.failed).toBe(1);
+    const failedRecord = summary.records.find((r) => r.status === "failed");
+    expect(failedRecord?.error).toMatch(/Simulated adapter 500/);
+
+    const healthyProject = summary.records.find((r) => r.sourceId === "p-healthy" && r.status === "created");
+    expect(healthyProject).toBeDefined();
+    const healthyColumn = summary.records.find((r) => r.sourceId === "col-ok" && r.status === "created");
+    expect(healthyColumn).toBeDefined();
+  });
 });

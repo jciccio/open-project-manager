@@ -15,13 +15,13 @@ describe("MCP create_label", () => {
   });
 
   it("refuses a duplicate label name in the same project", async () => {
-    const projRes = await executeMcpTool("create_project", { name: "MCP Label Project", userId });
+    const projRes = await executeMcpTool("create_project", { name: "MCP Label Project", userId }, { userId });
     const projectId = projRes.project!.id;
 
-    const first = await executeMcpTool("create_label", { name: "Blocked", projectId });
+    const first = await executeMcpTool("create_label", { name: "Blocked", projectId }, { userId });
     expect(first.success).toBe(true);
 
-    await expect(executeMcpTool("create_label", { name: "Blocked", projectId })).rejects.toThrow(
+    await expect(executeMcpTool("create_label", { name: "Blocked", projectId }, { userId })).rejects.toThrow(
       "A label with this name already exists"
     );
     expect(await db.label.count({ where: { projectId, name: "Blocked" } })).toBe(1);
