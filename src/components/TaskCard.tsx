@@ -1,6 +1,6 @@
 "use client";
 
-import { MessageSquare, Calendar, Zap, Link2, ShieldAlert, CheckSquare, CornerDownRight } from "lucide-react";
+import { MessageSquare, Calendar, Zap, ShieldAlert, CheckSquare, CornerDownRight } from "lucide-react";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { useTranslation } from "./LanguageProvider";
 import { CardTypeIcon } from "./cardTypeIcons";

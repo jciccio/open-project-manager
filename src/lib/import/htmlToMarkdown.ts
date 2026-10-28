@@ -1,79 +1,54 @@
-const HTML_ENTITIES: Record<string, string> = {
-  "&amp;": "&",
-  "&lt;": "<",
-  "&gt;": ">",
-  "&quot;": '"',
-  "&#39;": "'",
-  "&apos;": "'",
-  "&nbsp;": " ",
-};
+import TurndownService from "turndown";
+import { gfm } from "turndown-plugin-gfm";
+
+const turndownService = new TurndownService({
+  headingStyle: "atx",
+  codeBlockStyle: "fenced",
+  bulletListMarker: "-",
+  emDelimiter: "*",
+  strongDelimiter: "**",
+});
+
+// Enable GFM plugin (tables, strikethrough, task lists)
+turndownService.use(gfm);
+
+// Rule for <br> so line breaks match CommonMark single newlines in cards
+turndownService.addRule("lineBreak", {
+  filter: "br",
+  replacement: () => "\n",
+});
+
+// Rule for list items to produce compact list markers without 4-space tabs
+turndownService.addRule("cleanListItem", {
+  filter: "li",
+  replacement: function (content, node, options) {
+    content = content
+      .replace(/^\n+/, "")
+      .replace(/\n+$/, "")
+      .replace(/\n/gm, "\n    ");
+    let prefix = options.bulletListMarker + " ";
+    const parent = (node as unknown as { parentNode?: { nodeName?: string; getAttribute?: (attr: string) => string | null; children?: unknown[] } }).parentNode;
+    if (parent && parent.nodeName === "OL") {
+      const start = parent.getAttribute ? parent.getAttribute("start") : null;
+      const index = parent.children ? Array.prototype.indexOf.call(parent.children, node) : 0;
+      prefix = (start ? Number(start) + index : index + 1) + ". ";
+    }
+    return prefix + content + (node.nextSibling && !/\n$/.test(content) ? "\n" : "");
+  },
+});
 
 /**
  * Shared HTML-to-Markdown converter used across importers (Vikunja, Plane, etc.).
- * Converts HTML into CommonMark / GFM markdown, ensuring no raw HTML tags leak into
- * card descriptions or comment feeds.
+ * Converts HTML into CommonMark / GFM markdown using Turndown + GFM plugin,
+ * ensuring no raw HTML tags leak into card descriptions or comment feeds.
  */
 export function htmlToMarkdown(html: string | undefined | null): string {
   if (!html) return "";
 
-  let out = html.replace(/\r\n/g, "\n");
-
-  // Block-level code first, so its contents are not touched by inline rules.
-  out = out.replace(
-    /<pre[^>]*>\s*(?:<code[^>]*>)?([\s\S]*?)(?:<\/code>)?\s*<\/pre>/gi,
-    (_m, code) => `\n\n\`\`\`\n${code}\n\`\`\`\n\n`
-  );
-  out = out.replace(/<code[^>]*>([\s\S]*?)<\/code>/gi, (_m, code) => `\`${code}\``);
-
-  // Links and Emphasis
-  out = out.replace(
-    /<a[^>]*href=["']([^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi,
-    (_m, href, text) => `[${text}](${href})`
-  );
-  out = out.replace(/<(?:strong|b)[^>]*>([\s\S]*?)<\/(?:strong|b)>/gi, (_m, text) => `**${text}**`);
-  out = out.replace(/<(?:em|i)[^>]*>([\s\S]*?)<\/(?:em|i)>/gi, (_m, text) => `*${text}*`);
-  out = out.replace(/<(?:del|s|strike)[^>]*>([\s\S]*?)<\/(?:del|s|strike)>/gi, (_m, text) => `~~${text}~~`);
-
-  // Headings
-  out = out.replace(/<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi, (_m, level, text) => {
-    const hashes = "#".repeat(Number(level));
-    return `\n\n${hashes} ${String(text).trim()}\n\n`;
-  });
-
-  // Blockquotes
-  out = out.replace(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi, (_m, text) => {
-    const lines = String(text)
-      .trim()
-      .split("\n")
-      .map((l) => `> ${l.trim()}`)
-      .join("\n");
-    return `\n\n${lines}\n\n`;
-  });
-
-  // Lists (Ordered & Unordered)
-  out = out.replace(/<ol[^>]*>([\s\S]*?)<\/ol>/gi, (_m, body: string) => {
-    let n = 0;
-    return `\n${body.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_li, item) => `${++n}. ${String(item).trim()}\n`)}\n`;
-  });
-  out = out.replace(
-    /<ul[^>]*>([\s\S]*?)<\/ul>/gi,
-    (_m, body: string) => `\n${body.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_li, item) => `- ${String(item).trim()}\n`)}\n`
-  );
-  out = out.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_m, item) => `- ${String(item).trim()}\n`);
-
-  // Line breaks and paragraph dividers
-  out = out.replace(/<br\s*\/?>/gi, "\n");
-  out = out.replace(/<\/p>/gi, "\n\n");
-  out = out.replace(/<\/(?:div|h[1-6]|blockquote)>/gi, "\n\n");
-
-  // Strip remaining HTML tags
-  out = out.replace(/<[^>]+>/g, "");
-
-  // Entity decoding
-  for (const [entity, char] of Object.entries(HTML_ENTITIES)) {
-    out = out.split(entity).join(char);
+  try {
+    return turndownService.turndown(html).trim();
+  } catch {
+    // Safe fallback: strip HTML tags
+    return html.replace(/<[^>]+>/g, "").trim();
   }
-  out = out.replace(/&#(\d+);/g, (_m, code) => String.fromCharCode(Number(code)));
-
-  return out.replace(/\n{3,}/g, "\n\n").trim();
 }
