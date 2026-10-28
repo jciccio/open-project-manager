@@ -14,6 +14,7 @@ import { nextCardNumber, withCardNumberRetry } from "@/lib/cardNumbering";
 import { generateProjectKey } from "@/lib/projectKey";
 import { verifyProjectAccess } from "@/lib/permissions";
 import { deriveCompletedAt } from "@/lib/cardCompletion";
+import { cardTextSearch } from "@/lib/cardSearch";
 
 const DEFAULT_LIST_CARDS_LIMIT = 100;
 
@@ -914,10 +915,7 @@ export async function executeMcpTool(
       if (args.owner) where.owner = { contains: args.owner };
       if (args.assignedTo) where.assignees = { some: { userId: args.assignedTo } };
       if (args.query) {
-        where.OR = [
-          { title: { contains: args.query } },
-          { description: { contains: args.query } },
-        ];
+        where.OR = cardTextSearch(String(args.query));
       }
 
       if (args.parentId !== undefined) {

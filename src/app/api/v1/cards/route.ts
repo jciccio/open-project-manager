@@ -3,6 +3,7 @@ import { getApiSession } from "@/lib/auth";
 import { createCard } from "@/lib/services/cards";
 import { db } from "@/lib/db";
 import { verifyProjectAccess } from "@/lib/permissions";
+import { cardTextSearch } from "@/lib/cardSearch";
 
 const DEFAULT_LIST_CARDS_LIMIT = 100;
 
@@ -61,10 +62,7 @@ export async function GET(request: NextRequest) {
       where.assignees = { some: { userId: assignedUserId } };
     }
     if (query) {
-      where.OR = [
-        { title: { contains: query } },
-        { description: { contains: query } },
-      ];
+      where.OR = cardTextSearch(query);
     }
 
     const queryOptions: any = {
