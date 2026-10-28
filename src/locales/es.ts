@@ -234,6 +234,7 @@ export const es: TranslationKeys = {
     create: "Crear Proyecto",
     creating: "Creando...",
     nameRequired: "El nombre del proyecto es obligatorio",
+    failedToCreate: "Error al crear el proyecto.",
   },
   editProjectModal: {
     title: "Editar Proyecto",
@@ -246,6 +247,7 @@ export const es: TranslationKeys = {
     save: "Guardar Cambios",
     saving: "Guardando...",
     nameRequired: "El nombre del proyecto es obligatorio",
+    failedToUpdate: "Error al actualizar el proyecto.",
   },
   colorNames: {
     indigo: "Índigo",
@@ -320,6 +322,9 @@ export const es: TranslationKeys = {
     alreadyHaveAccount: "¿Ya tienes una cuenta?",
     passwordsDoNotMatch: "Las contraseñas no coinciden.",
     fillAllFields: "Por favor, completa todos los campos.",
+    invalidCredentials: "Email o contraseña inválidos.",
+    failedToLogin: "Error al iniciar sesión. Por favor intenta de nuevo.",
+    unexpectedError: "Ocurrió un error inesperado. Por favor intenta de nuevo.",
     registrationClosed: "El registro está cerrado. Pide una cuenta a un administrador.",
     orContinueWith: "O continúa con",
     signInWithSso: "Iniciar sesión con SSO",

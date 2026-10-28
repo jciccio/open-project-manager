@@ -1,11 +1,20 @@
 import { render, screen, fireEvent } from "@testing-library/react";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import Header from "../Header";
 import { LoginForm } from "@/app/login/LoginForm";
 import { LanguageProvider } from "../LanguageProvider";
 import { ThemeProvider } from "../ThemeProvider";
 
 import UserProfileModal from "../UserProfileModal";
+import { loginUser } from "@/actions/auth";
+
+vi.mock("@/actions/auth", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/actions/auth")>();
+  return {
+    ...actual,
+    loginUser: vi.fn(),
+  };
+});
 
 // Helper wrapper for providers
 function renderWithProviders(ui: React.ReactNode) {
@@ -17,6 +26,10 @@ function renderWithProviders(ui: React.ReactNode) {
 }
 
 describe("Authentication & Header UI Components", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    document.cookie = "opm_locale=en; path=/";
+  });
   it("renders Header with app title and user profile when user is logged in", () => {
     renderWithProviders(
       <Header
@@ -102,6 +115,27 @@ describe("Authentication & Header UI Components", () => {
 
     renderWithProviders(<LoginForm oidcEnabled={false} registrationOpen={false} />);
     expect(document.querySelector('a[href="/register"]')).toBeNull();
+  });
+
+  it("displays localized error message when login attempt fails", async () => {
+    vi.mocked(loginUser).mockResolvedValueOnce({
+      success: false,
+      error: "Invalid email or password.",
+    });
+
+    renderWithProviders(<LoginForm oidcEnabled={false} registrationOpen={true} />);
+
+    fireEvent.change(screen.getByPlaceholderText("admin@example.com"), {
+      target: { value: "wrong@example.com" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("••••••••"), {
+      target: { value: "badpassword" },
+    });
+
+    const submitBtn = screen.getByRole("button", { name: /sign in/i });
+    fireEvent.click(submitBtn);
+
+    expect(await screen.findByText("Invalid email or password.")).toBeInTheDocument();
   });
 });
 

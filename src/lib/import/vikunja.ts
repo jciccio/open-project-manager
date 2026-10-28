@@ -46,55 +46,8 @@ export function mapPriority(priority: number | undefined): string {
   }
 }
 
-const HTML_ENTITIES: Record<string, string> = {
-  "&amp;": "&",
-  "&lt;": "<",
-  "&gt;": ">",
-  "&quot;": '"',
-  "&#39;": "'",
-  "&apos;": "'",
-  "&nbsp;": " ",
-};
-
-/**
- * Vikunja stores descriptions and comments as HTML; OPM renders them as Markdown
- * (react-markdown). This covers the subset the board actually contains — prose,
- * lists, links, emphasis and code — and drops any other markup rather than
- * leaking raw tags into the card body.
- */
-export function htmlToMarkdown(html: string | undefined | null): string {
-  if (!html) return "";
-
-  let out = html.replace(/\r\n/g, "\n");
-
-  // Block-level code first, so its contents are not touched by the inline rules.
-  out = out.replace(/<pre[^>]*>\s*(?:<code[^>]*>)?([\s\S]*?)(?:<\/code>)?\s*<\/pre>/gi, (_m, code) => `\n\n\`\`\`\n${code}\n\`\`\`\n\n`);
-  out = out.replace(/<code[^>]*>([\s\S]*?)<\/code>/gi, (_m, code) => `\`${code}\``);
-
-  out = out.replace(/<a[^>]*href=["']([^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi, (_m, href, text) => `[${text}](${href})`);
-  out = out.replace(/<(?:strong|b)[^>]*>([\s\S]*?)<\/(?:strong|b)>/gi, (_m, text) => `**${text}**`);
-  out = out.replace(/<(?:em|i)[^>]*>([\s\S]*?)<\/(?:em|i)>/gi, (_m, text) => `*${text}*`);
-
-  // Ordered lists get real numbers; unordered lists get dashes.
-  out = out.replace(/<ol[^>]*>([\s\S]*?)<\/ol>/gi, (_m, body: string) => {
-    let n = 0;
-    return `\n${body.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_li, item) => `${++n}. ${String(item).trim()}\n`)}\n`;
-  });
-  out = out.replace(/<ul[^>]*>([\s\S]*?)<\/ul>/gi, (_m, body: string) => `\n${body.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_li, item) => `- ${String(item).trim()}\n`)}\n`);
-  out = out.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_m, item) => `- ${String(item).trim()}\n`);
-
-  out = out.replace(/<br\s*\/?>/gi, "\n");
-  out = out.replace(/<\/p>/gi, "\n\n");
-  out = out.replace(/<\/(?:div|h[1-6]|blockquote)>/gi, "\n\n");
-  out = out.replace(/<[^>]+>/g, "");
-
-  for (const [entity, char] of Object.entries(HTML_ENTITIES)) {
-    out = out.split(entity).join(char);
-  }
-  out = out.replace(/&#(\d+);/g, (_m, code) => String.fromCharCode(Number(code)));
-
-  return out.replace(/\n{3,}/g, "\n\n").trim();
-}
+import { htmlToMarkdown } from "./htmlToMarkdown";
+export { htmlToMarkdown };
 
 interface VikunjaProject {
   id: number;
