@@ -3,9 +3,10 @@ import { NextRequest } from "next/server";
 import { SignJWT, jwtVerify } from "jose";
 import { db } from "@/lib/db";
 import { JWT_SECRET } from "@/lib/env";
+import { API_TOKEN_AUDIENCE, SESSION_AUDIENCE, TOKEN_ISSUER, hasAllowedClaims } from "@/lib/tokenClaims";
 
 const SESSION_COOKIE_NAME = "opm_session";
-const SESSION_DURATION = 7 * 24 * 60 * 60; // 7 days in seconds
+export const SESSION_DURATION = 7 * 24 * 60 * 60; // 7 days in seconds
 const API_TOKEN_DURATION = 365 * 24 * 60 * 60; // 1 year in seconds
 
 export interface UserSession {
@@ -41,6 +42,8 @@ export async function determineCookieSecurity(): Promise<boolean> {
 export async function signToken(sessionData: UserSession, durationSeconds = 30 * 24 * 60 * 60) {
   return await new SignJWT({ ...sessionData })
     .setProtectedHeader({ alg: "HS256" })
+    .setIssuer(TOKEN_ISSUER)
+    .setAudience(SESSION_AUDIENCE)
     .setIssuedAt()
     .setExpirationTime(`${durationSeconds}s`)
     .sign(JWT_SECRET);
@@ -53,6 +56,8 @@ export async function signToken(sessionData: UserSession, durationSeconds = 30 *
 export async function signApiToken(sessionData: UserSession, tokenId: string) {
   return await new SignJWT({ ...sessionData, jti: tokenId, type: "api_token" })
     .setProtectedHeader({ alg: "HS256" })
+    .setIssuer(TOKEN_ISSUER)
+    .setAudience(API_TOKEN_AUDIENCE)
     .setIssuedAt()
     .setExpirationTime(`${API_TOKEN_DURATION}s`)
     .sign(JWT_SECRET);
@@ -83,6 +88,7 @@ export async function verifyToken(token: string): Promise<UserSession | null> {
   try {
     const { payload } = await jwtVerify(token, JWT_SECRET, { algorithms: ["HS256"] });
     if (payload.jti || payload.type === "api_token") return null;
+    if (!hasAllowedClaims(payload, [SESSION_AUDIENCE])) return null;
     return {
       userId: payload.userId as string,
       email: payload.email as string,
@@ -106,6 +112,7 @@ async function verifyBearerToken(token: string): Promise<UserSession | null> {
   } catch {
     return null;
   }
+  if (!hasAllowedClaims(payload, [SESSION_AUDIENCE, API_TOKEN_AUDIENCE])) return null;
 
   const jti = payload.jti as string | undefined;
   if (!jti) {
