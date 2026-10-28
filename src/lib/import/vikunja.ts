@@ -15,6 +15,12 @@ export interface VikunjaImporterConfig {
   token: string;
   /** Vikunja project ids to import. Empty means every project the token can see. */
   projectIds?: number[];
+  /** Optional instance identifier (defaults to host from baseUrl). */
+  instanceId?: string;
+  /** Max retries for 429/5xx and transient network errors (default: 3). */
+  maxRetries?: number;
+  /** Initial retry backoff delay in ms (default: 100). */
+  retryDelayMs?: number;
 }
 
 const PER_PAGE = 50;
@@ -124,11 +130,13 @@ function numericId(sourceId: string): number {
 }
 
 export class VikunjaImporter implements Importer {
-  readonly name = "vikunja";
+  readonly name: string;
 
   private readonly baseUrl: string;
   private readonly token: string;
   private readonly projectIds?: number[];
+  private readonly maxRetries: number;
+  private readonly retryDelayMs: number;
 
   /** Per-project kanban layout, resolved once and shared by fetchColumns/fetchCards. */
   private layouts = new Map<number, BucketLayout>();
@@ -137,17 +145,58 @@ export class VikunjaImporter implements Importer {
     this.baseUrl = config.baseUrl.replace(/\/+$/, "");
     this.token = config.token;
     this.projectIds = config.projectIds?.length ? config.projectIds : undefined;
+    this.maxRetries = config.maxRetries ?? 3;
+    this.retryDelayMs = config.retryDelayMs ?? 100;
+
+    const hostOrHash =
+      config.instanceId ??
+      (() => {
+        try {
+          const u = new URL(this.baseUrl);
+          return u.host || u.hostname;
+        } catch {
+          return "";
+        }
+      })();
+    this.name = hostOrHash ? `vikunja:${hostOrHash}` : "vikunja";
   }
 
   private async request<T>(path: string): Promise<{ body: T; totalPages?: number }> {
-    const res = await fetch(`${this.baseUrl}${path}`, {
-      headers: { Authorization: `Bearer ${this.token}`, Accept: "application/json" },
-    });
-    if (!res.ok) {
-      throw new Error(`Vikunja GET ${path} failed: ${res.status} ${res.statusText}`);
+    let attempt = 0;
+    while (true) {
+      try {
+        const res = await fetch(`${this.baseUrl}${path}`, {
+          headers: { Authorization: `Bearer ${this.token}`, Accept: "application/json" },
+        });
+
+        if (res.status === 429 || (res.status >= 500 && res.status <= 599)) {
+          if (attempt < this.maxRetries) {
+            attempt++;
+            const retryAfterHeader = res.headers.get("retry-after");
+            const retryAfterSec = retryAfterHeader ? Number.parseInt(retryAfterHeader, 10) : NaN;
+            const delay = !Number.isNaN(retryAfterSec)
+              ? retryAfterSec * 1000
+              : this.retryDelayMs * Math.pow(2, attempt - 1);
+            await new Promise((resolve) => setTimeout(resolve, delay));
+            continue;
+          }
+        }
+
+        if (!res.ok) {
+          throw new Error(`Vikunja GET ${path} failed: ${res.status} ${res.statusText}`);
+        }
+        const totalPages = Number.parseInt(res.headers.get("x-pagination-total-pages") ?? "", 10);
+        return { body: (await res.json()) as T, totalPages: Number.isNaN(totalPages) ? undefined : totalPages };
+      } catch (err) {
+        if (attempt < this.maxRetries && err instanceof Error && !err.message.startsWith("Vikunja GET")) {
+          attempt++;
+          const delay = this.retryDelayMs * Math.pow(2, attempt - 1);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          continue;
+        }
+        throw err;
+      }
     }
-    const totalPages = Number.parseInt(res.headers.get("x-pagination-total-pages") ?? "", 10);
-    return { body: (await res.json()) as T, totalPages: Number.isNaN(totalPages) ? undefined : totalPages };
   }
 
   private async get<T>(path: string): Promise<T> {

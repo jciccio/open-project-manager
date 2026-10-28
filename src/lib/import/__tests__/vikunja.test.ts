@@ -356,4 +356,61 @@ describe("VikunjaImporter", () => {
     const importer = new VikunjaImporter({ baseUrl: BASE, token: "bad", projectIds: [2] });
     await expect(collect(importer.fetchProjects())).rejects.toThrow(/403/);
   });
+
+  it("includes instance host or custom instanceId in importer name", () => {
+    const defaultImporter = new VikunjaImporter({ baseUrl: "https://vikunja.example.com/api/v1", token: "tok" });
+    expect(defaultImporter.name).toBe("vikunja:vikunja.example.com");
+
+    const customImporter = new VikunjaImporter({
+      baseUrl: "https://vikunja.example.com/api/v1",
+      token: "tok",
+      instanceId: "custom-instance",
+    });
+    expect(customImporter.name).toBe("vikunja:custom-instance");
+  });
+
+  it("retries 429 and 5xx responses with backoff and succeeds if transient", async () => {
+    let callCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            ok: false,
+            status: 429,
+            statusText: "Too Many Requests",
+            headers: new Headers({ "retry-after": "0" }),
+            json: async () => ({}),
+          } as unknown as Response;
+        }
+        if (callCount === 2) {
+          return {
+            ok: false,
+            status: 503,
+            statusText: "Service Unavailable",
+            headers: new Headers(),
+            json: async () => ({}),
+          } as unknown as Response;
+        }
+        return {
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          headers: new Headers({ "x-pagination-total-pages": "1" }),
+          json: async () => [{ id: 2, title: "Recovered Project" }],
+        } as unknown as Response;
+      })
+    );
+
+    const importer = new VikunjaImporter({
+      baseUrl: BASE,
+      token: "test-token",
+      maxRetries: 3,
+      retryDelayMs: 1,
+    });
+    const projects = await collect(importer.fetchProjects());
+    expect(callCount).toBe(3);
+    expect(projects[0].name).toBe("Recovered Project");
+  });
 });
