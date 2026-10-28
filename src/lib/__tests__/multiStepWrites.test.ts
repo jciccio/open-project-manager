@@ -79,7 +79,7 @@ describe("multi-step writes leave no partial state", () => {
       await createSavedView(projectId, { name: "Taken" }, userId);
 
       await expect(
-        executeMcpTool("create_saved_view", { projectId, name: "Taken", isDefault: true })
+        executeMcpTool("create_saved_view", { projectId, name: "Taken", isDefault: true }, { userId })
       ).rejects.toThrow();
       expect(await defaultViewNames()).toEqual(["First"]);
     });
@@ -101,7 +101,7 @@ describe("multi-step writes leave no partial state", () => {
       const card = await createCard({ projectId, columnId, title: "Open card" }, userId);
 
       failNextTransactionAfterWrites();
-      await expect(executeMcpTool("update_column", { id: columnId, isDone: true })).rejects.toThrow("injected failure");
+      await expect(executeMcpTool("update_column", { id: columnId, isDone: true }, { userId })).rejects.toThrow("injected failure");
 
       expect((await db.column.findUnique({ where: { id: columnId } }))?.isDone).toBe(false);
       expect((await db.card.findUnique({ where: { id: card.data!.id } }))?.completedAt).toBeNull();

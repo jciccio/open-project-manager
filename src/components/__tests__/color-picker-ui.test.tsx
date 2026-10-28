@@ -6,13 +6,7 @@ import EditProjectModal from "../EditProjectModal";
 import { LanguageProvider } from "../LanguageProvider";
 import { ThemeProvider } from "../ThemeProvider";
 import { PROJECT_COLORS } from "@/lib/colors";
-
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({
-    push: vi.fn(),
-    refresh: vi.fn(),
-  }),
-}));
+import { updateProject } from "@/actions/projects";
 
 vi.mock("@/actions/projects", () => ({
   createProject: vi.fn().mockResolvedValue({ success: true, data: { id: "p-new" } }),
@@ -90,6 +84,10 @@ describe("ColorPicker & Project Modal UI Components", () => {
       fireEvent.click(submitBtn);
     });
 
+    expect(updateProject).toHaveBeenCalledWith(
+      "p1",
+      expect.objectContaining({ color: "#14b8a6" })
+    );
     expect(handleUpdate).toHaveBeenCalledWith({ id: "p-edit" });
   });
 
