@@ -70,8 +70,8 @@ vi.mock('next/navigation', () => ({
     back: vi.fn(),
     refresh: vi.fn(),
   }),
-  usePathname: () => '/',
-  useSearchParams: () => new URLSearchParams(),
+  usePathname: () => (typeof window !== 'undefined' ? window.location.pathname || '/' : '/'),
+  useSearchParams: () => new URLSearchParams(typeof window !== 'undefined' ? window.location.search : ''),
   redirect: vi.fn((url: string) => {
     const err = new Error(`NEXT_REDIRECT:${url}`);
     (err as any).digest = `NEXT_REDIRECT;${url}`;

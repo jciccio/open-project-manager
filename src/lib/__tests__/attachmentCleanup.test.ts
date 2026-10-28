@@ -70,15 +70,15 @@ describe("attachment files on delete", () => {
 
   it("removes files when cards, columns and projects are deleted through MCP", async () => {
     const card = await cardWithFile(columnId, "mcp-card");
-    await executeMcpTool("delete_card", { id: card.cardId });
+    await executeMcpTool("delete_card", { id: card.cardId }, { userId });
     expect(fs.existsSync(card.path)).toBe(false);
 
     const inColumn = await cardWithFile(columnId, "mcp-column");
-    await executeMcpTool("delete_column", { id: columnId });
+    await executeMcpTool("delete_column", { id: columnId }, { userId });
     expect(fs.existsSync(inColumn.path)).toBe(false);
 
     const inProject = await cardWithFile(otherColumnId, "mcp-project");
-    await executeMcpTool("delete_project", { id: projectId });
+    await executeMcpTool("delete_project", { id: projectId }, { userId });
     expect(fs.existsSync(inProject.path)).toBe(false);
   });
 

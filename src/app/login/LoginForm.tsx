@@ -5,7 +5,7 @@ import { LogIn, Key, Mail, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
 import { loginUser } from "@/actions/auth";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useTranslation } from "@/components/LanguageProvider";
 import type { TranslationKeys } from "@/locales/en";
 
@@ -19,21 +19,32 @@ const LOGIN_ERROR_KEYS: Record<string, keyof TranslationKeys["auth"]> = {
   oidc_linked_elsewhere: "oidcErrorLinkedElsewhere",
 };
 
+function getSafeReturnUrl(target: string | null): string {
+  if (!target) return "/";
+  // Safe relative URL starting with single slash (blocks //external and backslashes)
+  if (target.startsWith("/") && !target.startsWith("//") && !target.includes("\\")) {
+    return target;
+  }
+  return "/";
+}
+
 export function LoginForm({ oidcEnabled, registrationOpen }: { oidcEnabled: boolean; registrationOpen: boolean }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [dismissedUrlError, setDismissedUrlError] = useState(false);
   const [loading, setLoading] = useState(false);
   const { t } = useTranslation();
-  const router = useRouter();
   const searchParams = useSearchParams();
 
   const errorCode = searchParams.get("error");
   const errorKey = errorCode ? LOGIN_ERROR_KEYS[errorCode] : undefined;
-  const displayedError = error || (errorKey ? t(`auth.${errorKey}`) : "");
+  const displayedError = error || (!dismissedUrlError && errorKey ? t(`auth.${errorKey}`) : "");
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setDismissedUrlError(true);
+
     if (!email || !password) {
       setError(t("auth.fillAllFields"));
       return;
@@ -45,14 +56,23 @@ export function LoginForm({ oidcEnabled, registrationOpen }: { oidcEnabled: bool
     try {
       const res = await loginUser({ email, password });
       if (res.success) {
-        window.location.href = "/";
+        const destination = getSafeReturnUrl(searchParams.get("returnTo"));
+        window.location.href = destination;
       } else {
         setLoading(false);
-        setError(res.error || "Invalid credentials");
+        if (res.error === "Invalid email or password.") {
+          setError(t("auth.invalidCredentials"));
+        } else if (res.error === "Email and password are required.") {
+          setError(t("auth.fillAllFields"));
+        } else if (res.error && res.error.startsWith("Too many login attempts")) {
+          setError(res.error);
+        } else {
+          setError(t("auth.failedToLogin"));
+        }
       }
-    } catch (err: any) {
+    } catch {
       setLoading(false);
-      setError(err?.message || "An unexpected login error occurred. Please try again.");
+      setError(t("auth.unexpectedError"));
     }
   }
 
