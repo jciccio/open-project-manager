@@ -14,6 +14,7 @@ import { DEFAULT_CARD_TYPES } from "@/lib/cardTypeDefaults";
 import { nextCardNumber, withCardNumberRetry } from "@/lib/cardNumbering";
 import { cardPage, cardPageQuery, decodeCardCursor } from "@/lib/cardPagination";
 import { generateProjectKey } from "@/lib/projectKey";
+import { createScopedLabel } from "@/lib/scopedLabels";
 import { verifyProjectAccess } from "@/lib/permissions";
 import { deriveCompletedAt } from "@/lib/cardCompletion";
 import { cardTextSearch } from "@/lib/cardSearch";
@@ -1345,13 +1346,11 @@ export async function executeMcpTool(
       if (args.projectId && !(await verifyProjectAccess(args.projectId, userId, "MEMBER"))) {
         throw new Error(`Project with ID ${args.projectId} not found.`);
       }
-      const label = await db.label.create({
-        data: {
-          name: args.name.trim(),
-          color: args.color || "#3b82f6",
-          projectId: args.projectId || null,
-          userId: args.projectId ? null : userId,
-        },
+      const label = await createScopedLabel({
+        name: args.name,
+        color: args.color || "#3b82f6",
+        projectId: args.projectId || null,
+        userId: args.projectId ? null : userId,
       });
       return { success: true, label };
     }

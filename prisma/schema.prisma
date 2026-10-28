@@ -70,6 +70,8 @@ model Column {
   updatedAt DateTime @updatedAt
 
   cards Card[]
+
+  @@index([projectId])
 }
 
 model Card {
@@ -110,6 +112,7 @@ model Card {
   @@unique([projectId, number])
   @@index([parentId])
   @@index([typeId])
+  @@index([columnId])
 }
 
 model CardAssignee {
@@ -148,6 +151,7 @@ model CardRelation {
   createdAt    DateTime @default(now())
 
   @@unique([sourceCardId, targetCardId, type])
+  @@index([targetCardId])
 }
 
 model CardType {
@@ -163,6 +167,7 @@ model CardType {
   cards Card[]
 
   @@unique([name, projectId])
+  @@index([projectId])
 }
 
 model Label {
@@ -176,6 +181,8 @@ model Label {
   cards     CardLabel[]
 
   @@unique([name, projectId, userId])
+  @@index([projectId])
+  @@index([userId])
 }
 
 model CardLabel {
@@ -185,6 +192,7 @@ model CardLabel {
   label   Label  @relation(fields: [labelId], references: [id], onDelete: Cascade)
 
   @@id([cardId, labelId])
+  @@index([labelId])
 }
 
 model Comment {
@@ -194,6 +202,8 @@ model Comment {
   author    String
   content   String
   createdAt DateTime @default(now())
+
+  @@index([cardId])
 }
 
 model Activity {
