@@ -493,7 +493,7 @@ sqlite3 dev.db ".backup 'opm-backup-$(date +%Y%m%d_%H%M%S).db'"
 To backup the entire deployment:
 ```bash
 # Archive database, environment secret, and uploaded attachments
-tar -czvf opm-backup-$(date +%Y%m%d).tar.gz dev.db .env
+tar -czvf opm-backup-$(date +%Y%m%d).tar.gz dev.db .env data/attachments
 ```
 
 ### Backing Up PostgreSQL Database
@@ -590,11 +590,16 @@ yarn install --force
 ### Q3: `EACCES: permission denied` on database file in Docker
 **Cause**: The named volume or host directory is owned by root, usually because an older image created it.  
 **Solution**:
-Rebuild and restart with the current `Dockerfile` (`docker compose build && docker compose up -d`). Both the `migrate` and app containers start as root just long enough to `chown` `/app/data` to UID 1001, then run as that user. For a host directory bind-mounted at `/app/data`, the same applies; if your host forbids the `chown` (for example a read-only or root-squashed NFS export), run `sudo chown -R 1001:1001 <dir>` on the host.
+1. For named Docker volumes created by older images, fix ownership with a one-off root container:
+   ```bash
+   docker compose run --rm --user root migrate chown -R 1001:1001 /app/data
+   ```
+2. For host directories bind-mounted at `/app/data`, run `sudo chown -R 1001:1001 <dir>` on the host.
+3. On normal startups, both the `migrate` and app containers start as UID 1001 and expect the volume to be writable.
 
 ### Q4: How do I reduce MicroSD card wear on my Raspberry Pi?
 **Solution**:
-1. SQLite WAL mode (Write-Ahead Logging) is enabled by default, which performs efficient sequential disk writes.
+1. SQLite WAL mode (Write-Ahead Logging) is enabled by default via `PRAGMA journal_mode = WAL`, which performs efficient sequential disk writes.
 2. For high write volumes, mount `/opt/open-project-manager` or the Docker data volume (`opm_data`) on an external USB 3.0 SSD or NVMe drive.
 3. Keep automated daily backups using the SQLite `.backup` command.
 
@@ -602,4 +607,4 @@ Rebuild and restart with the current `Dockerfile` (`docker compose build && dock
 
 ## 🚀 You're All Set!
 
-Open your browser at `http://<YOUR_PI_IP>:3000` (or `https://opm.yourdomain.com`), sign in with the admin credentials, and enjoy your self-hosted project manager!
+Open your browser at `http://<YOUR_PI_IP>:3000` (or `https://opm.yourdomain.com`). If you seeded demo accounts with `yarn db:seed`, sign in with `admin@example.com` / `admin123`. Otherwise, register your initial admin user account directly from the login page!
