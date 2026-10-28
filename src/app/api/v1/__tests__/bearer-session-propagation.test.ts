@@ -34,6 +34,7 @@ describe("REST API: Bearer-only clients reach routes that call the action with t
   it("updates and deletes a column via PUT/DELETE /api/v1/columns/:id", async () => {
     const project = await createTestProject(userId);
     const column = await createTestColumn(project.id);
+    await createTestColumn(project.id);
 
     const putRes = await updateColumnRoute(
       new NextRequest(`http://localhost/api/v1/columns/${column.id}`, {

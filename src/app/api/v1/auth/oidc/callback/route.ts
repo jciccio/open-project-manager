@@ -60,6 +60,7 @@ export async function GET(request: NextRequest) {
 
     const result = await resolveOidcUser(
       {
+        iss: claims.iss,
         sub: claims.sub,
         email: typeof claims.email === "string" ? claims.email : undefined,
         emailVerified: claims.email_verified === true,

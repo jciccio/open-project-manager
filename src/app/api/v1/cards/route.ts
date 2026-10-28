@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
 import { createCard } from "@/lib/services/cards";
 import { db } from "@/lib/db";
+import { cardPage, cardPageQuery, decodeCardCursor } from "@/lib/cardPagination";
 import { verifyProjectAccess } from "@/lib/permissions";
 import { parseColumnGroupFilter } from "@/lib/columnGroups";
+import { cardTextSearch } from "@/lib/cardSearch";
 
 const DEFAULT_LIST_CARDS_LIMIT = 100;
 
@@ -23,6 +25,7 @@ export async function GET(request: NextRequest) {
   const query = searchParams.get("query");
   const limitParam = searchParams.get("limit");
   const cursor = searchParams.get("cursor");
+  const isArchivedParam = searchParams.get("isArchived");
 
   let limit: number = DEFAULT_LIST_CARDS_LIMIT;
   if (limitParam) {
@@ -30,6 +33,14 @@ export async function GET(request: NextRequest) {
     if (!isNaN(parsed)) {
       limit = Math.min(Math.max(1, parsed), 100);
     }
+  }
+
+  const after = cursor ? decodeCardCursor(cursor) : null;
+  if (cursor && !after) {
+    return NextResponse.json({ error: "Invalid cursor" }, { status: 400 });
+  }
+  if (isArchivedParam !== null && isArchivedParam !== "true" && isArchivedParam !== "false") {
+    return NextResponse.json({ error: "isArchived must be true or false" }, { status: 400 });
   }
 
   try {
@@ -41,6 +52,7 @@ export async function GET(request: NextRequest) {
     }
 
     const where: any = {
+      isArchived: isArchivedParam === "true",
       ...(columnId ? { columnId } : {}),
       ...(projectId
         ? { projectId }
@@ -70,14 +82,11 @@ export async function GET(request: NextRequest) {
       where.assignees = { some: { userId: assignedUserId } };
     }
     if (query) {
-      where.OR = [
-        { title: { contains: query } },
-        { description: { contains: query } },
-      ];
+      where.OR = cardTextSearch(query);
     }
 
     const queryOptions: any = {
-      where,
+      ...cardPageQuery(where, after, limit),
       include: {
         type: true,
         labels: { include: { label: true } },
@@ -86,17 +95,9 @@ export async function GET(request: NextRequest) {
         parent: { select: { id: true, number: true, title: true } },
         children: { select: { id: true, number: true, title: true, completedAt: true } },
       },
-      orderBy: [{ order: "asc" }, { id: "asc" }],
-      take: limit,
     };
 
-    if (cursor) {
-      queryOptions.cursor = { id: cursor };
-      queryOptions.skip = 1;
-    }
-
-    const cards = await db.card.findMany(queryOptions);
-    const nextCursor = cards.length === limit ? cards[cards.length - 1].id : null;
+    const { cards, nextCursor } = cardPage(await db.card.findMany(queryOptions), limit);
 
     return NextResponse.json({ success: true, data: cards, nextCursor });
   } catch (err) {

@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { deleteRowsAndAttachmentFiles } from "@/lib/attachmentCleanup";
 import { safeRevalidatePath } from "@/lib/revalidate";
 import { verifyProjectAccess } from "@/lib/permissions";
 import {
@@ -7,6 +8,7 @@ import {
   type ColumnDetailsInput,
   type ColumnUpdateInput,
 } from "@/lib/validation/columns";
+import { lastColumnError } from "@/lib/columnGuards";
 
 export async function createColumn(
   projectId: string,
@@ -76,31 +78,34 @@ export async function updateColumn(
     }
     const data = parsed.data;
 
-    const updated = await db.column.update({
-      where: { id },
-      data: {
-        name: data.name,
-        order: data.order,
-        isDone: parsed.isDone,
-        group: parsed.group,
-        color: data.color,
-        description: data.description,
-      },
-    });
+    const updated = await db.$transaction(async (tx) => {
+      const updatedColumn = await tx.column.update({
+        where: { id },
+        data: {
+          name: data.name,
+          order: data.order,
+          isDone: parsed.isDone,
+          group: parsed.group,
+          color: data.color,
+          description: data.description,
+        },
+      });
 
-    if (parsed.isDone !== column.isDone) {
-      if (parsed.isDone) {
-        await db.card.updateMany({
-          where: { columnId: id, completedAt: null },
-          data: { completedAt: new Date() },
-        });
-      } else {
-        await db.card.updateMany({
-          where: { columnId: id },
-          data: { completedAt: null },
-        });
+      if (parsed.isDone !== column.isDone) {
+        if (parsed.isDone) {
+          await tx.card.updateMany({
+            where: { columnId: id, completedAt: null },
+            data: { completedAt: new Date() },
+          });
+        } else {
+          await tx.card.updateMany({
+            where: { columnId: id },
+            data: { completedAt: null },
+          });
+        }
       }
-    }
+      return updatedColumn;
+    });
 
     safeRevalidatePath(`/projects/${column.projectId}`);
     return { success: true, data: updated };
@@ -114,6 +119,11 @@ export async function reorderColumns(projectId: string, orderedColumnIds: string
   try {
     if (!(await verifyProjectAccess(projectId, userId, "ADMIN"))) {
       return { success: false, error: "Unauthorized" };
+    }
+
+    const ownedCount = await db.column.count({ where: { id: { in: orderedColumnIds }, projectId } });
+    if (new Set(orderedColumnIds).size !== orderedColumnIds.length || ownedCount !== orderedColumnIds.length) {
+      return { success: false, error: "Invalid column" };
     }
 
     const updates = orderedColumnIds.map((id, index) =>
@@ -143,9 +153,16 @@ export async function deleteColumn(id: string, userId: string) {
       return { success: false, error: "Unauthorized" };
     }
 
-    await db.column.delete({
-      where: { id },
-    });
+    const lastColumn = await lastColumnError(column.projectId);
+    if (lastColumn) {
+      return { success: false, error: lastColumn };
+    }
+
+    await deleteRowsAndAttachmentFiles({ card: { columnId: id } }, () =>
+      db.column.delete({
+        where: { id },
+      })
+    );
 
     safeRevalidatePath(`/projects/${column.projectId}`);
     return { success: true };

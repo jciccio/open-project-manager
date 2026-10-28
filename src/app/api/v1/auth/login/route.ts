@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { passwordMatches } from "@/lib/passwords";
-import { SignJWT } from "jose";
-import { JWT_SECRET } from "@/lib/env";
+import { SESSION_DURATION, signToken } from "@/lib/auth";
 import { getClientIp } from "@/lib/clientIp";
 import { checkLoginRateLimit, recordLoginFailure, recordLoginSuccess } from "@/lib/loginRateLimit";
 
@@ -50,15 +49,7 @@ export async function POST(request: NextRequest) {
 
     recordLoginSuccess(email);
 
-    const token = await new SignJWT({
-      userId: user.id,
-      email: user.email,
-      name: user.name,
-    })
-      .setProtectedHeader({ alg: "HS256" })
-      .setIssuedAt()
-      .setExpirationTime("7d")
-      .sign(JWT_SECRET);
+    const token = await signToken({ userId: user.id, email: user.email, name: user.name }, SESSION_DURATION);
 
     return NextResponse.json({
       success: true,

@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { safeRevalidatePath } from "@/lib/revalidate";
-import { recordActivity } from "@/actions/activity";
+import { recordActivity } from "@/lib/services/activity";
 import { verifyProjectAccess } from "@/lib/permissions";
 
 export async function listComments(cardId: string, userId: string) {

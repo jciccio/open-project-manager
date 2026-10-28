@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { deleteRowsAndAttachmentFiles } from "@/lib/attachmentCleanup";
 import { safeRevalidatePath } from "@/lib/revalidate";
 import { DEFAULT_CARD_TYPES } from "@/lib/cardTypeDefaults";
 import { DEFAULT_PROJECT_COLUMNS } from "@/lib/columnGroups";
@@ -315,9 +316,11 @@ export async function deleteProject(id: string, userId: string) {
       return { success: false, error: "Project not found or access denied" };
     }
 
-    await db.project.delete({
-      where: { id },
-    });
+    await deleteRowsAndAttachmentFiles({ card: { projectId: id } }, () =>
+      db.project.delete({
+        where: { id },
+      })
+    );
 
     safeRevalidatePath("/");
     safeRevalidatePath("/archived");
