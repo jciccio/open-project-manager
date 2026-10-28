@@ -11,6 +11,7 @@ import { assertHexColor } from "@/lib/colors";
 import { db } from "@/lib/db";
 import { DEFAULT_CARD_TYPES } from "@/lib/cardTypeDefaults";
 import { nextCardNumber, withCardNumberRetry } from "@/lib/cardNumbering";
+import { cardPage, cardPageQuery, decodeCardCursor } from "@/lib/cardPagination";
 import { generateProjectKey } from "@/lib/projectKey";
 import { verifyProjectAccess } from "@/lib/permissions";
 import { deriveCompletedAt } from "@/lib/cardCompletion";
@@ -195,7 +196,7 @@ export const MCP_TOOLS = [
         typeId: { type: "string", description: "Filter by card type ID" },
         isArchived: { type: "boolean", description: "Filter by archived status (default: false)" },
         limit: { type: "number", description: "Maximum number of cards to return (1-100, default 100)" },
-        cursor: { type: "string", description: "Cursor card ID for pagination (returns items after this card ID)" },
+        cursor: { type: "string", description: "The nextCursor value from the previous page (returns the cards after it)" },
       },
     },
     annotations: {
@@ -933,9 +934,11 @@ export async function executeMcpTool(
         }
       }
 
+      const after = args.cursor ? decodeCardCursor(String(args.cursor)) : null;
+      if (args.cursor && !after) throw new Error("Invalid cursor");
+
       const queryOptions: any = {
-        where,
-        orderBy: [{ order: "asc" }, { id: "asc" }],
+        ...cardPageQuery(where, after, limit),
         include: {
           column: { select: { name: true } },
           type: true,
@@ -945,16 +948,9 @@ export async function executeMcpTool(
           children: { select: { id: true, number: true, title: true, completedAt: true } },
           _count: { select: { comments: true } },
         },
-        take: limit,
       };
 
-      if (args.cursor) {
-        queryOptions.cursor = { id: args.cursor };
-        queryOptions.skip = 1;
-      }
-
-      const cards = await db.card.findMany(queryOptions);
-      const nextCursor = cards.length === limit ? cards[cards.length - 1].id : null;
+      const { cards, nextCursor } = cardPage(await db.card.findMany(queryOptions), limit);
       return { success: true, cards, nextCursor };
     }
 
