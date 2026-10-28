@@ -9,6 +9,10 @@ interface OidcEnv {
   redirectUri: string;
 }
 
+const OIDC_ENV_VARS = ["OIDC_ISSUER_URL", "OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET", "OIDC_REDIRECT_URI"] as const;
+
+let warnedAboutPartialEnv = false;
+
 function readOidcEnv(): OidcEnv | null {
   const issuerUrl = process.env.OIDC_ISSUER_URL;
   const clientId = process.env.OIDC_CLIENT_ID;
@@ -16,6 +20,11 @@ function readOidcEnv(): OidcEnv | null {
   const redirectUri = process.env.OIDC_REDIRECT_URI;
 
   if (!issuerUrl || !clientId || !clientSecret || !redirectUri) {
+    const missing = OIDC_ENV_VARS.filter((name) => !process.env[name]);
+    if (missing.length < OIDC_ENV_VARS.length && !warnedAboutPartialEnv) {
+      warnedAboutPartialEnv = true;
+      console.warn(`SSO is disabled because ${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} not set.`);
+    }
     return null;
   }
 
@@ -41,8 +50,19 @@ export async function getOidcConfig(): Promise<client.Configuration> {
   if (!env) throw new Error("OIDC is not configured");
 
   if (!discoveryPromise) {
+    const issuer = new URL(env.issuerUrl);
+    const allowInsecure = process.env.OIDC_ALLOW_INSECURE === "true";
+    if (issuer.protocol === "http:" && !allowInsecure) {
+      throw new Error("OIDC_ISSUER_URL uses http:. Set OIDC_ALLOW_INSECURE=true to allow an issuer without TLS.");
+    }
     discoveryPromise = client
-      .discovery(new URL(env.issuerUrl), env.clientId, env.clientSecret)
+      .discovery(
+        issuer,
+        env.clientId,
+        env.clientSecret,
+        undefined,
+        allowInsecure ? { execute: [client.allowInsecureRequests] } : undefined
+      )
       .catch((error) => {
         discoveryPromise = null;
         throw error;
