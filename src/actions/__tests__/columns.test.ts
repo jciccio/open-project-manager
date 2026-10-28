@@ -74,5 +74,40 @@ describe("Columns Server Actions", () => {
     const projectDetails = await getProjectById(projectId);
     expect(projectDetails.data!.columns.some((c) => c.id === colId)).toBe(false);
   });
+
+  it("refuses to delete a project's last column", async () => {
+    const columnIds = (await getProjectById(projectId)).data!.columns.map((c) => c.id);
+    for (const id of columnIds.slice(1)) {
+      expect((await deleteColumn(id)).success).toBe(true);
+    }
+
+    const res = await deleteColumn(columnIds[0]);
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(/at least one column/);
+    expect((await getProjectById(projectId)).data!.columns.map((c) => c.id)).toEqual([columnIds[0]]);
+  });
+
+  it("rejects a reorder that includes another project's column", async () => {
+    const otherProject = await createProject({ name: "Other Project" });
+    const otherColumnId = (await getProjectById(otherProject.data!.id)).data!.columns[0].id;
+    const ownIds = (await getProjectById(projectId)).data!.columns.map((c) => c.id);
+
+    const res = await reorderColumns(projectId, [otherColumnId, ...ownIds]);
+    expect(res.success).toBe(false);
+    expect(res.error).toBe("Invalid column");
+
+    const otherAfter = await getProjectById(otherProject.data!.id);
+    expect(otherAfter.data!.columns[0].id).toBe(otherColumnId);
+    expect(otherAfter.data!.columns[0].order).toBe(0);
+    expect((await getProjectById(projectId)).data!.columns.map((c) => c.id)).toEqual(ownIds);
+  });
+
+  it("rejects a reorder with duplicate column ids", async () => {
+    const ownIds = (await getProjectById(projectId)).data!.columns.map((c) => c.id);
+
+    const res = await reorderColumns(projectId, [ownIds[0], ownIds[0], ...ownIds.slice(1)]);
+    expect(res.success).toBe(false);
+    expect(res.error).toBe("Invalid column");
+  });
 });
 
