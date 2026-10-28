@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { removeAttachmentFiles } from "@/lib/attachmentCleanup";
 import { safeRevalidatePath } from "@/lib/revalidate";
 import fs from "fs";
 import { UPLOADS_DIR, MAX_ATTACHMENT_BYTES, getAttachmentFilePath } from "@/lib/attachmentStorage";
@@ -53,22 +54,30 @@ export async function uploadAttachment(
 
     fs.writeFileSync(filePath, data.contentBuffer);
 
-    const attachment = await db.attachment.create({
-      data: {
-        cardId: data.cardId,
-        filename: data.filename,
-        storageKey,
-        url: "",
-        size: data.contentBuffer.length,
-        mimeType: data.mimeType || null,
-        uploadedBy: data.uploadedBy || userId,
-      },
-    });
+    let updated;
+    try {
+      updated = await db.$transaction(async (tx) => {
+        const attachment = await tx.attachment.create({
+          data: {
+            cardId: data.cardId,
+            filename: data.filename,
+            storageKey,
+            url: "",
+            size: data.contentBuffer.length,
+            mimeType: data.mimeType || null,
+            uploadedBy: data.uploadedBy || userId,
+          },
+        });
 
-    const updated = await db.attachment.update({
-      where: { id: attachment.id },
-      data: { url: `/api/v1/attachments/${attachment.id}` },
-    });
+        return tx.attachment.update({
+          where: { id: attachment.id },
+          data: { url: `/api/v1/attachments/${attachment.id}` },
+        });
+      });
+    } catch (error) {
+      await fs.promises.unlink(filePath).catch(() => {});
+      throw error;
+    }
 
     safeRevalidatePath(`/projects/${card.projectId}`);
     return { success: true, data: updated };
@@ -110,14 +119,7 @@ export async function deleteAttachment(attachmentId: string, userId: string) {
 
     await db.attachment.delete({ where: { id: attachmentId } });
 
-    const filePath = getAttachmentFilePath(attachment.storageKey);
-    if (fs.existsSync(filePath)) {
-      try {
-        fs.unlinkSync(filePath);
-      } catch (err) {
-        console.error("Failed to delete attachment file from disk:", err);
-      }
-    }
+    await removeAttachmentFiles([attachment.storageKey]);
 
     safeRevalidatePath(`/projects/${attachment.card.projectId}`);
     return { success: true, data: { id: attachmentId } };

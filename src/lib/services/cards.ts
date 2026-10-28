@@ -1,6 +1,8 @@
 import { db } from "@/lib/db";
+import { deleteRowsAndAttachmentFiles } from "@/lib/attachmentCleanup";
+import { validateParentCard } from "@/lib/cardParent";
 import { safeRevalidatePath } from "@/lib/revalidate";
-import { recordActivity } from "@/actions/activity";
+import { recordActivity } from "@/lib/services/activity";
 import { nextCardNumber, withCardNumberRetry } from "@/lib/cardNumbering";
 import { verifyProjectAccess } from "@/lib/permissions";
 import { deriveCompletedAt } from "@/lib/cardCompletion";
@@ -84,15 +86,9 @@ export async function createCard(
     }
 
     if (data.parentId) {
-      const parentCard = await db.card.findUnique({
-        where: { id: data.parentId },
-        select: { id: true, projectId: true, parentId: true },
-      });
-      if (!parentCard || parentCard.projectId !== data.projectId) {
-        return { success: false, error: "Parent card not found in this project" };
-      }
-      if (parentCard.parentId) {
-        return { success: false, error: "Subtasks cannot be nested under another subtask" };
+      const parentError = await validateParentCard(data.projectId, data.parentId);
+      if (parentError) {
+        return { success: false, error: parentError };
       }
     }
 
@@ -216,25 +212,10 @@ export async function updateCard(
       return { success: false, error: "Unauthorized" };
     }
 
-    if (data.parentId !== undefined && data.parentId !== null && data.parentId !== "") {
-      if (data.parentId === id) {
-        return { success: false, error: "A card cannot be its own parent" };
-      }
-
-      const childCount = await db.card.count({ where: { parentId: id } });
-      if (childCount > 0) {
-        return { success: false, error: "A card with subtasks cannot be made a subtask" };
-      }
-
-      const targetParent = await db.card.findUnique({
-        where: { id: data.parentId },
-        select: { id: true, projectId: true, parentId: true },
-      });
-      if (!targetParent || targetParent.projectId !== existingCard.projectId) {
-        return { success: false, error: "Parent card not found in this project" };
-      }
-      if (targetParent.parentId) {
-        return { success: false, error: "Subtasks cannot be nested under another subtask" };
+    if (data.parentId) {
+      const parentError = await validateParentCard(existingCard.projectId, data.parentId, id);
+      if (parentError) {
+        return { success: false, error: parentError };
       }
     }
 
@@ -518,9 +499,11 @@ export async function deleteCard(id: string, userId: string) {
       return { success: false, error: "Unauthorized" };
     }
 
-    await db.card.delete({
-      where: { id },
-    });
+    await deleteRowsAndAttachmentFiles({ cardId: id }, () =>
+      db.card.delete({
+        where: { id },
+      })
+    );
 
     safeRevalidatePath(`/projects/${existingCard.projectId}`);
     return { success: true };

@@ -45,10 +45,11 @@ A lightweight, fast, and self-hosted project management web application inspired
   - Kanban board filter toggle to show or hide subtasks from column lanes to prevent board clutter.
 - 🔗 **Card Dependencies & Relations**: Connect cards with `BLOCKS`, `BLOCKED_BY`, and `RELATES_TO` relationship links.
 - 📎 **File Attachments**: Upload, stream, list, and delete card attachments (documents, images, logs) via UI, REST API, and base64 MCP tools.
-- 📄 **Card Cursoring & Pagination**: Cursor-based pagination (`limit` & `cursor`) for large project card listings.
+- 📄 **Card Cursoring & Pagination**: Cursor-based pagination (`limit` & `cursor`) for large project card listings. Archived cards are left out unless you pass `isArchived=true`.
 - 💬 **In-Place Comment Editing & Feeds**: Discuss tasks and edit comments in-place across UI, REST API (`PATCH /api/v1/comments/:id`), and MCP tools.
 - 🐳 **Official Docker Image & Compose**: Multi-stage `Dockerfile` standalone build and single-command `docker-compose.yml` (SQLite) & `docker-compose.postgres.yml` (PostgreSQL) orchestration with automated migration bootstrapping.
 - 🪶 **Flexible Database Engine**: Single `.sqlite` file database stored locally (`dev.db`) by default, with opt-in PostgreSQL support via connection string (`DATABASE_URL=postgresql://...`).
+- 🛡️ **Privacy-First Anonymous Telemetry**: Anonymized, non-PII deployment heartbeat to track software usage and versions. Completely opt-out anytime via UI, API, or `OPM_TELEMETRY_DISABLED=1`. See [docs/TELEMETRY.md](docs/TELEMETRY.md).
 
 ---
 
@@ -137,10 +138,12 @@ echo "JWT_SECRET=$(openssl rand -base64 32)" > .env.local
 *(Optional: see `.env.example` to configure OIDC / Single Sign-On or PostgreSQL)*
 
 #### Step 3: Initialize the SQLite Database
-Apply the Prisma database schema to your local SQLite file (`dev.db`):
+Apply Prisma database migrations to create your local SQLite file (`dev.db`):
 ```bash
-npx prisma db push
+npx prisma migrate deploy
 ```
+> [!NOTE]
+> `npx prisma db push` can also be used for quick local prototyping without migrations. However, databases initialized with `db push` must be baselined with `npx prisma migrate resolve --applied <migration>` prior to running `prisma migrate deploy` to ensure SQLite table redefine operations preserve existing columns (such as `oidcSubject`).
 
 #### Step 4: Seed Demo Accounts & Sample Projects
 Populate the database with sample boards, cards, labels, and default credentials:
@@ -269,8 +272,9 @@ curl -X GET http://localhost:3000/api/v1/cards/by-identifier/OPM-1 \
 ```
 
 ### 7. Paginated Card Listing
+Pass the `nextCursor` value from the previous response as `cursor` to fetch the next page. `nextCursor` is `null` on the last page.
 ```bash
-curl -X GET "http://localhost:3000/api/v1/cards?projectId=PROJECT_ID&limit=10&cursor=CURSOR_CARD_ID" \
+curl -X GET "http://localhost:3000/api/v1/cards?projectId=PROJECT_ID&limit=10&cursor=NEXT_CURSOR" \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
 ```
 
@@ -624,6 +628,18 @@ open-project-manager/
 ├── prisma.config.ts        # Prisma v7 configuration
 └── dev.db                  # Local SQLite database file
 ```
+
+---
+
+## 🔒 Privacy & Anonymous Telemetry
+
+Open Project Manager sends a privacy-first, anonymous diagnostic heartbeat (version, database engine, and aggregate counts) to help us understand software adoption and prioritize feature development.
+
+* **100% Non-PII**: Zero personal data, no project or task content, no IP addresses.
+* **Full Transparency**: View your instance's exact payload at `GET /api/v1/system/telemetry` or in the user Profile Modal.
+* **Easy Opt-Out**: Set `OPM_TELEMETRY_DISABLED=1` (or `DO_NOT_TRACK=1`) in your `.env` file, or toggle it directly in the Profile Settings modal.
+
+For complete details on what is collected and how to opt out, see [docs/TELEMETRY.md](docs/TELEMETRY.md).
 
 ---
 

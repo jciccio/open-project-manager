@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import ReactMarkdown from "react-markdown";
+import { MarkdownRenderer } from "./MarkdownRenderer";
 import {
   Bold,
   Italic,
@@ -151,26 +151,9 @@ export default function MarkdownEditor({
             className="w-full bg-transparent text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none resize-y leading-relaxed font-mono"
           />
         ) : (
-          <div className="min-h-[100px] text-xs text-slate-900 dark:text-slate-100 prose dark:prose-invert max-w-none space-y-2 leading-relaxed">
+          <div className="min-h-[100px] text-xs text-slate-900 dark:text-slate-100 space-y-2 leading-relaxed">
             {value.trim() ? (
-              <ReactMarkdown
-                components={{
-                  code({ className, children, ...props }) {
-                    return (
-                      <code
-                        className={`rounded-md bg-slate-100 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 px-1.5 py-0.5 font-mono text-[11px] text-indigo-600 dark:text-indigo-300 ${
-                          className || ""
-                        }`}
-                        {...props}
-                      >
-                        {children}
-                      </code>
-                    );
-                  },
-                }}
-              >
-                {value}
-              </ReactMarkdown>
+              <MarkdownRenderer content={value} />
             ) : (
               <p className="text-slate-400 italic">
                 {t("markdownEditor.nothingToPreview")}
