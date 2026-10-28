@@ -14,7 +14,13 @@ import { createTestUser, cleanupTestUser } from "@/test/helpers";
 describe("middleware public paths", () => {
   it("treats only exact public paths and their sub-paths as public", async () => {
     const lookalikePage = await middleware(new NextRequest("http://localhost/loginanything"));
-    expect(lookalikePage.headers.get("location")).toBe("http://localhost/login");
+    expect(lookalikePage.headers.get("location")).toBe("http://localhost/login?returnTo=%2Floginanything");
+
+    const rootPage = await middleware(new NextRequest("http://localhost/"));
+    expect(rootPage.headers.get("location")).toBe("http://localhost/login");
+
+    const projectPage = await middleware(new NextRequest("http://localhost/projects/proj-123?tab=activity"));
+    expect(projectPage.headers.get("location")).toBe("http://localhost/login?returnTo=%2Fprojects%2Fproj-123%3Ftab%3Dactivity");
 
     const lookalikeApi = await middleware(new NextRequest("http://localhost/api/v1/auth/login-debug"));
     expect(lookalikeApi.status).toBe(401);

@@ -39,11 +39,15 @@ export default function NewProjectModal({ onClose }: Props) {
         onClose();
         router.push(`/projects/${res.data.id}`);
       } else {
-        setError(res.error || "Failed to create project");
+        const errorMsg =
+          res.error === "Project name is required"
+            ? t("newProjectModal.nameRequired")
+            : t("newProjectModal.failedToCreate");
+        setError(errorMsg);
       }
-    } catch (err: any) {
+    } catch {
       setLoading(false);
-      setError(err?.message || "Failed to create project");
+      setError(t("newProjectModal.failedToCreate"));
     }
   }
 
