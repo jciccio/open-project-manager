@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { passwordMatches } from "@/lib/passwords";
+import { localPasswordAllowed, passwordMatches } from "@/lib/passwords";
 import { SESSION_DURATION, signToken } from "@/lib/auth";
 import { getClientIp } from "@/lib/clientIp";
 import { checkLoginRateLimit, recordLoginFailure, recordLoginSuccess } from "@/lib/loginRateLimit";
@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
     });
 
     const isValid = await passwordMatches(password, user?.passwordHash);
-    if (!user || !isValid) {
+    if (!user || !isValid || !localPasswordAllowed(user)) {
       recordLoginFailure(email, ip);
       return NextResponse.json(
         { error: "Invalid email or password" },
@@ -49,7 +49,10 @@ export async function POST(request: NextRequest) {
 
     recordLoginSuccess(email);
 
-    const token = await signToken({ userId: user.id, email: user.email, name: user.name }, SESSION_DURATION);
+    const token = await signToken(
+      { userId: user.id, email: user.email, name: user.name, tokenVersion: user.tokenVersion },
+      SESSION_DURATION
+    );
 
     return NextResponse.json({
       success: true,

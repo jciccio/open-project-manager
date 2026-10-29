@@ -45,6 +45,8 @@ export const en = {
     ssoLinked: "This account is connected to single sign-on.",
     ssoNotLinked: "Connect your identity provider account to sign in with single sign-on.",
     ssoConnect: "Connect single sign-on",
+    ssoConnectDisablesPassword: "Connecting single sign-on turns off password sign-in for this account.",
+    ssoPasswordDisabled: "This account signs in through single sign-on, so it has no local password.",
     ssoLinkSuccess: "Single sign-on connected.",
     ssoLinkSubjectInUse: "That identity provider account is already connected to a different user.",
     ssoLinkLinkedElsewhere: "This account is already connected to a different single sign-on identity.",

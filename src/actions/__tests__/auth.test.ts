@@ -241,24 +241,29 @@ describe("Auth Server Actions", () => {
     expect(res.error).toBe("Invalid email or password.");
   });
 
-  it("lets an OIDC-only user set a password without a current password", async () => {
-    const oidcOnlyEmail = `oidc-setpass-${Date.now()}@example.com`;
-    const oidcOnlyUser = await db.user.create({
-      data: { email: oidcOnlyEmail, name: "OIDC Only User", oidcSubject: `sub-${Date.now()}` },
-    });
-    createdUserId = oidcOnlyUser.id;
+  it("lets an OIDC-only user set a password without a current password when local passwords are allowed", async () => {
+    process.env.OIDC_ALLOW_LOCAL_PASSWORD = "true";
+    try {
+      const oidcOnlyEmail = `oidc-setpass-${Date.now()}@example.com`;
+      const oidcOnlyUser = await db.user.create({
+        data: { email: oidcOnlyEmail, name: "OIDC Only User", oidcSubject: `sub-${Date.now()}` },
+      });
+      createdUserId = oidcOnlyUser.id;
 
-    await createSession({
-      userId: oidcOnlyUser.id,
-      email: oidcOnlyUser.email,
-      name: oidcOnlyUser.name,
-    });
+      await createSession({
+        userId: oidcOnlyUser.id,
+        email: oidcOnlyUser.email,
+        name: oidcOnlyUser.name,
+      });
 
-    const res = await updateUserProfile({ newPassword: "BrandNewPassword123!" });
-    expect(res.success).toBe(true);
+      const res = await updateUserProfile({ newPassword: "BrandNewPassword123!" });
+      expect(res.success).toBe(true);
 
-    const loginRes = await loginUser({ email: oidcOnlyEmail, password: "BrandNewPassword123!" });
-    expect(loginRes.success).toBe(true);
+      const loginRes = await loginUser({ email: oidcOnlyEmail, password: "BrandNewPassword123!" });
+      expect(loginRes.success).toBe(true);
+    } finally {
+      delete process.env.OIDC_ALLOW_LOCAL_PASSWORD;
+    }
   });
 
   it("locks out login after repeated failed attempts against the same email", async () => {

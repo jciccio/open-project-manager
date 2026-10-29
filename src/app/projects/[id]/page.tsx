@@ -16,7 +16,7 @@ export default async function ProjectBoardPage({ params }: Props) {
   const { id } = await params;
   const session = await getSession();
   if (!session) {
-    redirect("/login");
+    redirect("/api/v1/auth/session-expired");
   }
   const res = await getProjectById(id);
 

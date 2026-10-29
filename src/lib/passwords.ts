@@ -11,3 +11,13 @@ export async function passwordMatches(password: string, passwordHash: string | n
   }
   return bcrypt.compare(password, passwordHash);
 }
+
+// An SSO-linked account signs in only through the IdP, so disabling the user
+// there ends their access. OIDC_ALLOW_LOCAL_PASSWORD=true opts back in.
+export function ssoAccountsKeepLocalPasswords(): boolean {
+  return process.env.OIDC_ALLOW_LOCAL_PASSWORD === "true";
+}
+
+export function localPasswordAllowed(user: { oidcSubject: string | null }): boolean {
+  return !user.oidcSubject || ssoAccountsKeepLocalPasswords();
+}

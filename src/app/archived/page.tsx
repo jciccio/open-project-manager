@@ -10,7 +10,7 @@ export const revalidate = 0;
 export default async function ArchivedProjectsPage() {
   const session = await getSession();
   if (!session) {
-    redirect("/login");
+    redirect("/api/v1/auth/session-expired");
   }
 
   const pRes = await getProjects(true);
