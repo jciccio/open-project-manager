@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { LanguageProvider } from "@/components/LanguageProvider";
+import { LOCALE_COOKIE, resolveLocale } from "@/lib/locale";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -35,10 +36,14 @@ export default async function RootLayout({
   // undefined = first visit: the server cannot know, so the inline script picks
   // before paint instead of us guessing and flashing.
   const theme = stored === "dark" || stored === "light" ? stored : undefined;
+  const { locale, fromCookie } = resolveLocale(
+    cookieStore.get(LOCALE_COOKIE)?.value,
+    (await headers()).get("accept-language")
+  );
 
   return (
     <html
-      lang="en"
+      lang={locale}
       className={theme === "dark" ? "dark" : undefined}
       style={theme ? { colorScheme: theme } : undefined}
       suppressHydrationWarning
@@ -50,7 +55,9 @@ export default async function RootLayout({
       </head>
       <body className="min-h-full flex flex-col">
         <ThemeProvider initialTheme={theme}>
-          <LanguageProvider>{children}</LanguageProvider>
+          <LanguageProvider initialLocale={locale} localeFromCookie={fromCookie}>
+            {children}
+          </LanguageProvider>
         </ThemeProvider>
       </body>
     </html>

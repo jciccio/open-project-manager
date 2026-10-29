@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Zap, Calendar, User, MessageSquare } from "lucide-react";
 import { moveCard } from "@/actions/cards";
 import { useTranslation } from "../LanguageProvider";
+import { formatDueDate } from "@/lib/formatDate";
 import ErrorBanner from "../ErrorBanner";
 
 interface Props {
@@ -32,7 +33,7 @@ export default function ListView({
 }: Props) {
   const [movingCardId, setMovingCardId] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
 
   async function handleColumnChange(cardId: string, newColumnId: string) {
     setMovingCardId(cardId);
@@ -182,11 +183,7 @@ export default function ListView({
                           <div className="flex items-center gap-1 text-slate-500 dark:text-slate-400">
                             <Calendar className="h-3 w-3 text-indigo-500 dark:text-indigo-400" />
                             <span>
-                              {new Date(card.dueDate).toLocaleDateString(undefined, {
-                                month: "short",
-                                day: "numeric",
-                                timeZone: "UTC",
-                              })}
+                              {formatDueDate(card.dueDate, locale, { month: "short", day: "numeric" })}
                             </span>
                           </div>
                         ) : null}
