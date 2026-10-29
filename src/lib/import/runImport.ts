@@ -78,6 +78,15 @@ async function findLegacyLabelInProject(userId: string, source: string, labelSou
   return label?.projectId === projectLocalId ? legacy.localId : undefined;
 }
 
+/** A card type with the same name already in the project (names are unique per project). */
+async function findCardTypeByName(projectLocalId: string, name: string) {
+  const existing = await db.cardType.findUnique({
+    where: { name_projectId: { name, projectId: projectLocalId } },
+    select: { id: true },
+  });
+  return existing?.id;
+}
+
 async function rowStillExists(entityType: ImportEntityType, localId: string): Promise<boolean> {
   switch (entityType) {
     case "project":
@@ -210,12 +219,18 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
         const cardTypeMap = new Map<string, string>();
         try {
           for await (const ct of ctx.importer.fetchCardTypes(projectRec.sourceId)) {
-            const { localId, result } = await createOrSkip(ctx, "cardType", ct.sourceId, async () => {
-              const created = await db.cardType.create({
-                data: { projectId: projectLocalId, name: ct.name, icon: ct.icon || "Tag", color: ct.color || "#6366f1" },
-              });
-              return created.id;
-            });
+            const { localId, result } = await createOrSkip(
+              ctx,
+              "cardType",
+              ct.sourceId,
+              async () => {
+                const created = await db.cardType.create({
+                  data: { projectId: projectLocalId, name: ct.name, icon: ct.icon || "Tag", color: ct.color || "#6366f1" },
+                });
+                return created.id;
+              },
+              { findLegacy: () => findCardTypeByName(projectLocalId, ct.name) }
+            );
             records.push(result);
             if (localId) cardTypeMap.set(ct.sourceId, localId);
           }
@@ -412,7 +427,11 @@ async function classifyForDryRun(
         }
 
         try {
-          for await (const ct of importer.fetchCardTypes(project.sourceId)) await classify("cardType", ct.sourceId);
+          for await (const ct of importer.fetchCardTypes(project.sourceId)) {
+            const mapped = !!(await liveMapping("cardType", ct.sourceId));
+            const sameName = !mapped && projectMapping ? !!(await findCardTypeByName(projectMapping.localId, ct.name)) : false;
+            records.push({ entityType: "cardType", sourceId: ct.sourceId, status: mapped || sameName ? "would_skip" : "would_create" });
+          }
         } catch (err) {
           records.push({
             entityType: "cardType",
