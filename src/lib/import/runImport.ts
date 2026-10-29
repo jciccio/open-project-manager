@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { db } from "@/lib/db";
+import { DEFAULT_COLUMN_GROUP } from "@/lib/columnGroups";
 import { generateProjectKey } from "@/lib/projectKey";
 import { withCardNumberRetry } from "@/lib/cardNumbering";
 import type {
@@ -200,7 +201,13 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
           for await (const col of ctx.importer.fetchColumns(projectRec.sourceId)) {
             const { localId, result } = await createOrSkip(ctx, "column", col.sourceId, async () => {
               const created = await db.column.create({
-                data: { projectId: projectLocalId, name: col.name, order: col.order ?? 0, isDone: col.isDone ?? false },
+                data: {
+                  projectId: projectLocalId,
+                  name: col.name,
+                  order: col.order ?? 0,
+                  isDone: !!col.isDone,
+                  group: col.isDone ? "COMPLETED" : DEFAULT_COLUMN_GROUP,
+                },
               });
               return created.id;
             });

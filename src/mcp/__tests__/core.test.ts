@@ -666,5 +666,97 @@ describe("MCP Server Core Tools", () => {
 
     await executeMcpTool("delete_project", { id: projectId }, { userId });
   });
-});
 
+  it("gives create_project's default columns their state groups", async () => {
+    const projRes = await executeMcpTool("create_project", { name: "Group Defaults Project", userId }, { userId });
+    const columns = (projRes.project as unknown as { columns: { name: string; group: string; isDone: boolean }[] })
+      .columns;
+    expect(columns.map((c) => [c.name, c.group, c.isDone])).toEqual([
+      ["Backlog", "BACKLOG", false],
+      ["To Do", "UNSTARTED", false],
+      ["In Progress", "STARTED", false],
+      ["Done", "COMPLETED", true],
+    ]);
+
+    await executeMcpTool("delete_project", { id: projRes.project!.id }, { userId });
+  });
+
+  it("sets group, color and description via create_column/update_column and cascades completedAt", async () => {
+    const projRes = await executeMcpTool("create_project", { name: "MCP Column Groups Project", userId }, { userId });
+    const projectId = projRes.project!.id;
+
+    const colRes = await executeMcpTool("create_column", {
+      projectId,
+      name: "Shipped",
+      group: "COMPLETED",
+      color: "#22c55e",
+      description: "Released to users",
+    }, { userId });
+    expect(colRes.column).toMatchObject({
+      group: "COMPLETED",
+      isDone: true,
+      color: "#22c55e",
+      description: "Released to users",
+    });
+    const cardRes = await executeMcpTool("create_card", { projectId, columnId: colRes.column!.id, title: "Shipped Card" }, { userId });
+    expect(cardRes.card?.completedAt).not.toBeNull();
+
+    const cancelled = await executeMcpTool("update_column", { id: colRes.column!.id, group: "CANCELLED", color: "" }, { userId });
+    expect(cancelled.column).toMatchObject({ group: "CANCELLED", isDone: false, color: null });
+    const afterCancel = await executeMcpTool("get_card", { id: cardRes.card!.id }, { userId });
+    expect(afterCancel.card?.completedAt).toBeNull();
+
+    await expect(executeMcpTool("update_column", { id: colRes.column!.id, group: "DONE" }, { userId })).rejects.toThrow(/group/);
+    await expect(
+      executeMcpTool("create_column", { projectId, name: "Odd", group: "STARTED", isDone: true }, { userId })
+    ).rejects.toThrow(/isDone/);
+
+    await executeMcpTool("delete_project", { id: projectId }, { userId });
+  });
+
+  it("filters list_cards by column group", async () => {
+    const projRes = await executeMcpTool("create_project", { name: "MCP Group Filter Project", userId }, { userId });
+    const projectId = projRes.project!.id;
+    const columns = (projRes.project as unknown as { columns: { id: string; group: string }[] }).columns;
+    const byGroup = (group: string) => columns.find((c) => c.group === group)!.id;
+
+    const started = await executeMcpTool("create_card", { projectId, columnId: byGroup("STARTED"), title: "Started" }, { userId });
+    const backlog = await executeMcpTool("create_card", { projectId, columnId: byGroup("BACKLOG"), title: "Backlog" }, { userId });
+    await executeMcpTool("create_card", { projectId, columnId: byGroup("COMPLETED"), title: "Done" }, { userId });
+
+    const res = await executeMcpTool("list_cards", { projectId, columnGroup: ["STARTED", "BACKLOG"] }, { userId });
+    const cards = res.cards as unknown as { id: string; column: { group: string } }[];
+    expect(cards.map((c) => c.id).sort()).toEqual([started.card!.id, backlog.card!.id].sort());
+    expect(cards.every((c) => ["STARTED", "BACKLOG"].includes(c.column.group))).toBe(true);
+
+    await expect(executeMcpTool("list_cards", { projectId, columnGroup: ["DONE"] }, { userId })).rejects.toThrow(/columnGroup/);
+
+    await executeMcpTool("delete_project", { id: projectId }, { userId });
+  });
+
+  it("reports a blocker in a cancelled column as closed in get_card_relations", async () => {
+    const projRes = await executeMcpTool("create_project", { name: "MCP Closed Blocker Project", userId }, { userId });
+    const projectId = projRes.project!.id;
+    const todoColId = (projRes.project as unknown as { columns: { id: string; group: string }[] }).columns.find(
+      (c) => c.group === "UNSTARTED"
+    )!.id;
+    const cancelledCol = await executeMcpTool("create_column", { projectId, name: "Dropped", group: "CANCELLED" }, { userId });
+
+    const blocker = await executeMcpTool("create_card", { projectId, columnId: todoColId, title: "Blocker" }, { userId });
+    const blocked = await executeMcpTool("create_card", { projectId, columnId: todoColId, title: "Blocked" }, { userId });
+    await executeMcpTool("add_card_relation", {
+      sourceCardId: blocker.card!.id,
+      targetCardId: blocked.card!.id,
+      type: "BLOCKS",
+    }, { userId });
+
+    const open = await executeMcpTool("get_card_relations", { cardId: blocked.card!.id }, { userId });
+    expect((open.relations as unknown[])[0]).toMatchObject({ isDone: false, isClosed: false });
+
+    await executeMcpTool("move_card", { id: blocker.card!.id, targetColumnId: cancelledCol.column!.id, newOrder: 0 }, { userId });
+    const closed = await executeMcpTool("get_card_relations", { cardId: blocked.card!.id }, { userId });
+    expect((closed.relations as unknown[])[0]).toMatchObject({ isDone: false, isClosed: true });
+
+    await executeMcpTool("delete_project", { id: projectId }, { userId });
+  });
+});

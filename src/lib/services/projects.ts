@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { deleteRowsAndAttachmentFiles } from "@/lib/attachmentCleanup";
 import { safeRevalidatePath } from "@/lib/revalidate";
 import { DEFAULT_CARD_TYPES } from "@/lib/cardTypeDefaults";
+import { DEFAULT_PROJECT_COLUMNS } from "@/lib/columnGroups";
 import { triggerWebhooks } from "@/lib/webhooks";
 import { generateProjectKey } from "@/lib/projectKey";
 import { getProjectAccess } from "@/lib/permissions";
@@ -191,12 +192,7 @@ export async function createProject(
         color: data.color || "#6366f1",
         visibility: data.visibility || "PRIVATE",
         columns: {
-          create: [
-            { name: "Backlog", order: 0, isDone: false },
-            { name: "To Do", order: 1, isDone: false },
-            { name: "In Progress", order: 2, isDone: false },
-            { name: "Done", order: 3, isDone: true },
-          ],
+          create: DEFAULT_PROJECT_COLUMNS.map((column) => ({ ...column })),
         },
         cardTypes: {
           create: DEFAULT_CARD_TYPES,

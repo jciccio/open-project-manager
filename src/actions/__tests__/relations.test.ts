@@ -55,6 +55,17 @@ describe("Card Relations Server Actions", () => {
     expect(getRes2.data?.[0].relationType).toBe("BLOCKED_BY");
   });
 
+  it("reports a blocker as closed once its column is cancelled", async () => {
+    await addCardRelation(card1Id, card2Id, "BLOCKS");
+
+    const open = await getCardRelations(card2Id);
+    expect(open.data![0]).toMatchObject({ relationType: "BLOCKED_BY", isDone: false, isClosed: false });
+
+    await db.column.update({ where: { id: columnId }, data: { group: "CANCELLED", isDone: false } });
+    const closed = await getCardRelations(card2Id);
+    expect(closed.data![0]).toMatchObject({ relationType: "BLOCKED_BY", isDone: false, isClosed: true });
+  });
+
   it("prevents self-referencing relation", async () => {
     const res = await addCardRelation(card1Id, card1Id, "BLOCKS");
     expect(res.success).toBe(false);

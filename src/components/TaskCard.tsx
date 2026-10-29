@@ -5,6 +5,7 @@ import { MarkdownRenderer } from "./MarkdownRenderer";
 import { useTranslation } from "./LanguageProvider";
 import { formatDueDate } from "@/lib/formatDate";
 import { CardTypeIcon } from "./cardTypeIcons";
+import { isClosedColumn } from "@/lib/columnGroups";
 
 interface Props {
   card: {
@@ -45,7 +46,7 @@ interface Props {
         number?: number;
         title?: string;
         project?: { key: string };
-        column?: { isDone: boolean };
+        column?: { isDone: boolean; group?: string };
       };
     }>;
   };
@@ -66,7 +67,7 @@ export default function TaskCard({ card, onClick }: Props) {
 
   const activeBlockers = card.incomingRelations
     ? card.incomingRelations.filter(
-        (r) => r.type === "BLOCKS" && (!r.sourceCard?.column || !r.sourceCard.column.isDone)
+        (r) => r.type === "BLOCKS" && (!r.sourceCard?.column || !isClosedColumn(r.sourceCard.column))
       )
     : [];
 

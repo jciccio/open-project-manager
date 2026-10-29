@@ -1136,7 +1136,7 @@ export default function CardDetailModal({
             <div className="flex flex-wrap gap-2">
               {relations.length > 0 ? (
                 relations.map((rel) => {
-                  const isBlocked = rel.relationType === "BLOCKED_BY" && !rel.isDone;
+                  const isBlocked = rel.relationType === "BLOCKED_BY" && !rel.isClosed;
                   return (
                     <div
                       key={rel.id}
