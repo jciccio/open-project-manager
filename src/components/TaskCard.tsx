@@ -36,6 +36,7 @@ interface Props {
         id: string;
         name: string;
         color: string;
+        description?: string | null;
       };
     }>;
     comments: Array<any>;
@@ -111,6 +112,7 @@ export default function TaskCard({ card, onClick }: Props) {
               key={label.id}
               className="inline-block rounded-md px-2 py-0.5 text-[10px] font-bold tracking-wide text-white shadow-2xs"
               style={{ backgroundColor: label.color }}
+              title={label.description || undefined}
             >
               {label.name}
             </span>

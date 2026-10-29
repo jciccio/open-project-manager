@@ -281,6 +281,13 @@ export const en = {
     existing: "Existing Labels",
     noLabels: "No labels created yet.",
     done: "Done",
+    description: "Description",
+    descriptionPlaceholder: "What this label means or when to use it (optional)",
+    editLabel: "Edit label",
+    deleteLabel: "Delete label",
+    save: "Save",
+    saving: "Saving...",
+    cancel: "Cancel",
   },
   cardTypeModal: {
     title: "Manage Card Types",

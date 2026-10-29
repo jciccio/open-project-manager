@@ -283,6 +283,13 @@ export const es: TranslationKeys = {
     existing: "Etiquetas Existentes",
     noLabels: "Aún no se han creado etiquetas.",
     done: "Listo",
+    description: "Descripción",
+    descriptionPlaceholder: "Qué significa esta etiqueta o cuándo usarla (opcional)",
+    editLabel: "Editar etiqueta",
+    deleteLabel: "Eliminar etiqueta",
+    save: "Guardar",
+    saving: "Guardando...",
+    cancel: "Cancelar",
   },
   cardTypeModal: {
     title: "Gestionar Tipos de Tarjeta",

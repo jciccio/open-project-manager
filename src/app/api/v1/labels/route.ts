@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Label name is required" }, { status: 400 });
     }
 
-    const res = await createLabel(body.name, body.color, body.projectId, session.userId);
+    const res = await createLabel(body.name, body.color, body.projectId, session.userId, body.description);
     if (!res.success) {
       return NextResponse.json({ error: res.error }, { status: 400 });
     }
