@@ -1675,7 +1675,13 @@ export async function readMcpResource(uri: string, userId: string) {
   throw new Error(`Resource non-existent: ${uri}`);
 }
 
-export function createMcpServer(): Server {
+// `userId` pins the stdio server to one account (scripts/mcp-server.ts reads it
+// from OPM_MCP_USER). Unpinned, the acting user is whatever `userId` argument
+// the client sends.
+export function createMcpServer(options: { userId?: string } = {}): Server {
+  const actingUserId = (provided?: unknown) =>
+    options.userId ?? requireUserId(typeof provided === "string" ? provided : undefined);
+
   const server = new Server(
     {
       name: "open-project-manager-mcp",
@@ -1698,10 +1704,7 @@ export function createMcpServer(): Server {
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
     try {
-      // stdio has no session/cookie mechanism, so identity is trusted from the
-      // caller-supplied userId argument here — this is issue #122's scope, not #83's.
-      const providedUserId = args?.userId;
-      const ctx = { userId: requireUserId(typeof providedUserId === "string" ? providedUserId : undefined) };
+      const ctx = { userId: actingUserId(args?.userId) };
       const result = await executeMcpTool(name, args || {}, ctx);
       return {
         content: [
@@ -1740,10 +1743,7 @@ export function createMcpServer(): Server {
 
   server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     const { uri } = request.params;
-    // stdio has no session/cookie mechanism, so identity is trusted from the
-    // caller-supplied userId argument here — this is issue #122's scope, not #84's.
-    const providedUserId = (request.params as { userId?: unknown }).userId;
-    const userId = requireUserId(typeof providedUserId === "string" ? providedUserId : undefined);
+    const userId = actingUserId((request.params as { userId?: unknown }).userId);
 
     const resource = await readMcpResource(uri, userId);
     return {
@@ -1790,9 +1790,7 @@ export function createMcpServer(): Server {
   server.setRequestHandler(GetPromptRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
     if (name === "summarize_project") {
-      // stdio has no session/cookie mechanism, so identity is trusted from the
-      // caller-supplied userId argument here — this is issue #122's scope, not #84's.
-      const userId = requireUserId(args?.userId);
+      const userId = actingUserId(args?.userId);
       const projectId = args?.projectId;
       const project = projectId
         ? await db.project.findUnique({

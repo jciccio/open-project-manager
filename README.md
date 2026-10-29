@@ -401,13 +401,16 @@ yarn mcp
     "open-project-manager": {
       "command": "npx",
       "args": ["-y", "tsx", "scripts/mcp-server.ts"],
-      "cwd": "/path/to/open-project-manager"
+      "cwd": "/path/to/open-project-manager",
+      "env": { "OPM_MCP_USER": "you@example.com" }
     }
   }
 }
 ```
 
-Stdio connections have no authenticated session, so tools that create data scoped to a user (e.g. `create_project`) require an explicit `userId` argument from the calling client — there is no fallback identity.
+Stdio connections have no login, so set `OPM_MCP_USER` (an email or user id) to pin the server to one account: every tool call then acts as that user, and a `userId` argument from the client is ignored. The server refuses to start if the value matches no user. Without `OPM_MCP_USER`, each call acts as the `userId` argument the client sends, and the server logs a warning. Anyone who can start this process can already read the database directly, so pinning is about which identity the AI client acts as, not about access control.
+
+The server reads `DATABASE_URL` from its environment (it does not load `.env`). Without it, it uses `dev.db` in its working directory, so set `cwd` as above or add `DATABASE_URL` to `env`.
 
 ### 2. Remote REST API for LLM Models (`/api/v1/mcp/*`)
 
