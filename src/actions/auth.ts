@@ -259,7 +259,10 @@ export async function listApiTokens() {
   }
 }
 
-export async function createApiToken(name: string) {
+export async function createApiToken(
+  name: string,
+  expiresInDays?: number | string | null
+) {
   try {
     const session = await getSession();
     if (!session) {
@@ -271,11 +274,19 @@ export async function createApiToken(name: string) {
       return { success: false, error: "Token name is required." };
     }
 
+    let expiresAt: Date | null = null;
+    if (expiresInDays !== undefined && expiresInDays !== null && expiresInDays !== "never") {
+      const days = Number(expiresInDays);
+      if (!isNaN(days) && days > 0) {
+        expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+      }
+    }
+
     const record = await db.apiToken.create({
-      data: { userId: session.userId, name: trimmedName },
+      data: { userId: session.userId, name: trimmedName, expiresAt },
     });
 
-    const secret = await signApiToken(session, record.id);
+    const secret = await signApiToken(session, record.id, expiresAt);
 
     return {
       success: true,
@@ -283,6 +294,7 @@ export async function createApiToken(name: string) {
         id: record.id,
         name: record.name,
         createdAt: record.createdAt,
+        expiresAt: record.expiresAt,
         secret,
       },
     };
