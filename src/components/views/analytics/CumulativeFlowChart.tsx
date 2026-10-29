@@ -50,7 +50,7 @@ export default function CumulativeFlowChart({
   let nonDoneIdx = 0;
   const columnColors: Record<string, string> = {};
   columns.forEach((col) => {
-    if (col.isDone || col.name.toLowerCase().includes("done")) {
+    if (col.isDone) {
       columnColors[col.name] = "#10b981"; // emerald
     } else {
       columnColors[col.name] = PALETTE[nonDoneIdx % PALETTE.length];

@@ -41,6 +41,7 @@ import { createSavedView, deleteSavedView, updateSavedView } from "@/actions/vie
 import { useRouter } from "next/navigation";
 import { useTranslation } from "./LanguageProvider";
 import { COLUMN_GROUPS, DEFAULT_COLUMN_GROUP, type ColumnGroup } from "@/lib/columnGroups";
+import { filterCards } from "@/lib/cardFilter";
 
 interface Props {
   project: any;
@@ -89,9 +90,21 @@ export default function KanbanBoard({ project }: Props) {
     try {
       const filters = typeof view.filterJson === "string" ? JSON.parse(view.filterJson) : view.filterJson;
       if (filters.query !== undefined) setSearchQuery(filters.query);
-      if (filters.priority !== undefined) setPriorityFilter(filters.priority);
-      if (filters.typeId !== undefined) setTypeFilter(filters.typeId);
-      if (filters.hideSubtasks !== undefined) setHideSubtasks(filters.hideSubtasks);
+
+      if (filters.priority !== undefined) {
+        const validPriorities = ["ALL", "NONE", "LOW", "MEDIUM", "HIGH", "URGENT"];
+        setPriorityFilter(validPriorities.includes(filters.priority) ? filters.priority : "ALL");
+      }
+
+      if (filters.typeId !== undefined) {
+        const isValidType =
+          filters.typeId === "ALL" ||
+          filters.typeId === "NONE" ||
+          (project.cardTypes && project.cardTypes.some((ct: any) => ct.id === filters.typeId));
+        setTypeFilter(isValidType ? filters.typeId : "ALL");
+      }
+
+      if (filters.hideSubtasks !== undefined) setHideSubtasks(Boolean(filters.hideSubtasks));
       if (filters.viewMode && ["kanban", "list", "analytics", "calendar"].includes(filters.viewMode)) {
         setViewMode(filters.viewMode);
       }
@@ -237,25 +250,11 @@ export default function KanbanBoard({ project }: Props) {
 
   // Filter cards by search, priority, type & subtask visibility for Kanban view
   const columnsWithFilteredCards = project.columns.map((col: any) => {
-    const filteredCards = (col.cards || []).filter((card: any) => {
-      if (hideSubtasks && card.parentId) {
-        return false;
-      }
-
-      const matchesSearch =
-        searchQuery === "" ||
-        card.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (card.description && card.description.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        (card.owner && card.owner.toLowerCase().includes(searchQuery.toLowerCase()));
-
-      const matchesPriority =
-        priorityFilter === "ALL" || card.priority === priorityFilter;
-
-      const matchesType =
-        typeFilter === "ALL" ||
-        (typeFilter === "NONE" ? !card.typeId : card.typeId === typeFilter);
-
-      return matchesSearch && matchesPriority && matchesType;
+    const filteredCards = filterCards(col.cards || [], {
+      searchQuery,
+      priorityFilter,
+      typeFilter,
+      hideSubtasks,
     });
 
     return { ...col, cards: filteredCards };
@@ -630,6 +629,7 @@ export default function KanbanBoard({ project }: Props) {
             onCardClick={(card) => setActiveCardId(card.id)}
             searchQuery={searchQuery}
             priorityFilter={priorityFilter}
+            typeFilter={typeFilter}
           />
         )}
       </div>

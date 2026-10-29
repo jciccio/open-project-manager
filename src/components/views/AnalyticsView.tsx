@@ -31,17 +31,11 @@ import VelocityChart from "./analytics/VelocityChart";
 import BurndownChart from "./analytics/BurndownChart";
 import CycleTimeChart from "./analytics/CycleTimeChart";
 import CumulativeFlowChart from "./analytics/CumulativeFlowChart";
+import { PRIORITY_HEX_COLORS } from "@/lib/priority";
 
 interface Props {
   project: any;
 }
-
-const PRIORITY_COLORS: Record<string, string> = {
-  LOW: "#64748b",
-  MEDIUM: "#3b82f6",
-  HIGH: "#f59e0b",
-  URGENT: "#ef4444",
-};
 
 export default function AnalyticsView({ project }: Props) {
   const { theme } = useTheme();
@@ -112,15 +106,18 @@ export default function AnalyticsView({ project }: Props) {
     let compCards = 0;
 
     const colData: any[] = [];
-    const priorityCounts: Record<string, number> = { LOW: 0, MEDIUM: 0, HIGH: 0, URGENT: 0 };
+    const priorityCounts: Record<string, number> = {
+      NONE: 0,
+      LOW: 0,
+      MEDIUM: 0,
+      HIGH: 0,
+      URGENT: 0,
+    };
     const assigneeMap: Record<string, { name: string; points: number; cards: number }> = {};
 
     (project?.columns || []).forEach((col: any) => {
       let colPoints = 0;
-      const isDoneCol =
-        col.isDone ||
-        col.name.toLowerCase().includes("done") ||
-        col.name.toLowerCase().includes("complete");
+      const isDoneCol = Boolean(col.isDone);
 
       (col.cards || []).forEach((card: any) => {
         totCards++;
@@ -136,8 +133,9 @@ export default function AnalyticsView({ project }: Props) {
         }
 
         // Priority count
-        if (card.priority && priorityCounts[card.priority] !== undefined) {
-          priorityCounts[card.priority]++;
+        const pKey = card.priority || "NONE";
+        if (priorityCounts[pKey] !== undefined) {
+          priorityCounts[pKey]++;
         }
 
         // Assignee map
@@ -159,7 +157,7 @@ export default function AnalyticsView({ project }: Props) {
     const prioData = Object.keys(priorityCounts).map((key) => ({
       name: key,
       value: priorityCounts[key],
-      color: PRIORITY_COLORS[key],
+      color: PRIORITY_HEX_COLORS[key] || "#94a3b8",
     }));
 
     const assData = Object.values(assigneeMap);
