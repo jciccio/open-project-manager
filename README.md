@@ -633,7 +633,7 @@ open-project-manager/
 │   │   └── page.tsx        # Dashboard page
 │   ├── components/         # React UI components (KanbanBoard, TaskCard, Modals, Views, Header)
 │   ├── lib/                # Auth JWT session & SQLite connection client
-│   └── middleware.ts       # Route protection & Bearer token middleware
+│   └── proxy.ts            # Route protection & Bearer token check (Next.js proxy)
 ├── prisma.config.ts        # Prisma v7 configuration
 └── dev.db                  # Local SQLite database file
 ```

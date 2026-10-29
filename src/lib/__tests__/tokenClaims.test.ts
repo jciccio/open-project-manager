@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { NextRequest } from "next/server";
 import { SignJWT, decodeJwt } from "jose";
-import { middleware } from "@/middleware";
+import { proxy } from "@/proxy";
 import { JWT_SECRET } from "@/lib/env";
 import { getApiSession, signApiToken, signToken, verifyToken } from "@/lib/auth";
 import { POST as loginRoute } from "@/app/api/v1/auth/login/route";
@@ -67,7 +67,7 @@ describe("JWT issuer and audience", () => {
       const token = await tokenWith(claims, userId);
       expect(await verifyToken(token)).toBeNull();
       expect(await getApiSession(bearer(token))).toBeNull();
-      expect((await middleware(bearer(token))).status).toBe(401);
+      expect((await proxy(bearer(token))).status).toBe(401);
     }
   });
 
@@ -76,6 +76,6 @@ describe("JWT issuer and audience", () => {
 
     expect(await verifyToken(legacy)).not.toBeNull();
     expect(await getApiSession(bearer(legacy))).not.toBeNull();
-    expect((await middleware(bearer(legacy))).status).toBe(200);
+    expect((await proxy(bearer(legacy))).status).toBe(200);
   });
 });
