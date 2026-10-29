@@ -31,7 +31,7 @@ export default async function DashboardPage({
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white flex flex-col">
       <Header user={session} archivedCount={archivedCount} ssoLinkResult={ssoLinkResult} />
-      <DashboardClient user={session} projects={projects as any[]} stats={stats} archivedCount={archivedCount} />
+      <DashboardClient user={session} projects={projects as any[]} stats={stats} />
     </div>
   );
 }

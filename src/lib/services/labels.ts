@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import type { Prisma } from "@prisma/client";
 import { safeRevalidatePath } from "@/lib/revalidate";
 import { verifyProjectAccess } from "@/lib/permissions";
 import { createScopedLabel, LabelExistsError } from "@/lib/scopedLabels";
@@ -10,7 +11,7 @@ export async function getLabels(projectId: string | undefined, userId: string) {
       if (!hasAccess) return { success: false, error: "Unauthorized" };
     }
 
-    const where: any = projectId
+    const where: Prisma.LabelWhereInput = projectId
       ? { OR: [{ projectId }, { userId }, { userId: null, projectId: null }] }
       : { OR: [{ userId }, { userId: null }] };
 

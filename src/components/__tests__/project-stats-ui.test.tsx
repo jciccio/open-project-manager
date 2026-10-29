@@ -97,7 +97,6 @@ describe("DashboardClient workspace totals", () => {
           p1: stats({ open: 3, done: 1, overdue: 2, total: 4 }),
           p2: stats({ open: 5, done: 5, overdue: 1, total: 10 }),
         }}
-        archivedCount={0}
       />
     );
 
