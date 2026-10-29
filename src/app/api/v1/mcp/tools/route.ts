@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { MCP_TOOLS, executeMcpTool } from "@/mcp/core";
+import { MCP_TOOLS, executeMcpTool, isKnownMcpTool } from "@/mcp/core";
+import { isPublicError, publicErrorMessage } from "@/mcp/errors";
 import { getApiSession } from "@/lib/auth";
 
 export async function GET() {
@@ -11,34 +12,38 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const session = await getApiSession(request);
+  if (!session) {
+    return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+  }
+
+  let body: Record<string, any>;
   try {
-    const session = await getApiSession(request);
-    if (!session) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
-    }
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ success: false, error: "Invalid JSON payload" }, { status: 400 });
+  }
 
-    const body = await request.json();
+  const toolName = body?.tool || body?.name;
+  if (!toolName) {
+    return NextResponse.json(
+      { success: false, error: "Missing required 'tool' or 'name' field in request body." },
+      { status: 400 }
+    );
+  }
+  if (!isKnownMcpTool(toolName)) {
+    return NextResponse.json({ success: false, error: `Unknown tool: ${toolName}` }, { status: 400 });
+  }
 
-    const toolName = body.tool || body.name;
-    if (!toolName) {
-      return NextResponse.json(
-        { success: false, error: "Missing required 'tool' or 'name' field in request body." },
-        { status: 400 }
-      );
-    }
+  const args = body.arguments || body.args || {};
 
-    const args = body.arguments || body.args || {};
-
+  try {
     const result = await executeMcpTool(toolName, args, { userId: session.userId });
     return NextResponse.json(result);
-  } catch (error: any) {
-    console.error("MCP Tool Execution Error:", error);
+  } catch (error) {
     return NextResponse.json(
-      {
-        success: false,
-        error: error.message || "Failed to execute MCP tool",
-      },
-      { status: 500 }
+      { success: false, error: publicErrorMessage(error, `tool ${toolName}`) },
+      { status: isPublicError(error) ? 400 : 500 }
     );
   }
 }
