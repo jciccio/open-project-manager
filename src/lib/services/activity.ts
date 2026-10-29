@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { verifyProjectAccess } from "@/lib/permissions";
 import { triggerWebhooks } from "@/lib/webhooks";
@@ -22,35 +23,39 @@ export async function getCardActivity(cardId: string, userId: string) {
   }
 }
 
-export async function recordActivity(data: {
+export interface ActivityEntry {
   cardId: string;
-  projectId: string;
   actorUserId: string;
   type: string;
   fromValue?: string | null;
   toValue?: string | null;
-}) {
-  try {
-    const activity = await db.activity.create({
-      data: {
-        cardId: data.cardId,
-        actorUserId: data.actorUserId,
-        type: data.type,
-        fromValue: data.fromValue !== undefined ? data.fromValue : null,
-        toValue: data.toValue !== undefined ? data.toValue : null,
-      },
-    });
+}
 
-    triggerWebhooks(data.projectId, data.type, {
-      cardId: data.cardId,
-      actorUserId: data.actorUserId,
-      fromValue: activity.fromValue,
-      toValue: activity.toValue,
-    });
+function normalize(entry: ActivityEntry) {
+  return {
+    cardId: entry.cardId,
+    actorUserId: entry.actorUserId,
+    type: entry.type,
+    fromValue: entry.fromValue ?? null,
+    toValue: entry.toValue ?? null,
+  };
+}
 
-    return activity;
-  } catch (err) {
-    console.error("Error recording activity:", err);
-    return null;
+// Pass the client of the transaction that makes the change, so the change and
+// its history commit or roll back together.
+export function createActivities(client: Prisma.TransactionClient, entries: ActivityEntry[]) {
+  return client.activity.createMany({ data: entries.map(normalize) });
+}
+
+// Call only after the change has committed: a webhook must never announce a
+// change that rolled back.
+export function notifyActivity(projectId: string, entries: ActivityEntry[]) {
+  for (const entry of entries.map(normalize)) {
+    triggerWebhooks(projectId, entry.type, {
+      cardId: entry.cardId,
+      actorUserId: entry.actorUserId,
+      fromValue: entry.fromValue,
+      toValue: entry.toValue,
+    });
   }
 }

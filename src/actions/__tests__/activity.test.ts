@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { createProject } from "@/lib/services/projects";
 import { createCard, updateCard, moveCard } from "@/lib/services/cards";
 import { addComment } from "@/lib/services/comments";
-import { getCardActivity, recordActivity } from "@/lib/services/activity";
+import { createActivities, getCardActivity } from "@/lib/services/activity";
 import * as activityActions from "@/actions/activity";
 
 describe("Card Activity / Audit Trail Actions", () => {
@@ -128,14 +128,16 @@ describe("Card Activity / Audit Trail Actions", () => {
     expect(types).toContain("comment_added");
   });
 
-  it("does not expose recordActivity as a Server Action", () => {
-    expect((activityActions as Record<string, unknown>).recordActivity).toBeUndefined();
+  it("does not expose activity writes as Server Actions", () => {
+    for (const name of ["recordActivity", "createActivities", "notifyActivity"]) {
+      expect((activityActions as Record<string, unknown>)[name]).toBeUndefined();
+    }
   });
 
   it("records activity through the service and lets project members read it", async () => {
     const cardRes = await createCard({ projectId, columnId: col1Id, title: "Direct Record Task" }, userId);
     const cardId = cardRes.data!.id;
-    await recordActivity({ cardId, projectId, actorUserId: userId, type: "custom_event", toValue: "done" });
+    await createActivities(db, [{ cardId, actorUserId: userId, type: "custom_event", toValue: "done" }]);
 
     const member = await db.user.create({
       data: { email: "activity_member@example.com", name: "Activity Member", passwordHash: "hash123" },
