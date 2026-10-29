@@ -12,7 +12,7 @@ const PUBLIC_PATHS = [
   "/api/v1/auth/oidc/callback",
 ];
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Check Bearer Token header or Cookie
