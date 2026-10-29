@@ -6,6 +6,7 @@ import { updateUserProfile, listApiTokens, createApiToken, revokeApiToken, getSs
 import { getTelemetryStatus, updateTelemetryPreference } from "@/actions/telemetry";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "./LanguageProvider";
+import { formatDate } from "@/lib/formatDate";
 import ErrorBanner from "./ErrorBanner";
 
 interface Props {
@@ -63,7 +64,7 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
 
   const [ssoStatus, setSsoStatus] = useState<{ oidcEnabled: boolean; linked: boolean } | null>(null);
 
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const router = useRouter();
 
   const ssoLinkMessageKey = ssoLinkResult
@@ -443,11 +444,11 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
                           {token.name}
                         </p>
                         <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                          {t("profileModal.createdLabel")} {new Date(token.createdAt).toLocaleDateString()}
+                          {t("profileModal.createdLabel")} {formatDate(token.createdAt, locale)}
                           {" · "}
                           {t("profileModal.lastUsedLabel")}{" "}
                           {token.lastUsedAt
-                            ? new Date(token.lastUsedAt).toLocaleDateString()
+                            ? formatDate(token.lastUsedAt, locale)
                             : t("profileModal.neverUsed")}
                         </p>
                       </div>
