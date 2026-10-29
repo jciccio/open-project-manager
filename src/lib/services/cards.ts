@@ -7,8 +7,10 @@ import { nextCardNumber, withCardNumberRetry } from "@/lib/cardNumbering";
 import { verifyProjectAccess } from "@/lib/permissions";
 import { deriveCompletedAt } from "@/lib/cardCompletion";
 import { SafeUrlSchema } from "@/lib/validation/safeUrl";
+import { CardCreateSchema, CardReorderSchema, CardUpdateSchema } from "@/lib/validation/cards";
+import { parseInput } from "@/lib/validation/errors";
 
-async function validateReferencedIds(
+export async function validateReferencedIds(
   projectId: string,
   userId: string,
   refs: {
@@ -60,11 +62,11 @@ async function validateReferencedIds(
 }
 
 export async function createCard(
-  data: {
+  rawData: {
     projectId: string;
     columnId: string;
     title: string;
-    description?: string;
+    description?: string | null;
     priority?: string;
     points?: number | null;
     owner?: string | null;
@@ -77,12 +79,12 @@ export async function createCard(
   userId: string
 ) {
   try {
+    const parsed = parseInput(CardCreateSchema, rawData);
+    if (!parsed.success) return parsed;
+    const data = parsed.data;
+
     if (!(await verifyProjectAccess(data.projectId, userId, "MEMBER"))) {
       return { success: false, error: "Unauthorized" };
-    }
-
-    if (!data.title.trim()) {
-      return { success: false, error: "Card title is required" };
     }
 
     if (data.parentId) {
@@ -119,7 +121,7 @@ export async function createCard(
         data: {
           projectId: data.projectId,
           columnId: data.columnId,
-          title: data.title.trim(),
+          title: data.title,
           description: data.description,
           number,
           priority: data.priority || "NONE",
@@ -180,7 +182,7 @@ export async function createCard(
 
 export async function updateCard(
   id: string,
-  data: {
+  rawData: {
     columnId?: string;
     title?: string;
     description?: string | null;
@@ -197,6 +199,10 @@ export async function updateCard(
   userId: string
 ) {
   try {
+    const parsed = parseInput(CardUpdateSchema, rawData);
+    if (!parsed.success) return parsed;
+    const data = parsed.data;
+
     const existingCard = await db.card.findUnique({
       where: { id },
       include: {
@@ -613,11 +619,11 @@ export interface ReorderItem {
   columnId?: string;
 }
 
-export async function reorderCards(items: ReorderItem[], userId: string) {
+export async function reorderCards(rawItems: ReorderItem[], userId: string) {
   try {
-    if (!items || !Array.isArray(items) || items.length === 0) {
-      return { success: false, error: "Items array is required" };
-    }
+    const parsed = parseInput(CardReorderSchema, { items: rawItems });
+    if (!parsed.success) return parsed;
+    const { items } = parsed.data;
 
     const cardIds = items.map((i) => i.id);
     const existingCards = await db.card.findMany({

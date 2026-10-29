@@ -12,7 +12,7 @@ const DueDateSchema = z
   .refine((value) => !Number.isNaN(Date.parse(value)), { message: "Invalid date" });
 
 const cardFields = {
-  title: z.string().trim().min(1).max(MAX_TITLE_LENGTH),
+  title: z.string().trim().min(1, "Card title is required").max(MAX_TITLE_LENGTH),
   description: z.string().max(MAX_DESCRIPTION_LENGTH).nullable(),
   priority: PrioritySchema,
   points: z.number().nullable(),
