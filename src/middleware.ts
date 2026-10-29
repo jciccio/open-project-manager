@@ -8,6 +8,7 @@ const PUBLIC_PATHS = [
   "/login",
   "/register",
   "/api/v1/auth/login",
+  "/api/v1/auth/session-expired",
   "/api/v1/auth/oidc/login",
   "/api/v1/auth/oidc/callback",
 ];

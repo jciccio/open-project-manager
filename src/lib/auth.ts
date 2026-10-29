@@ -13,6 +13,26 @@ export interface UserSession {
   userId: string;
   email: string;
   name: string;
+  tokenVersion?: number;
+}
+
+// Tokens issued before tokenVersion existed carry no `tv` claim; they count as
+// version 0 so upgrading does not sign everyone out.
+function tokenVersionClaim(payload: { tv?: unknown }): number {
+  return typeof payload.tv === "number" ? payload.tv : 0;
+}
+
+function sessionFromPayload(payload: Record<string, unknown>): UserSession {
+  return {
+    userId: payload.userId as string,
+    email: payload.email as string,
+    name: payload.name as string,
+    tokenVersion: tokenVersionClaim(payload),
+  };
+}
+
+function toClaims({ userId, email, name, tokenVersion }: UserSession) {
+  return { userId, email, name, tv: tokenVersion ?? 0 };
 }
 
 export async function determineCookieSecurity(): Promise<boolean> {
@@ -40,7 +60,7 @@ export async function determineCookieSecurity(): Promise<boolean> {
 }
 
 export async function signToken(sessionData: UserSession, durationSeconds = 30 * 24 * 60 * 60) {
-  return await new SignJWT({ ...sessionData })
+  return await new SignJWT(toClaims(sessionData))
     .setProtectedHeader({ alg: "HS256" })
     .setIssuer(TOKEN_ISSUER)
     .setAudience(SESSION_AUDIENCE)
@@ -54,7 +74,7 @@ export async function signToken(sessionData: UserSession, durationSeconds = 30 *
 // row is revocation metadata only — deleting the row invalidates the token
 // even though the JWT itself remains cryptographically valid until expiry.
 export async function signApiToken(sessionData: UserSession, tokenId: string) {
-  return await new SignJWT({ ...sessionData, jti: tokenId, type: "api_token" })
+  return await new SignJWT({ ...toClaims(sessionData), jti: tokenId, type: "api_token" })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuer(TOKEN_ISSUER)
     .setAudience(API_TOKEN_AUDIENCE)
@@ -89,11 +109,7 @@ export async function verifyToken(token: string): Promise<UserSession | null> {
     const { payload } = await jwtVerify(token, JWT_SECRET, { algorithms: ["HS256"] });
     if (payload.jti || payload.type === "api_token") return null;
     if (!hasAllowedClaims(payload, [SESSION_AUDIENCE])) return null;
-    return {
-      userId: payload.userId as string,
-      email: payload.email as string,
-      name: payload.name as string,
-    };
+    return sessionFromPayload(payload);
   } catch (error) {
     return null;
   }
@@ -115,13 +131,7 @@ async function verifyBearerToken(token: string): Promise<UserSession | null> {
   if (!hasAllowedClaims(payload, [SESSION_AUDIENCE, API_TOKEN_AUDIENCE])) return null;
 
   const jti = payload.jti as string | undefined;
-  if (!jti) {
-    return {
-      userId: payload.userId as string,
-      email: payload.email as string,
-      name: payload.name as string,
-    };
-  }
+  if (!jti) return sessionFromPayload(payload);
 
   const apiToken = await db.apiToken.findUnique({ where: { id: jti } });
   if (!apiToken || (apiToken.expiresAt && apiToken.expiresAt < new Date())) {
@@ -135,11 +145,19 @@ async function verifyBearerToken(token: string): Promise<UserSession | null> {
     });
   }
 
-  return {
-    userId: payload.userId as string,
-    email: payload.email as string,
-    name: payload.name as string,
-  };
+  return sessionFromPayload(payload);
+}
+
+// A token is only honoured while its `tv` matches the user's current
+// tokenVersion; bumping the column (scripts/revoke-user.ts) ends every session
+// and API token the user holds.
+async function currentUserFor(session: UserSession): Promise<UserSession | null> {
+  const user = await db.user.findUnique({
+    where: { id: session.userId },
+    select: { id: true, email: true, name: true, tokenVersion: true },
+  });
+  if (!user || user.tokenVersion !== session.tokenVersion) return null;
+  return { userId: user.id, email: user.email, name: user.name, tokenVersion: user.tokenVersion };
 }
 
 export async function getSession(): Promise<UserSession | null> {
@@ -152,12 +170,8 @@ export async function getSession(): Promise<UserSession | null> {
     const session = await verifyToken(token);
     if (!session) return null;
 
-    const user = await db.user.findUnique({
-      where: { id: session.userId },
-      select: { id: true, email: true, name: true },
-    });
-
-    if (!user) {
+    const current = await currentUserFor(session);
+    if (!current) {
       try {
         cookieStore.delete(SESSION_COOKIE_NAME);
       } catch {
@@ -166,11 +180,7 @@ export async function getSession(): Promise<UserSession | null> {
       return null;
     }
 
-    return {
-      userId: user.id,
-      email: user.email,
-      name: user.name,
-    };
+    return current;
   } catch (error) {
     return null;
   }
@@ -182,28 +192,14 @@ export async function getApiSession(request: NextRequest): Promise<UserSession |
   if (authHeader && authHeader.startsWith("Bearer ")) {
     const bearerToken = authHeader.substring(7).trim();
     const session = await verifyBearerToken(bearerToken);
-    if (session) {
-      const user = await db.user.findUnique({
-        where: { id: session.userId },
-        select: { id: true, email: true, name: true },
-      });
-      if (user) return session;
-      return null;
-    }
+    if (session) return await currentUserFor(session);
   }
 
   // 2. Check request cookie
   const cookieToken = request.cookies.get(SESSION_COOKIE_NAME)?.value;
   if (cookieToken) {
     const session = await verifyToken(cookieToken);
-    if (session) {
-      const user = await db.user.findUnique({
-        where: { id: session.userId },
-        select: { id: true, email: true, name: true },
-      });
-      if (user) return session;
-      return null;
-    }
+    if (session) return await currentUserFor(session);
   }
 
   // 3. Fallback to server cookies()

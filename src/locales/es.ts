@@ -47,6 +47,8 @@ export const es: TranslationKeys = {
     ssoLinked: "Esta cuenta está conectada al inicio de sesión único.",
     ssoNotLinked: "Conecta la cuenta de tu proveedor de identidad para iniciar sesión con inicio de sesión único.",
     ssoConnect: "Conectar inicio de sesión único",
+    ssoConnectDisablesPassword: "Al conectar el inicio de sesión único se desactiva el acceso con contraseña para esta cuenta.",
+    ssoPasswordDisabled: "Esta cuenta inicia sesión mediante inicio de sesión único, por lo que no tiene contraseña local.",
     ssoLinkSuccess: "Inicio de sesión único conectado.",
     ssoLinkSubjectInUse: "Esa cuenta del proveedor de identidad ya está conectada a otro usuario.",
     ssoLinkLinkedElsewhere: "Esta cuenta ya está conectada a otra identidad de inicio de sesión único.",
