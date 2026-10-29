@@ -327,6 +327,18 @@ curl -X POST http://localhost:3000/api/v1/import \
   -d '{"source": "vikunja", "projectIds": [2]}'
 ```
 
+The import runs in the background. Both calls answer `202` with a `jobId` right
+away; poll the job until its `status` is `DONE` (the `summary` holds the per-record
+results) or `FAILED`:
+
+```bash
+curl http://localhost:3000/api/v1/import/JOB_ID -H "Authorization: Bearer YOUR_OPM_TOKEN"
+```
+
+One import runs per account at a time. Starting another while one is running
+answers `409` with the running job's id, and the command line below refuses to
+start until it finishes.
+
 On the machine that owns the database you can skip the API token entirely and run
 the same import from the command line:
 

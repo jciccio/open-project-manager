@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { DEFAULT_COLUMN_GROUP } from "@/lib/columnGroups";
 import { generateProjectKey } from "@/lib/projectKey";
@@ -14,6 +15,10 @@ import type {
 } from "./types";
 
 const ORDER_GAP = 10000;
+
+function isUniqueViolation(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+}
 
 function unknownColumnError(columnSourceId: string): string {
   return `Unknown columnSourceId "${columnSourceId}": no matching column was imported for this project`;
@@ -157,10 +162,23 @@ async function createOrSkip(
 
     const localId = await create();
     try {
-      await recordMapping(ctx.userId, ctx.source, entityType, mappingKey, localId, ctx.importRunId);
+      if (existing) {
+        await recordMapping(ctx.userId, ctx.source, entityType, mappingKey, localId, ctx.importRunId);
+      } else {
+        await db.importRecord.create({
+          data: { userId: ctx.userId, source: ctx.source, entityType, sourceId: mappingKey, localId, importRunId: ctx.importRunId },
+        });
+      }
     } catch (err) {
       // An unmapped row would be created again on the next run.
       await deleteImportedRow(entityType, localId).catch(() => {});
+      // A concurrent run mapped this record first: its row stands, ours is gone.
+      const winner = isUniqueViolation(err)
+        ? await findExistingMapping(ctx.userId, ctx.source, entityType, mappingKey)
+        : null;
+      if (winner) {
+        return { localId: winner.localId, result: { entityType, sourceId, status: "skipped", localId: winner.localId } };
+      }
       throw err;
     }
     return { localId, result: { entityType, sourceId, status: "created", localId } };
@@ -523,7 +541,7 @@ export async function runImport(
   userId: string,
   options: RunImportOptions = {}
 ): Promise<ImportSummary | ImportDryRunSummary> {
-  const importRunId = randomUUID();
+  const importRunId = options.importRunId ?? randomUUID();
 
   if (options.dryRun) {
     const records: ImportDryRunRecordResult[] = [];
