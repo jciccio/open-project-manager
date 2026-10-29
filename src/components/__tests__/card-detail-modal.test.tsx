@@ -26,6 +26,7 @@ vi.mock("@/actions/comments", () => ({
   })),
   updateComment: vi.fn(async () => ({ success: true, data: {} })),
   deleteComment: vi.fn(async () => ({ success: true })),
+  listComments: vi.fn(async () => ({ success: true, data: [] })),
 }));
 
 vi.mock("@/actions/activity", () => ({

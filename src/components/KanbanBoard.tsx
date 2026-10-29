@@ -719,6 +719,8 @@ export default function KanbanBoard({ project }: Props) {
         <CardDetailModal
           card={activeCard}
           columns={project.columns}
+          projectKey={project.key}
+          cardTypes={project.cardTypes}
           members={project.members}
           onClose={() => setActiveCardId(null)}
           onRefresh={() => router.refresh()}

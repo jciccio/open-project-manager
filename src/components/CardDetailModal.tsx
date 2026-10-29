@@ -29,8 +29,7 @@ import {
   Unlink,
 } from "lucide-react";
 import { createCard, updateCard, deleteCard, archiveCard, getCardByIdentifier, addCardLink, removeCardLink } from "@/actions/cards";
-import { getProjectById } from "@/actions/projects";
-import { addComment, updateComment, deleteComment } from "@/actions/comments";
+import { addComment, updateComment, deleteComment, listComments } from "@/actions/comments";
 import { getCardActivity } from "@/actions/activity";
 import { uploadAttachment, listAttachments, deleteAttachment } from "@/actions/attachments";
 import { getLabels } from "@/actions/labels";
@@ -123,7 +122,10 @@ interface Props {
     id: string;
     name: string;
     isDone?: boolean;
+    cards?: Array<any>;
   }>;
+  projectKey?: string;
+  cardTypes?: Array<any>;
   members?: Array<{
     id?: string;
     userId: string;
@@ -138,6 +140,8 @@ interface Props {
 export default function CardDetailModal({
   card,
   columns,
+  projectKey,
+  cardTypes,
   members,
   onClose,
   onRefresh,
@@ -243,7 +247,14 @@ export default function CardDetailModal({
         setAttachments(res.data);
       }
     }
+    async function fetchComments() {
+      const res = await listComments(card.id);
+      if (res.success && res.data) {
+        setComments(res.data);
+      }
+    }
     fetchAttachments();
+    fetchComments();
     loadActivities();
   }, [card.id]);
 
@@ -303,25 +314,26 @@ export default function CardDetailModal({
       }
     }
     async function loadCardTypes() {
+      if (cardTypes && cardTypes.length > 0) {
+        setAvailableCardTypes(cardTypes);
+        return;
+      }
       const res = await getCardTypes(card.projectId);
       if (res.success && res.data) {
         setAvailableCardTypes(res.data);
       }
     }
-    async function loadProjectCards() {
-      const pRes = await getProjectById(card.projectId);
-      if (pRes.success && pRes.data && pRes.data.columns) {
-        const key = pRes.data.key;
-        const allCards = pRes.data.columns.flatMap((col: any) => col.cards || []);
-        const otherCards = allCards
-          .filter((c: any) => c.id !== card.id)
-          .map((c: any) => ({
-            id: c.id,
-            identifier: `${key}-${c.number}`,
-            title: c.title,
-          }));
-        setProjectCards(otherCards);
-      }
+    function loadProjectCards() {
+      const allCards = (columns as any[]).flatMap((col: any) => col.cards || []);
+      const key = projectKey || (card as any).project?.key || "OPM";
+      const otherCards = allCards
+        .filter((c: any) => c.id !== card.id)
+        .map((c: any) => ({
+          id: c.id,
+          identifier: `${key}-${c.number}`,
+          title: c.title,
+        }));
+      setProjectCards(otherCards);
     }
 
     async function loadMembers() {

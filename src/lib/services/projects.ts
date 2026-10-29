@@ -89,11 +89,10 @@ export async function getProjectById(id: string, userId: string) {
                     label: true,
                   },
                 },
-                comments: {
-                  orderBy: { createdAt: "desc" },
-                },
-                activities: {
-                  orderBy: { createdAt: "desc" },
+                _count: {
+                  select: {
+                    comments: true,
+                  },
                 },
                 links: true,
                 assignees: {
@@ -102,9 +101,26 @@ export async function getProjectById(id: string, userId: string) {
                 incomingRelations: {
                   include: {
                     sourceCard: {
-                      include: {
-                        column: true,
-                        project: true,
+                      select: {
+                        id: true,
+                        number: true,
+                        title: true,
+                        columnId: true,
+                        column: {
+                          select: {
+                            id: true,
+                            name: true,
+                            isDone: true,
+                            group: true,
+                          },
+                        },
+                        project: {
+                          select: {
+                            id: true,
+                            key: true,
+                            name: true,
+                          },
+                        },
                       },
                     },
                   },
@@ -112,9 +128,26 @@ export async function getProjectById(id: string, userId: string) {
                 outgoingRelations: {
                   include: {
                     targetCard: {
-                      include: {
-                        column: true,
-                        project: true,
+                      select: {
+                        id: true,
+                        number: true,
+                        title: true,
+                        columnId: true,
+                        column: {
+                          select: {
+                            id: true,
+                            name: true,
+                            isDone: true,
+                            group: true,
+                          },
+                        },
+                        project: {
+                          select: {
+                            id: true,
+                            key: true,
+                            name: true,
+                          },
+                        },
                       },
                     },
                   },
