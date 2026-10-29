@@ -1568,7 +1568,13 @@ export async function executeMcpTool(
   }
 }
 
-export function createMcpServer(): Server {
+// `userId` pins the stdio server to one account (scripts/mcp-server.ts reads it
+// from OPM_MCP_USER). Unpinned, the acting user is whatever `userId` argument
+// the client sends.
+export function createMcpServer(options: { userId?: string } = {}): Server {
+  const actingUserId = (provided?: unknown) =>
+    options.userId ?? requireUserId(typeof provided === "string" ? provided : undefined);
+
   const server = new Server(
     {
       name: "open-project-manager-mcp",
@@ -1591,10 +1597,7 @@ export function createMcpServer(): Server {
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
     try {
-      // stdio has no session/cookie mechanism, so identity is trusted from the
-      // caller-supplied userId argument here — this is issue #122's scope, not #83's.
-      const providedUserId = args?.userId;
-      const ctx = { userId: requireUserId(typeof providedUserId === "string" ? providedUserId : undefined) };
+      const ctx = { userId: actingUserId(args?.userId) };
       const result = await executeMcpTool(name, args || {}, ctx);
       return {
         content: [
