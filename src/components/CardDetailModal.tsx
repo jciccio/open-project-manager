@@ -42,6 +42,7 @@ import { safeHref } from "@/lib/validation/safeUrl";
 // Sentinel <option> value for an owner name that predates project members.
 const LEGACY_OWNER = "__legacy_owner__";
 import { useTranslation } from "./LanguageProvider";
+import { formatDate, formatDueDate } from "@/lib/formatDate";
 import MarkdownEditor from "./MarkdownEditor";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import CardTypeManagerModal from "./CardTypeManagerModal";
@@ -217,7 +218,7 @@ export default function CardDetailModal({
   const [feedTab, setFeedTab] = useState<"comments" | "activity">("comments");
   const [isLoadingActivities, setIsLoadingActivities] = useState(false);
 
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
 
   async function loadActivities() {
     setIsLoadingActivities(true);
@@ -643,7 +644,7 @@ export default function CardDetailModal({
             {card.completedAt && (
               <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 px-2 py-0.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
                 <CheckCircle className="h-3.5 w-3.5" />
-                <span>Done ({new Date(card.completedAt).toLocaleDateString()})</span>
+                <span>Done ({formatDate(card.completedAt, locale)})</span>
               </span>
             )}
           </div>
@@ -1031,7 +1032,7 @@ export default function CardDetailModal({
                           {subtask.dueDate && (
                             <span className="text-[10px] text-slate-400 flex items-center gap-0.5">
                               <Calendar className="h-3 w-3" />
-                              {new Date(subtask.dueDate).toLocaleDateString(undefined, { month: "numeric", day: "numeric" })}
+                              {formatDueDate(subtask.dueDate, locale, { month: "numeric", day: "numeric" })}
                             </span>
                           )}
 
@@ -1411,12 +1412,7 @@ export default function CardDetailModal({
                               {c.author}
                             </span>
                             <span className="text-[10px] text-slate-400">
-                              {new Date(c.createdAt).toLocaleDateString(undefined, {
-                                month: "short",
-                                day: "numeric",
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })}
+                              {formatDate(c.createdAt, locale, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                             </span>
                           </div>
                           {editingCommentId === c.id ? (
@@ -1567,12 +1563,7 @@ export default function CardDetailModal({
                             ].includes(act.type) && act.type}
                           </p>
                           <span className="text-[10px] text-slate-400 block">
-                            {new Date(act.createdAt).toLocaleDateString(undefined, {
-                              month: "short",
-                              day: "numeric",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
+                            {formatDate(act.createdAt, locale, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                           </span>
                         </div>
                       </div>

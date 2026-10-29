@@ -1568,6 +1568,53 @@ export async function executeMcpTool(
   }
 }
 
+// Shared by the REST resources route, the JSON-RPC resources/read branch, and
+// the stdio ReadResourceRequestSchema handler — all three fetch the exact same
+// data (read-only, no revalidatePath), so the ownership scoping lives once here.
+export async function readMcpResource(uri: string, userId: string) {
+  if (uri === "opm://projects") {
+    const projects = await db.project.findMany({
+      where: { isArchived: false, OR: accessibleProjectsFilter(userId) },
+      include: { _count: { select: { cards: true, columns: true } } },
+    });
+    return { uri, mimeType: "application/json", data: projects };
+  }
+
+  if (uri.startsWith("opm://projects/")) {
+    const id = uri.replace("opm://projects/", "");
+    const project = await db.project.findUnique({
+      where: { id },
+      include: {
+        columns: {
+          orderBy: { order: "asc" },
+          include: { cards: true },
+        },
+      },
+    });
+    if (!project || !(await verifyProjectAccess(project.id, userId, "VIEWER"))) {
+      throw new Error(`Project resource '${id}' not found`);
+    }
+    return { uri, mimeType: "application/json", data: project };
+  }
+
+  if (uri.startsWith("opm://cards/")) {
+    const id = uri.replace("opm://cards/", "");
+    const card = await db.card.findUnique({
+      where: { id },
+      include: {
+        column: true,
+        comments: true,
+      },
+    });
+    if (!card || !(await verifyProjectAccess(card.projectId, userId, "VIEWER"))) {
+      throw new Error(`Card resource '${id}' not found`);
+    }
+    return { uri, mimeType: "application/json", data: card };
+  }
+
+  throw new Error(`Resource non-existent: ${uri}`);
+}
+
 // `userId` pins the stdio server to one account (scripts/mcp-server.ts reads it
 // from OPM_MCP_USER). Unpinned, the acting user is whatever `userId` argument
 // the client sends.
@@ -1636,65 +1683,18 @@ export function createMcpServer(options: { userId?: string } = {}): Server {
 
   server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     const { uri } = request.params;
-    if (uri === "opm://projects") {
-      const projects = await db.project.findMany({
-        where: { isArchived: false },
-        include: { _count: { select: { cards: true, columns: true } } },
-      });
-      return {
-        contents: [
-          {
-            uri,
-            mimeType: "application/json",
-            text: JSON.stringify(projects, null, 2),
-          },
-        ],
-      };
-    }
+    const userId = actingUserId((request.params as { userId?: unknown }).userId);
 
-    if (uri.startsWith("opm://projects/")) {
-      const id = uri.replace("opm://projects/", "");
-      const project = await db.project.findUnique({
-        where: { id },
-        include: {
-          columns: {
-            orderBy: { order: "asc" },
-            include: { cards: true },
-          },
+    const resource = await readMcpResource(uri, userId);
+    return {
+      contents: [
+        {
+          uri: resource.uri,
+          mimeType: resource.mimeType,
+          text: JSON.stringify(resource.data, null, 2),
         },
-      });
-      return {
-        contents: [
-          {
-            uri,
-            mimeType: "application/json",
-            text: JSON.stringify(project, null, 2),
-          },
-        ],
-      };
-    }
-
-    if (uri.startsWith("opm://cards/")) {
-      const id = uri.replace("opm://cards/", "");
-      const card = await db.card.findUnique({
-        where: { id },
-        include: {
-          column: true,
-          comments: true,
-        },
-      });
-      return {
-        contents: [
-          {
-            uri,
-            mimeType: "application/json",
-            text: JSON.stringify(card, null, 2),
-          },
-        ],
-      };
-    }
-
-    throw new Error(`Resource non-existent: ${uri}`);
+      ],
+    };
   });
 
   // Prompts Handlers
@@ -1730,15 +1730,21 @@ export function createMcpServer(options: { userId?: string } = {}): Server {
   server.setRequestHandler(GetPromptRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
     if (name === "summarize_project") {
+      const userId = actingUserId(args?.userId);
       const projectId = args?.projectId;
-      const project = await db.project.findUnique({
-        where: { id: projectId },
-        include: {
-          columns: {
-            include: { cards: true },
-          },
-        },
-      });
+      const project = projectId
+        ? await db.project.findUnique({
+            where: { id: projectId },
+            include: {
+              columns: {
+                include: { cards: true },
+              },
+            },
+          })
+        : null;
+      if (!project || !(await verifyProjectAccess(project.id, userId, "VIEWER"))) {
+        throw new Error(`Project with ID ${projectId} not found.`);
+      }
       return {
         description: `Project Summary Prompt for ${project?.name || projectId}`,
         messages: [

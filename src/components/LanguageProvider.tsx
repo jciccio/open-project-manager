@@ -1,12 +1,26 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { en } from "@/locales/en";
 import { es } from "@/locales/es";
+import { DEFAULT_LOCALE, LOCALE_COOKIE, asSupportedLocale, type SupportedLocale } from "@/lib/locale";
 
-export type SupportedLocale = "en" | "es";
+export type { SupportedLocale };
 
-const DICTIONARIES: Record<SupportedLocale, any> = { en, es };
+const DICTIONARIES: Record<SupportedLocale, typeof en> = { en, es };
+
+function readLocaleCookie(): SupportedLocale | null {
+  const match = document.cookie.match(new RegExp(`(?:^|; )${LOCALE_COOKIE}=([^;]*)`));
+  return asSupportedLocale(match?.[1]);
+}
+
+function persistLocale(locale: SupportedLocale) {
+  try {
+    localStorage.setItem(LOCALE_COOKIE, locale);
+    document.cookie = `${LOCALE_COOKIE}=${locale}; path=/; max-age=31536000; SameSite=Lax`;
+  } catch (e) {}
+  document.documentElement.lang = locale;
+}
 
 interface LanguageContextType {
   locale: SupportedLocale;
@@ -16,29 +30,42 @@ interface LanguageContextType {
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
 
-export function LanguageProvider({ children }: { children: React.ReactNode }) {
-  const [locale, setLocaleState] = useState<SupportedLocale>("en");
-  const [mounted, setMounted] = useState(false);
+export function LanguageProvider({
+  initialLocale,
+  localeFromCookie = false,
+  children,
+}: {
+  initialLocale?: SupportedLocale;
+  localeFromCookie?: boolean;
+  children: React.ReactNode;
+}) {
+  // Seeded from what the server rendered with, so the first client render
+  // matches the server markup.
+  const [locale, setLocaleState] = useState<SupportedLocale>(initialLocale ?? DEFAULT_LOCALE);
 
   useEffect(() => {
-    const saved = localStorage.getItem("opm_locale") as SupportedLocale | null;
-    if (saved && (saved === "en" || saved === "es")) {
-      setLocaleState(saved);
-    } else {
-      const browserLang = navigator.language.toLowerCase();
-      if (browserLang.startsWith("es")) {
-        setLocaleState("es");
-      }
+    if (localeFromCookie) return;
+    // No cookie reached the server: it guessed from Accept-Language (or had no
+    // request at all). A choice saved before the cookie existed lives only in
+    // localStorage, so honour it once; either way, write the cookie so later
+    // requests render the right language on the server.
+    let saved: SupportedLocale | null = readLocaleCookie();
+    if (!saved) {
+      try {
+        saved = asSupportedLocale(localStorage.getItem(LOCALE_COOKIE));
+      } catch (e) {}
     }
-    setMounted(true);
+    const chosen = saved ?? locale;
+    if (chosen !== locale) setLocaleState(chosen);
+    persistLocale(chosen);
   }, []);
 
-  function setLocale(newLocale: SupportedLocale) {
+  const setLocale = useCallback((newLocale: SupportedLocale) => {
     setLocaleState(newLocale);
-    localStorage.setItem("opm_locale", newLocale);
-  }
+    persistLocale(newLocale);
+  }, []);
 
-  function t(keyPath: string, params?: Record<string, string | number>): string {
+  const t = useCallback((keyPath: string, params?: Record<string, string | number>): string => {
     const dict = DICTIONARIES[locale] || en;
     const keys = keyPath.split(".");
 
@@ -73,11 +100,13 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     }
 
     return result;
-  }
+  }, [locale]);
+
+  const value = useMemo(() => ({ locale, setLocale, t }), [locale, setLocale, t]);
 
   return (
-    <LanguageContext.Provider value={{ locale, setLocale, t }}>
-      <div className={mounted ? "" : "visibility-hidden"}>{children}</div>
+    <LanguageContext.Provider value={value}>
+      <div>{children}</div>
     </LanguageContext.Provider>
   );
 }

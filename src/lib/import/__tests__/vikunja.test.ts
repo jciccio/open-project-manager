@@ -78,7 +78,7 @@ function defaultRoutes(overrides: Record<string, unknown> = {}) {
         due_date: "2026-07-25T00:00:00Z",
         done_at: "0001-01-01T00:00:00Z",
         labels: [{ id: 7 }],
-        assignees: [{ username: "jose" }],
+        assignees: [{ username: "jose" }, { name: "Victor" }, { username: "jose" }],
       },
       {
         id: 102,
@@ -201,7 +201,7 @@ describe("VikunjaImporter", () => {
     expect(byId["vikunja:task:103"].columnSourceId).toBe("vikunja:bucket:6");
   });
 
-  it("carries priority, due date, assignee and completion time across", async () => {
+  it("carries priority, due date, every assignee and completion time across", async () => {
     const importer = makeImporter();
     const cards = await collect(importer.fetchCards(PROJECT_SID));
     const card = cards.find((c) => c.sourceId === "vikunja:task:101")!;
@@ -209,7 +209,7 @@ describe("VikunjaImporter", () => {
     expect(card.title).toBe("Fix badge sync");
     expect(card.priority).toBe("HIGH");
     expect(card.dueDate).toBe("2026-07-25T00:00:00Z");
-    expect(card.owner).toBe("jose");
+    expect(card.owner).toBe("jose, Victor");
     expect(card.labelSourceIds).toEqual(["vikunja:label:7"]);
     expect(card.description).toBe("> Imported from Vikunja #12\n\nBadge is **stale**");
 
@@ -353,9 +353,17 @@ describe("VikunjaImporter", () => {
     expect(comments.map((c) => c.sourceId)).toEqual(["vikunja:comment:45", "vikunja:comment:46"]);
   });
 
-  it("yields no card types — Vikunja has no equivalent concept", async () => {
+  it("yields OPM's default card types for each project, with stable ids", async () => {
     const importer = makeImporter();
-    expect(await collect(importer.fetchCardTypes())).toEqual([]);
+    const types = await collect(importer.fetchCardTypes(PROJECT_SID));
+
+    expect(types).toEqual([
+      { sourceId: "vikunja:cardtype:2:Task", name: "Task", icon: "CheckSquare", color: "#6366f1" },
+      { sourceId: "vikunja:cardtype:2:Bug", name: "Bug", icon: "Bug", color: "#ef4444" },
+      { sourceId: "vikunja:cardtype:2:Feature", name: "Feature", icon: "Sparkles", color: "#10b981" },
+    ]);
+    expect(await collect(importer.fetchCardTypes(PROJECT_SID))).toEqual(types);
+    expect((await collect(importer.fetchCardTypes("vikunja:project:9")))[0].sourceId).toBe("vikunja:cardtype:9:Task");
   });
 
   it("surfaces Vikunja HTTP errors rather than importing a partial board", async () => {

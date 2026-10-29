@@ -349,7 +349,16 @@ How Vikunja concepts land in OPM:
 | Priority `0…5` | `NONE, LOW, MEDIUM, HIGH, URGENT, URGENT` |
 | Label (instance-wide) | Project label — only labels the imported tasks actually use |
 | Comment | Comment, keeping the original author and timestamp |
-| HTML description | Markdown (OPM renders descriptions with `react-markdown`) |
+| HTML description | Markdown (OPM renders descriptions with `react-markdown`); checklists keep their checked state |
+| Assignees | The card's owner field, listing every assignee's name |
+| (no card types in Vikunja) | The default Task, Bug and Feature types, as for a project created in OPM |
+
+Not imported: related tasks, attachments, start and end dates, reminders, repeating
+tasks, percent done, task colour, created and updated timestamps (imported cards are
+dated at import time), task order within a bucket, archived projects, and the project
+hierarchy (sub-projects arrive as top-level projects). Images embedded in a description
+still point at the Vikunja instance, so they may not display in OPM (Vikunja attachment
+URLs usually need a Vikunja login).
 
 Adding another source is one adapter implementing `Importer` (`src/lib/import/types.ts`)
 plus one line in the `SOURCES` registry in `src/app/api/v1/import/route.ts`.

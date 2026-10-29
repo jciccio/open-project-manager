@@ -66,6 +66,20 @@ describe("stdio MCP identity", () => {
     }
   });
 
+  it("reads resources and prompts as the pinned user without a userId argument", async () => {
+    const project = await db.project.create({ data: { name: "Pinned Resource", userId: pinnedId } });
+    const { client, close } = await connect({ userId: pinnedId });
+    try {
+      const resource = await client.readResource({ uri: `opm://projects/${project.id}` });
+      expect(JSON.parse((resource.contents[0] as { text: string }).text).id).toBe(project.id);
+
+      const prompt = await client.getPrompt({ name: "summarize_project", arguments: { projectId: project.id } });
+      expect(prompt.messages.length).toBeGreaterThan(0);
+    } finally {
+      await close();
+    }
+  });
+
   it("resolves OPM_MCP_USER by email or id and rejects unknown values", async () => {
     expect(await resolveStdioUser(pinnedEmail.toUpperCase())).toEqual({ id: pinnedId, email: pinnedEmail });
     expect(await resolveStdioUser(pinnedId)).toEqual({ id: pinnedId, email: pinnedEmail });

@@ -63,6 +63,7 @@ export function mapPriority(priority: number | undefined): string {
 }
 
 import { htmlToMarkdown } from "./htmlToMarkdown";
+import { DEFAULT_CARD_TYPES } from "../cardTypeDefaults";
 export { htmlToMarkdown };
 
 interface VikunjaProject {
@@ -130,6 +131,9 @@ export function labelSourceId(id: number): string {
 }
 export function taskSourceId(id: number): string {
   return `vikunja:task:${id}`;
+}
+export function cardTypeSourceId(projectId: number, name: string): string {
+  return `vikunja:cardtype:${projectId}:${name}`;
 }
 export function commentSourceId(id: number): string {
   return `vikunja:comment:${id}`;
@@ -297,8 +301,14 @@ export class VikunjaImporter implements Importer {
     }
   }
 
-  // Vikunja has no equivalent of OPM card types.
-  async *fetchCardTypes(): AsyncGenerator<ImportCardType> {}
+  // Vikunja has no card types. Projects created through the UI get OPM's
+  // defaults, so imported ones do too.
+  async *fetchCardTypes(projectSourceIdValue: string): AsyncGenerator<ImportCardType> {
+    const projectId = numericId(projectSourceIdValue);
+    for (const type of DEFAULT_CARD_TYPES) {
+      yield { sourceId: cardTypeSourceId(projectId, type.name), ...type };
+    }
+  }
 
   async *fetchLabels(projectSourceIdValue: string): AsyncGenerator<ImportLabel> {
     const projectId = numericId(projectSourceIdValue);
@@ -332,7 +342,8 @@ export class VikunjaImporter implements Importer {
         setId(task.bucket_id) ??
         layout.defaultBucketId;
 
-      const owner = task.assignees?.[0]?.username || task.assignees?.[0]?.name;
+      const assigneeNames = (task.assignees || []).map((a) => a.username || a.name).filter(Boolean);
+      const owner = [...new Set(assigneeNames)].join(", ");
       const body = htmlToMarkdown(task.description);
       const description = [`> Imported from Vikunja #${task.index}`, body].filter(Boolean).join("\n\n");
 
