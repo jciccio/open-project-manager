@@ -23,7 +23,6 @@ import {
   History,
   Activity as ActivityIcon,
   ArrowRight,
-  Clock,
   CheckSquare,
   CornerDownRight,
   Unlink,
@@ -97,6 +96,8 @@ interface Props {
     comments: Array<{
       id: string;
       author: string;
+      authorUserId?: string | null;
+      authorUser?: { id: string; name: string; email: string } | null;
       content: string;
       createdAt: Date | string;
     }>;
@@ -193,7 +194,6 @@ export default function CardDetailModal({
   const [relationError, setRelationError] = useState("");
   const [isAddingRelation, setIsAddingRelation] = useState(false);
 
-  const [commentAuthor, setCommentAuthor] = useState("");
   const [commentContent, setCommentContent] = useState("");
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
 
@@ -515,7 +515,6 @@ export default function CardDetailModal({
     setIsSubmittingComment(true);
     const res = await addComment(
       card.id,
-      commentAuthor.trim() || "Team Member",
       commentContent.trim()
     );
     setIsSubmittingComment(false);
@@ -1368,34 +1367,23 @@ export default function CardDetailModal({
             {feedTab === "comments" ? (
               <>
                 {/* Add Comment Form */}
-                <form onSubmit={handleAddComment} className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      placeholder={t("cardModal.yourName")}
-                      value={commentAuthor}
-                      onChange={(e) => setCommentAuthor(e.target.value)}
-                      className="w-1/3 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2.5 py-1 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
-                    />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      required
-                      placeholder={t("cardModal.writeComment")}
-                      value={commentContent}
-                      onChange={(e) => setCommentContent(e.target.value)}
-                      className="flex-1 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
-                    />
-                    <button
-                      type="submit"
-                      disabled={isSubmittingComment}
-                      className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 transition-colors flex items-center gap-1"
-                    >
-                      <Send className="h-3 w-3" />
-                      <span>{t("cardModal.post")}</span>
-                    </button>
-                  </div>
+                <form onSubmit={handleAddComment} className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    required
+                    placeholder={t("cardModal.writeComment")}
+                    value={commentContent}
+                    onChange={(e) => setCommentContent(e.target.value)}
+                    className="flex-1 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
+                  />
+                  <button
+                    type="submit"
+                    disabled={isSubmittingComment}
+                    className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 transition-colors flex items-center gap-1 shrink-0"
+                  >
+                    <Send className="h-3 w-3" />
+                    <span>{t("cardModal.post")}</span>
+                  </button>
                 </form>
 
                 {/* Comments List */}
@@ -1409,7 +1397,7 @@ export default function CardDetailModal({
                         <div className="space-y-1 flex-1">
                           <div className="flex items-center gap-2">
                             <span className="text-xs font-bold text-slate-900 dark:text-slate-200">
-                              {c.author}
+                              {c.authorUser?.name || c.author}
                             </span>
                             <span className="text-[10px] text-slate-400">
                               {formatDate(c.createdAt, locale, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}

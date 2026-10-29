@@ -16,6 +16,11 @@ export async function listComments(cardId: string, userId: string) {
 
     const comments = await db.comment.findMany({
       where: { cardId },
+      include: {
+        authorUser: {
+          select: { id: true, name: true, email: true },
+        },
+      },
       orderBy: { createdAt: "desc" },
     });
 
@@ -45,7 +50,13 @@ export async function addComment(cardId: string, author: string, content: string
       data: {
         cardId,
         author: author.trim() || "Team Member",
+        authorUserId: userId,
         content: content.trim(),
+      },
+      include: {
+        authorUser: {
+          select: { id: true, name: true, email: true },
+        },
       },
     });
 
@@ -111,6 +122,11 @@ export async function updateComment(commentId: string, content: string, userId: 
       where: { id: commentId },
       data: {
         content: content.trim(),
+      },
+      include: {
+        authorUser: {
+          select: { id: true, name: true, email: true },
+        },
       },
     });
 
