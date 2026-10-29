@@ -3,10 +3,15 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
   ListResourcesRequestSchema,
+  ListResourceTemplatesRequestSchema,
   ReadResourceRequestSchema,
   ListPromptsRequestSchema,
   GetPromptRequestSchema,
+  ErrorCode,
+  McpError,
 } from "@modelcontextprotocol/sdk/types.js";
+import { isPublicError, publicErrorMessage } from "@/mcp/errors";
+import { MCP_RESOURCES, MCP_RESOURCE_TEMPLATES } from "@/mcp/resourceCatalog";
 import { assertHexColor } from "@/lib/colors";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -769,6 +774,10 @@ export const MCP_TOOLS = [
 
 function accessibleProjectsFilter(userId: string) {
   return [{ userId }, { members: { some: { userId } } }];
+}
+
+export function isKnownMcpTool(name: unknown): name is string {
+  return typeof name === "string" && MCP_TOOLS.some((tool) => tool.name === name);
 }
 
 export async function executeMcpTool(
@@ -1703,6 +1712,9 @@ export function createMcpServer(options: { userId?: string } = {}): Server {
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
+    if (!isKnownMcpTool(name)) {
+      throw new McpError(ErrorCode.InvalidParams, `Unknown tool: ${name}`);
+    }
     try {
       const ctx = { userId: actingUserId(args?.userId) };
       const result = await executeMcpTool(name, args || {}, ctx);
@@ -1714,13 +1726,13 @@ export function createMcpServer(options: { userId?: string } = {}): Server {
           },
         ],
       };
-    } catch (error: any) {
+    } catch (error) {
       return {
         isError: true,
         content: [
           {
             type: "text",
-            text: `Error executing tool '${name}': ${error.message || String(error)}`,
+            text: `Error executing tool '${name}': ${publicErrorMessage(error, `tool ${name}`)}`,
           },
         ],
       };
@@ -1729,23 +1741,22 @@ export function createMcpServer(options: { userId?: string } = {}): Server {
 
   // Resources Handlers
   server.setRequestHandler(ListResourcesRequestSchema, async () => {
-    return {
-      resources: [
-        {
-          uri: "opm://projects",
-          name: "All Workspace Projects",
-          mimeType: "application/json",
-          description: "List of active projects in Open Project Manager",
-        },
-      ],
-    };
+    return { resources: MCP_RESOURCES };
+  });
+
+  server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
+    return { resourceTemplates: MCP_RESOURCE_TEMPLATES };
   });
 
   server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     const { uri } = request.params;
     const userId = actingUserId((request.params as { userId?: unknown }).userId);
 
-    const resource = await readMcpResource(uri, userId);
+    const resource = await readMcpResource(uri, userId).catch((error) => {
+      throw isPublicError(error)
+        ? new McpError(ErrorCode.InvalidParams, error.message)
+        : new McpError(ErrorCode.InternalError, publicErrorMessage(error, `resource ${uri}`));
+    });
     return {
       contents: [
         {
