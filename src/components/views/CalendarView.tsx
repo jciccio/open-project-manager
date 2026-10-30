@@ -99,6 +99,7 @@ export default function CalendarView({
           <div className="flex items-center gap-2">
             <button
               onClick={prevMonth}
+              aria-label="Previous month"
               className="rounded-lg p-2 bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
             >
               <ChevronLeft className="h-4 w-4" />
@@ -111,6 +112,7 @@ export default function CalendarView({
             </button>
             <button
               onClick={nextMonth}
+              aria-label="Next month"
               className="rounded-lg p-2 bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
             >
               <ChevronRight className="h-4 w-4" />
@@ -172,8 +174,16 @@ export default function CalendarView({
                   {dayCards.map((card) => (
                     <div
                       key={card.id}
+                      role="button"
+                      tabIndex={0}
                       onClick={() => onCardClick(card)}
-                      className="rounded-md bg-indigo-100 dark:bg-indigo-600/30 border border-indigo-200 dark:border-indigo-500/40 px-1.5 py-1 text-[10px] font-bold text-indigo-900 dark:text-slate-100 truncate hover:bg-indigo-200 dark:hover:bg-indigo-600/50 cursor-pointer"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          onCardClick(card);
+                        }
+                      }}
+                      className="rounded-md bg-indigo-100 dark:bg-indigo-600/30 border border-indigo-200 dark:border-indigo-500/40 px-1.5 py-1 text-[10px] font-bold text-indigo-900 dark:text-slate-100 truncate hover:bg-indigo-200 dark:hover:bg-indigo-600/50 cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500"
                       title={card.title}
                     >
                       {card.title}
@@ -203,8 +213,16 @@ export default function CalendarView({
             unscheduledCards.map((card) => (
               <div
                 key={card.id}
+                role="button"
+                tabIndex={0}
                 onClick={() => onCardClick(card)}
-                className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 hover:border-indigo-500/40 cursor-pointer transition-all space-y-1"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onCardClick(card);
+                  }
+                }}
+                className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 hover:border-indigo-500/40 cursor-pointer transition-all space-y-1 focus:outline-none focus:ring-1 focus:ring-indigo-500"
               >
                 <div className="flex items-center justify-between">
                   <span className="font-semibold text-xs text-slate-900 dark:text-slate-200 line-clamp-1">

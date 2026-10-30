@@ -86,8 +86,17 @@ export default function TaskCard({ card, onClick }: Props) {
 
   return (
     <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
-      className="group cursor-pointer rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 shadow-xs hover:border-indigo-500/50 dark:hover:border-indigo-500/40 hover:shadow-md hover:shadow-indigo-500/10 transition-all select-none"
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+      aria-label={card.title}
+      className="group cursor-pointer rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 shadow-xs hover:border-indigo-500/50 dark:hover:border-indigo-500/40 hover:shadow-md hover:shadow-indigo-500/10 transition-all select-none focus:outline-none focus:ring-2 focus:ring-indigo-500"
     >
       {/* Identifier & Label Chips */}
       <div className="flex flex-wrap items-center gap-1.5 mb-2.5">
