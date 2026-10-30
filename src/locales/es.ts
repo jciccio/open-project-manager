@@ -211,7 +211,6 @@ export const es: TranslationKeys = {
     saveChanges: "Guardar Cambios",
     saving: "Guardando...",
     deleteConfirm: "¿Estás seguro de que deseas eliminar esta tarjeta?",
-    confirmDeleteCard: "¿Estás seguro de que deseas eliminar esta tarjeta?",
     events: {
       card_created: "creó esta tarjeta",
       moved: "movió esta tarjeta",

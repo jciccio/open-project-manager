@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import type { Prisma } from "@prisma/client";
 import { deleteRowsAndAttachmentFiles } from "@/lib/attachmentCleanup";
 import { validateParentCard } from "@/lib/cardParent";
 import { safeRevalidatePath } from "@/lib/revalidate";
@@ -241,7 +242,7 @@ export async function updateCard(
       completedAtUpdate = deriveCompletedAt(targetColumn?.isDone, existingCard.completedAt);
     }
 
-    const updatePayload: any = {
+    const updatePayload: Prisma.CardUncheckedUpdateInput = {
       title: data.title !== undefined ? data.title : undefined,
       description: data.description !== undefined ? data.description : undefined,
       priority: data.priority !== undefined ? data.priority : undefined,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Plus,
   ArrowLeft,
@@ -15,8 +15,6 @@ import {
   Bookmark,
   BookmarkPlus,
   Trash2,
-  Star,
-  Check,
   Tag,
   X,
   Pencil,
@@ -37,7 +35,7 @@ import CalendarView from "./views/CalendarView";
 import { createColumn, reorderColumns } from "@/actions/columns";
 import { moveCard } from "@/actions/cards";
 import { unarchiveProject } from "@/actions/projects";
-import { createSavedView, deleteSavedView, updateSavedView } from "@/actions/views";
+import { createSavedView, deleteSavedView } from "@/actions/views";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "./LanguageProvider";
 import { COLUMN_GROUPS, DEFAULT_COLUMN_GROUP, type ColumnGroup } from "@/lib/columnGroups";
@@ -74,17 +72,7 @@ export default function KanbanBoard({ project }: Props) {
   const { t } = useTranslation();
   const router = useRouter();
 
-  // Apply default saved view on initial load if present
-  useEffect(() => {
-    if (project.savedViews && project.savedViews.length > 0) {
-      const defaultView = project.savedViews.find((v: any) => v.isDefault);
-      if (defaultView) {
-        applySavedView(defaultView);
-      }
-    }
-  }, [project.id]);
-
-  function applySavedView(view: any) {
+  const applySavedView = useCallback((view: any) => {
     setSelectedViewId(view.id);
     try {
       const filters = typeof view.filterJson === "string" ? JSON.parse(view.filterJson) : view.filterJson;
@@ -98,7 +86,17 @@ export default function KanbanBoard({ project }: Props) {
     } catch (e) {
       console.error("Failed to parse filterJson:", e);
     }
-  }
+  }, []);
+
+  // Apply default saved view on initial load if present
+  useEffect(() => {
+    if (project.savedViews && project.savedViews.length > 0) {
+      const defaultView = project.savedViews.find((v: any) => v.isDefault);
+      if (defaultView) {
+        applySavedView(defaultView);
+      }
+    }
+  }, [project.id, project.savedViews, applySavedView]);
 
   function handleSelectView(viewId: string) {
     if (viewId === "all") {

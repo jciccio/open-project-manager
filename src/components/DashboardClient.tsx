@@ -9,10 +9,9 @@ interface Props {
   user: any;
   projects: any[];
   stats?: Record<string, ProjectStats>;
-  archivedCount: number;
 }
 
-export default function DashboardClient({ user, projects, stats, archivedCount }: Props) {
+export default function DashboardClient({ user, projects, stats }: Props) {
   const { t } = useTranslation();
   const totalCards = projects.reduce((acc, p) => acc + (stats?.[p.id]?.total ?? p._count?.cards ?? 0), 0);
   const workspaceTotals = stats
