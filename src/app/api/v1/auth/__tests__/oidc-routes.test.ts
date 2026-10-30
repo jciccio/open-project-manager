@@ -96,4 +96,50 @@ describe("OIDC routes", () => {
 
     expect(res.headers.get("location")).toBe("https://opm.example.com/login?error=oidc_session_expired");
   });
+
+  it("handles parallel OIDC logins without clobbering state/nonce cookies (#198)", async () => {
+    const flow1Data = JSON.stringify({ verifier: "verifier_1", state: "state_1", nonce: "nonce_1", link: 0 });
+    const flow2Data = JSON.stringify({ verifier: "verifier_2", state: "state_2", nonce: "nonce_2", link: 0 });
+
+    const sharedCookies = [
+      `opm_oidc_state_1=${encodeURIComponent(flow1Data)}`,
+      `opm_oidc_state_2=${encodeURIComponent(flow2Data)}`,
+      // Legacy cookies overwritten by flow 2
+      "opm_oidc_verifier=verifier_2",
+      "opm_oidc_state=state_2",
+      "opm_oidc_nonce=nonce_2",
+    ].join("; ");
+
+    const email1 = `oidc-parallel-1-${Date.now()}@example.com`;
+    idTokenClaims.current = { iss: "https://idp.example.com", sub: `sub-parallel-1-${Date.now()}`, email: email1, email_verified: true };
+
+    // Tab 1 callback arrives with state_1
+    const res1 = await oidcCallback(
+      new NextRequest("https://opm.example.com/api/v1/auth/oidc/callback?code=code_1&state=state_1", {
+        headers: { cookie: sharedCookies },
+      })
+    );
+
+    // Tab 1 succeeds and creates session for user 1
+    expect(res1.headers.get("location")).toBe("https://opm.example.com/");
+    const user1 = await db.user.findUnique({ where: { email: email1 } });
+    expect(user1).not.toBeNull();
+    userIds.push(user1!.id);
+
+    const email2 = `oidc-parallel-2-${Date.now()}@example.com`;
+    idTokenClaims.current = { iss: "https://idp.example.com", sub: `sub-parallel-2-${Date.now()}`, email: email2, email_verified: true };
+
+    // Tab 2 callback arrives with state_2
+    const res2 = await oidcCallback(
+      new NextRequest("https://opm.example.com/api/v1/auth/oidc/callback?code=code_2&state=state_2", {
+        headers: { cookie: sharedCookies },
+      })
+    );
+
+    // Tab 2 also succeeds
+    expect(res2.headers.get("location")).toBe("https://opm.example.com/");
+    const user2 = await db.user.findUnique({ where: { email: email2 } });
+    expect(user2).not.toBeNull();
+    userIds.push(user2!.id);
+  });
 });

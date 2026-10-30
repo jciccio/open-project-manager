@@ -42,6 +42,14 @@ export async function GET(request: NextRequest) {
       path: "/",
       maxAge: OIDC_COOKIE_MAX_AGE,
     };
+    const stateCookieName = `opm_oidc_${state}`;
+    const flowData = JSON.stringify({
+      verifier: codeVerifier,
+      state,
+      nonce,
+      link: linkMode ? 1 : 0,
+    });
+    response.cookies.set(stateCookieName, flowData, cookieOptions);
     response.cookies.set("opm_oidc_verifier", codeVerifier, cookieOptions);
     response.cookies.set("opm_oidc_state", state, cookieOptions);
     response.cookies.set("opm_oidc_nonce", nonce, cookieOptions);
