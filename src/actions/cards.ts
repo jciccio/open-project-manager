@@ -3,7 +3,7 @@
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { safeRevalidatePath } from "@/lib/revalidate";
-import { recordActivity } from "@/lib/services/activity";
+import { createActivities, notifyActivity, type ActivityEntry } from "@/lib/services/activity";
 import * as cardsService from "@/lib/services/cards";
 import { verifyProjectAccess } from "@/lib/permissions";
 
@@ -84,17 +84,17 @@ export async function archiveCard(id: string) {
       return { success: false, error: "Card not found or access denied" };
     }
 
-    const updated = await db.card.update({
-      where: { id },
-      data: { isArchived: true },
+    const activityEntries: ActivityEntry[] = [{ cardId: id, actorUserId: session.userId, type: "archived" }];
+    const updated = await db.$transaction(async (tx) => {
+      const result = await tx.card.update({
+        where: { id },
+        data: { isArchived: true },
+      });
+      await createActivities(tx, activityEntries);
+      return result;
     });
 
-    await recordActivity({
-      cardId: id,
-      projectId: card.projectId,
-      actorUserId: session.userId,
-      type: "archived",
-    });
+    notifyActivity(card.projectId, activityEntries);
 
     safeRevalidatePath(`/projects/${card.projectId}`);
     safeRevalidatePath("/archived");
@@ -121,17 +121,17 @@ export async function unarchiveCard(id: string) {
       return { success: false, error: "Card not found or access denied" };
     }
 
-    const updated = await db.card.update({
-      where: { id },
-      data: { isArchived: false },
+    const activityEntries: ActivityEntry[] = [{ cardId: id, actorUserId: session.userId, type: "unarchived" }];
+    const updated = await db.$transaction(async (tx) => {
+      const result = await tx.card.update({
+        where: { id },
+        data: { isArchived: false },
+      });
+      await createActivities(tx, activityEntries);
+      return result;
     });
 
-    await recordActivity({
-      cardId: id,
-      projectId: card.projectId,
-      actorUserId: session.userId,
-      type: "unarchived",
-    });
+    notifyActivity(card.projectId, activityEntries);
 
     safeRevalidatePath(`/projects/${card.projectId}`);
     safeRevalidatePath("/archived");
