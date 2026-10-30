@@ -14,7 +14,16 @@ export function decodeCardCursor(cursor: string): CardPosition | null {
   return null;
 }
 
-export function cardPageQuery(where: object, after: CardPosition | null, limit: number) {
+export function cardPageQuery(
+  where: object,
+  after: CardPosition | null,
+  limit: number,
+  sort?: { field: string; direction: "asc" | "desc" }
+) {
+  const orderByClause = sort
+    ? [{ [sort.field]: sort.direction }, { id: "asc" as const }]
+    : [{ order: "asc" as const }, { id: "asc" as const }];
+
   return {
     where: after
       ? {
@@ -24,7 +33,7 @@ export function cardPageQuery(where: object, after: CardPosition | null, limit: 
           ],
         }
       : where,
-    orderBy: [{ order: "asc" as const }, { id: "asc" as const }],
+    orderBy: orderByClause,
     take: limit + 1,
   };
 }
