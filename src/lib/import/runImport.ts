@@ -12,6 +12,7 @@ import type {
   ImportSummary,
   ImportDryRunSummary,
   RunImportOptions,
+  ImportCardRelation,
 } from "./types";
 
 const ORDER_GAP = 10000;
@@ -224,7 +225,9 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
                   name: col.name,
                   order: col.order ?? 0,
                   isDone: !!col.isDone,
-                  group: col.isDone ? "COMPLETED" : DEFAULT_COLUMN_GROUP,
+                  group: col.group ?? (col.isDone ? "COMPLETED" : DEFAULT_COLUMN_GROUP),
+                  color: col.color ?? null,
+                  description: col.description ?? null,
                 },
               });
               return created.id;
@@ -305,6 +308,9 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
         });
         let nextNumber = maxCard ? maxCard.number + 1 : 1;
         const columnMaxOrder = new Map<string, number>();
+        const cardMap = new Map<string, string>();
+        const pendingParents: Array<{ cardLocalId: string; parentSourceId: string }> = [];
+        const pendingRelations: Array<{ cardLocalId: string; relations: ImportCardRelation[] }> = [];
 
         try {
           for await (const card of ctx.importer.fetchCards(projectRec.sourceId)) {
@@ -319,6 +325,19 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
               continue;
             }
 
+            if (card.labelSourceIds && card.labelSourceIds.length > 0) {
+              const missing = card.labelSourceIds.find((sid) => !labelMap.has(sid));
+              if (missing) {
+                records.push({
+                  entityType: "card",
+                  sourceId: card.sourceId,
+                  status: "failed",
+                  error: `Unknown labelSourceId "${missing}": no matching label was imported for this project`,
+                });
+                continue;
+              }
+            }
+
             const { localId: cardLocalId, result: cardResult } = await createOrSkip(ctx, "card", card.sourceId, async () => {
               if (!columnMaxOrder.has(columnLocalId)) {
                 const lastCard = await db.card.findFirst({
@@ -331,38 +350,73 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
               const order = columnMaxOrder.get(columnLocalId)! + ORDER_GAP;
               columnMaxOrder.set(columnLocalId, order);
 
+              const cardData = {
+                projectId: projectLocalId,
+                columnId: columnLocalId,
+                title: card.title,
+                description: card.description ?? null,
+                priority: card.priority || "NONE",
+                points: card.points ?? null,
+                owner: card.owner ?? null,
+                dueDate: parseDueDate(card.dueDate),
+                completedAt: card.completedAt ? new Date(card.completedAt) : null,
+                createdAt: card.createdAt ? new Date(card.createdAt) : undefined,
+                isArchived: !!card.isArchived,
+                typeId: card.typeSourceId ? cardTypeMap.get(card.typeSourceId) ?? null : null,
+                links:
+                  card.links && card.links.length > 0
+                    ? {
+                        create: card.links.map((link) => ({
+                          url: link.url,
+                          title: link.title || null,
+                        })),
+                      }
+                    : undefined,
+                labels:
+                  card.labelSourceIds && card.labelSourceIds.length > 0
+                    ? {
+                        create: card.labelSourceIds
+                          .map((sid) => labelMap.get(sid))
+                          .filter((id): id is string => !!id)
+                          .map((labelId) => ({ labelId })),
+                      }
+                    : undefined,
+              };
+
+              if (card.number !== undefined) {
+                const created = await db.card.create({
+                  data: {
+                    ...cardData,
+                    number: card.number,
+                    order,
+                  },
+                });
+                nextNumber = Math.max(nextNumber, created.number + 1);
+                return created.id;
+              }
+
               const created = await withCardNumberRetry(projectLocalId, nextNumber, (number) =>
                 db.card.create({
                   data: {
-                    projectId: projectLocalId,
-                    columnId: columnLocalId,
-                    title: card.title,
-                    description: card.description,
+                    ...cardData,
                     number,
                     order,
-                    priority: card.priority || "NONE",
-                    points: card.points ?? null,
-                    owner: card.owner ?? null,
-                    dueDate: parseDueDate(card.dueDate),
-                    completedAt: card.completedAt ? new Date(card.completedAt) : null,
-                    typeId: card.typeSourceId ? cardTypeMap.get(card.typeSourceId) ?? null : null,
-                    labels:
-                      card.labelSourceIds && card.labelSourceIds.length > 0
-                        ? {
-                            create: card.labelSourceIds
-                              .map((sid) => labelMap.get(sid))
-                              .filter((id): id is string => !!id)
-                              .map((labelId) => ({ labelId })),
-                          }
-                        : undefined,
                   },
                 })
               );
-              nextNumber = created.number + 1;
+              nextNumber = Math.max(nextNumber, created.number + 1);
               return created.id;
             });
             records.push(cardResult);
             if (!cardLocalId) continue;
+
+            cardMap.set(card.sourceId, cardLocalId);
+            if (card.parentSourceId) {
+              pendingParents.push({ cardLocalId, parentSourceId: card.parentSourceId });
+            }
+            if (card.relations && card.relations.length > 0) {
+              pendingRelations.push({ cardLocalId, relations: card.relations });
+            }
 
             try {
               for await (const comment of ctx.importer.fetchComments(card.sourceId)) {
@@ -386,6 +440,55 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
                 status: "failed",
                 error: err instanceof Error ? err.message : String(err),
               });
+            }
+          }
+
+          for (const { cardLocalId, parentSourceId } of pendingParents) {
+            let parentLocalId = cardMap.get(parentSourceId);
+            if (!parentLocalId) {
+              const mapped = await findExistingMapping(ctx.userId, ctx.source, "card", parentSourceId);
+              if (mapped && (await rowStillExists("card", mapped.localId))) {
+                parentLocalId = mapped.localId;
+              }
+            }
+            if (parentLocalId) {
+              await db.card
+                .update({
+                  where: { id: cardLocalId },
+                  data: { parentId: parentLocalId },
+                })
+                .catch(() => {});
+            }
+          }
+
+          for (const { cardLocalId, relations } of pendingRelations) {
+            for (const rel of relations) {
+              let targetCardLocalId = cardMap.get(rel.targetCardSourceId);
+              if (!targetCardLocalId) {
+                const mapped = await findExistingMapping(ctx.userId, ctx.source, "card", rel.targetCardSourceId);
+                if (mapped && (await rowStillExists("card", mapped.localId))) {
+                  targetCardLocalId = mapped.localId;
+                }
+              }
+              if (targetCardLocalId) {
+                await db.cardRelation
+                  .upsert({
+                    where: {
+                      sourceCardId_targetCardId_type: {
+                        sourceCardId: cardLocalId,
+                        targetCardId: targetCardLocalId,
+                        type: rel.type,
+                      },
+                    },
+                    create: {
+                      sourceCardId: cardLocalId,
+                      targetCardId: targetCardLocalId,
+                      type: rel.type,
+                    },
+                    update: {},
+                  })
+                  .catch(() => {});
+              }
             }
           }
         } catch (err) {
@@ -466,8 +569,10 @@ async function classifyForDryRun(
           });
         }
 
+        const labelSourceIds = new Set<string>();
         try {
           for await (const lbl of importer.fetchLabels(project.sourceId)) {
+            labelSourceIds.add(lbl.sourceId);
             const mapped = !!(await liveMapping("label", labelMappingKey(project.sourceId, lbl.sourceId)));
             const legacy =
               !mapped && projectMapping
@@ -495,6 +600,29 @@ async function classifyForDryRun(
               });
               continue;
             }
+
+            if (card.labelSourceIds && card.labelSourceIds.length > 0) {
+              let unknownSid: string | undefined;
+              for (const sid of card.labelSourceIds) {
+                if (!labelSourceIds.has(sid)) {
+                  const mapped = await liveMapping("label", labelMappingKey(project.sourceId, sid));
+                  if (!mapped) {
+                    unknownSid = sid;
+                    break;
+                  }
+                }
+              }
+              if (unknownSid) {
+                records.push({
+                  entityType: "card",
+                  sourceId: card.sourceId,
+                  status: "would_fail",
+                  error: `Unknown labelSourceId "${unknownSid}": no matching label was imported for this project`,
+                });
+                continue;
+              }
+            }
+
             await classify("card", card.sourceId);
             try {
               for await (const comment of importer.fetchComments(card.sourceId)) {

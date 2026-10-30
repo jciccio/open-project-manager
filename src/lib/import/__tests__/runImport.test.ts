@@ -411,4 +411,122 @@ describe("runImport", () => {
     expect(await db.card.count({ where: { project: { userId }, title: "Added later" } })).toBe(1);
     expect(await db.importRecord.count({ where: { userId, entityType: "card", sourceId: "card-3" } })).toBe(1);
   });
+
+  it("preserves authoritative card numbers and increments subsequent cards correctly", async () => {
+    const fixture = baseFixture();
+    fixture.cards["proj-1"] = [
+      { sourceId: "c-109", columnSourceId: "col-todo", title: "Authoritative 109", number: 109 },
+      { sourceId: "c-auto", columnSourceId: "col-todo", title: "Next Auto Number" },
+      { sourceId: "c-42", columnSourceId: "col-todo", title: "Authoritative 42", number: 42 },
+      { sourceId: "c-auto-2", columnSourceId: "col-todo", title: "Next Auto Number After 109" },
+    ];
+
+    const summary = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
+    expect(summary.totals.failed).toBe(0);
+
+    const card109 = await db.card.findFirst({ where: { project: { userId }, title: "Authoritative 109" } });
+    expect(card109?.number).toBe(109);
+
+    const cardAuto = await db.card.findFirst({ where: { project: { userId }, title: "Next Auto Number" } });
+    expect(cardAuto?.number).toBe(110);
+
+    const card42 = await db.card.findFirst({ where: { project: { userId }, title: "Authoritative 42" } });
+    expect(card42?.number).toBe(42);
+
+    const cardAuto2 = await db.card.findFirst({ where: { project: { userId }, title: "Next Auto Number After 109" } });
+    expect(cardAuto2?.number).toBe(111);
+  });
+
+  it("preserves parent-child hierarchy, relations, links, archived state and creation timestamps", async () => {
+    const fixture = baseFixture();
+    const createdDate = "2023-04-12T10:30:00.000Z";
+    fixture.cards["proj-1"] = [
+      {
+        sourceId: "child-card",
+        columnSourceId: "col-todo",
+        title: "Child Card",
+        parentSourceId: "parent-card",
+        relations: [{ targetCardSourceId: "parent-card", type: "BLOCKS" }],
+        links: [{ url: "https://developers.plane.so", title: "Plane API Docs" }],
+        isArchived: true,
+        createdAt: createdDate,
+      },
+      {
+        sourceId: "parent-card",
+        columnSourceId: "col-todo",
+        title: "Parent Card",
+      },
+    ];
+
+    const summary = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
+    expect(summary.totals.failed).toBe(0);
+
+    const parent = await db.card.findFirst({ where: { project: { userId }, title: "Parent Card" } });
+    const child = await db.card.findFirst({
+      where: { project: { userId }, title: "Child Card" },
+      include: { links: true, outgoingRelations: true },
+    });
+
+    expect(parent).toBeDefined();
+    expect(child).toBeDefined();
+    expect(child?.parentId).toBe(parent?.id);
+    expect(child?.isArchived).toBe(true);
+    expect(child?.createdAt.toISOString()).toBe(createdDate);
+
+    // Links check
+    expect(child?.links.length).toBe(1);
+    expect(child?.links[0].url).toBe("https://developers.plane.so");
+    expect(child?.links[0].title).toBe("Plane API Docs");
+
+    // Relations check
+    expect(child?.outgoingRelations.length).toBe(1);
+    expect(child?.outgoingRelations[0].targetCardId).toBe(parent?.id);
+    expect(child?.outgoingRelations[0].type).toBe("BLOCKS");
+  });
+
+  it("preserves column group, color, and description", async () => {
+    const fixture = baseFixture();
+    fixture.columns["proj-1"] = [
+      {
+        sourceId: "col-cancelled",
+        name: "Cancelled",
+        group: "CANCELLED",
+        color: "#94a3b8",
+        description: "Abandoned tasks",
+      },
+    ];
+    fixture.cards["proj-1"] = [];
+
+    const summary = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
+    expect(summary.totals.failed).toBe(0);
+
+    const column = await db.column.findFirst({ where: { project: { userId }, name: "Cancelled" } });
+    expect(column?.group).toBe("CANCELLED");
+    expect(column?.color).toBe("#94a3b8");
+    expect(column?.description).toBe("Abandoned tasks");
+  });
+
+  it("reports failure in dry-run and live-run when card references an unknown labelSourceId", async () => {
+    const fixture = baseFixture();
+    fixture.cards["proj-1"] = [
+      {
+        sourceId: "card-bad-label",
+        columnSourceId: "col-todo",
+        title: "Card with missing label",
+        labelSourceIds: ["non-existent-label-id"],
+      },
+    ];
+
+    // Dry-run check
+    const dryRun = (await runImport(makeFakeImporter(fixture), userId, { dryRun: true })) as ImportDryRunSummary;
+    const dryCard = dryRun.records.find((r) => r.sourceId === "card-bad-label");
+    expect(dryCard?.status).toBe("would_fail");
+    expect(dryCard?.error).toContain('Unknown labelSourceId "non-existent-label-id"');
+
+    // Live run check
+    const live = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
+    const liveCard = live.records.find((r) => r.sourceId === "card-bad-label");
+    expect(liveCard?.status).toBe("failed");
+    expect(liveCard?.error).toContain('Unknown labelSourceId "non-existent-label-id"');
+  });
 });
