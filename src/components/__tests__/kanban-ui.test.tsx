@@ -57,7 +57,7 @@ describe("Kanban & Project UI Components", () => {
 
     expect(screen.getByText("Implement Stripe Webhooks")).toBeInTheDocument();
     expect(screen.getByText("Backend")).toBeInTheDocument();
-    expect(screen.getByText("HIGH")).toBeInTheDocument();
+    expect(screen.getByText("High")).toBeInTheDocument();
     expect(screen.getByText("8 pts")).toBeInTheDocument();
     expect(screen.getByText("A")).toBeInTheDocument(); // Alice avatar initial
 

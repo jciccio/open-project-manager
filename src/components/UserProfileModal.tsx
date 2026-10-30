@@ -118,10 +118,10 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
         const listRes = await listApiTokens();
         if (listRes.success && listRes.tokens) setTokens(listRes.tokens);
       } else {
-        setTokenError(res.error || "Failed to generate token.");
+        setTokenError(res.error || t("profileModal.failedToGenerateToken"));
       }
     } catch {
-      setTokenError("Failed to generate token.");
+      setTokenError(t("profileModal.failedToGenerateToken"));
     } finally {
       setTokenLoading(false);
     }
@@ -136,10 +136,10 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
       if (res.success) {
         setTokens((prev) => prev.filter((t) => t.id !== token.id));
       } else {
-        setTokenError(res.error || "Failed to revoke token.");
+        setTokenError(res.error || t("profileModal.failedToRevokeToken"));
       }
     } catch {
-      setTokenError("Failed to revoke token.");
+      setTokenError(t("profileModal.failedToRevokeToken"));
     } finally {
       setRevokingId(null);
     }
@@ -413,7 +413,7 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
                     type="button"
                     onClick={() => setShowToken(!showToken)}
                     className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                    title={showToken ? "Hide Token" : "Reveal Token"}
+                    title={showToken ? t("profileModal.hideToken") : t("profileModal.revealToken")}
                   >
                     {showToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                   </button>

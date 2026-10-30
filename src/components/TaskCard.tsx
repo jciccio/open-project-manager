@@ -99,10 +99,10 @@ export default function TaskCard({ card, onClick }: Props) {
         {card.parent && (
           <span
             className="inline-flex items-center gap-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 text-[10px] font-medium"
-            title={`Subtask of: ${card.parent.title}`}
+            title={`${t("cardModal.subtaskOf")}: ${card.parent.title}`}
           >
             <CornerDownRight className="h-2.5 w-2.5 text-indigo-500" />
-            <span>{card.parent.number ? `#${card.parent.number}` : "Subtask"}</span>
+            <span>{card.parent.number ? `#${card.parent.number}` : t("kanban.subtask")}</span>
           </span>
         )}
         {card.labels &&
@@ -137,7 +137,7 @@ export default function TaskCard({ card, onClick }: Props) {
             <span className="flex items-center gap-1 font-medium">
               <CheckSquare className="h-3 w-3 text-indigo-500" />
               <span>
-                {card.children.filter((c) => c.completedAt || c.column?.isDone).length}/{card.children.length} subtasks
+                {card.children.filter((c) => c.completedAt || c.column?.isDone).length}/{card.children.length} {t("kanban.subtasks")}
               </span>
             </span>
             <span className="font-semibold">
@@ -177,17 +177,17 @@ export default function TaskCard({ card, onClick }: Props) {
           <span
             className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider border ${priorityStyle.bg} ${priorityStyle.text} ${priorityStyle.border}`}
           >
-            {card.priority}
+            {t(`cardModal.priority${(card.priority || "NONE").charAt(0) + (card.priority || "NONE").slice(1).toLowerCase()}`)}
           </span>
 
           {/* Blocked Indicator Badge */}
           {activeBlockers.length > 0 && (
             <span
               className="inline-flex items-center gap-1 rounded-md bg-rose-50 dark:bg-rose-500/10 px-2 py-0.5 text-[10px] font-bold text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20"
-              title={`Blocked by:\n${blockerTooltip}`}
+              title={`${t("kanban.blockedBy")}:\n${blockerTooltip}`}
             >
               <ShieldAlert className="h-2.5 w-2.5 text-rose-500 animate-pulse" />
-              <span>Blocked {blockerLabel ? `(${blockerLabel})` : ""}</span>
+              <span>{t("kanban.blocked")} {blockerLabel ? `(${blockerLabel})` : ""}</span>
             </span>
           )}
 
@@ -203,7 +203,7 @@ export default function TaskCard({ card, onClick }: Props) {
         <div className="flex items-center gap-3 text-slate-500 dark:text-slate-400 text-[11px]">
           {/* Comments Count */}
           {card.comments && card.comments.length > 0 && (
-            <div className="flex items-center gap-1" title={`${card.comments.length} comments`}>
+            <div className="flex items-center gap-1" title={`${card.comments.length} ${t("kanban.comments")}`}>
               <MessageSquare className="h-3 w-3 text-slate-400" />
               <span>{card.comments.length}</span>
             </div>
@@ -211,7 +211,7 @@ export default function TaskCard({ card, onClick }: Props) {
 
           {/* Due Date */}
           {card.dueDate && (
-            <div className="flex items-center gap-1 text-slate-600 dark:text-slate-400" title="Due Date">
+            <div className="flex items-center gap-1 text-slate-600 dark:text-slate-400" title={t("cardModal.dueDate")}>
               <Calendar className="h-3 w-3 text-indigo-500 dark:text-indigo-400" />
               <span>
                 {formatDueDate(card.dueDate, locale, { month: "short", day: "numeric" })}
@@ -223,7 +223,7 @@ export default function TaskCard({ card, onClick }: Props) {
           {card.owner && (
             <div
               className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-600/30 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-500/30 font-bold text-[10px]"
-              title={`Assigned to ${card.owner}`}
+              title={`${t("cardModal.events.assigned")} ${card.owner}`}
             >
               {card.owner.charAt(0).toUpperCase()}
             </div>

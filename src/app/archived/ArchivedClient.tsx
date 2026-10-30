@@ -30,10 +30,10 @@ export default function ArchivedClient({ archivedProjects, archivedCards, curren
       if (res.success) {
         router.refresh();
       } else {
-        setError(res.error || "Failed to restore card.");
+        setError(res.error || t("archived.restoreFailed"));
       }
     } catch {
-      setError("Failed to restore card.");
+      setError(t("archived.restoreFailed"));
     } finally {
       setRestoringId(null);
     }
@@ -73,7 +73,7 @@ export default function ArchivedClient({ archivedProjects, archivedCards, curren
               }`}
             >
               <Layout className="h-4 w-4" />
-              <span>Projects ({archivedProjects.length})</span>
+              <span>{t("archived.projects")} ({archivedProjects.length})</span>
             </button>
             <button
               onClick={() => setActiveTab("cards")}
@@ -84,7 +84,7 @@ export default function ArchivedClient({ archivedProjects, archivedCards, curren
               }`}
             >
               <Layers className="h-4 w-4" />
-              <span>Cards ({archivedCards.length})</span>
+              <span>{t("archived.cards")} ({archivedCards.length})</span>
             </button>
           </div>
         </div>
@@ -152,7 +152,7 @@ export default function ArchivedClient({ archivedProjects, archivedCards, curren
                       className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/30 px-3 py-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition-colors"
                     >
                       <RotateCcw className="h-3.5 w-3.5" />
-                      <span>{restoringId === card.id ? "Restoring..." : "Restore Card"}</span>
+                      <span>{restoringId === card.id ? t("archived.restoringCard") : t("archived.restoreCard")}</span>
                     </button>
                   </div>
                 </div>
@@ -164,9 +164,9 @@ export default function ArchivedClient({ archivedProjects, archivedCards, curren
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 mb-4">
               <Archive className="h-6 w-6" />
             </div>
-            <h3 className="text-lg font-bold text-slate-900 dark:text-white">No Archived Cards</h3>
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white">{t("archived.noArchivedCards")}</h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm">
-              Cards you archive will appear here where you can restore them anytime.
+              {t("archived.noArchivedCardsSub")}
             </p>
           </div>
         )

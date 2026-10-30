@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, act } from "@testing-library/react";
 import { describe, it, expect, beforeEach } from "vitest";
 import { LanguageProvider, useTranslation } from "../LanguageProvider";
 
@@ -63,5 +63,24 @@ describe("LanguageProvider", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(screen.getByText("Single Sign-On")).toBeInTheDocument();
+  });
+
+  it("updates document.documentElement.lang whenever setLocale is invoked", async () => {
+    function Switcher() {
+      const { setLocale, locale } = useTranslation();
+      return <button onClick={() => setLocale(locale === "en" ? "es" : "en")}>Toggle</button>;
+    }
+
+    render(
+      <LanguageProvider initialLocale="en" localeFromCookie>
+        <Switcher />
+      </LanguageProvider>
+    );
+
+    expect(document.documentElement.lang).toBe("en");
+    act(() => {
+      screen.getByText("Toggle").click();
+    });
+    await waitFor(() => expect(document.documentElement.lang).toBe("es"));
   });
 });

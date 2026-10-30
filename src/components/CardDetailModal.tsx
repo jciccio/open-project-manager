@@ -497,7 +497,7 @@ export default function CardDetailModal({
   }
 
   async function handleArchive() {
-    if (!confirm("Are you sure you want to archive this card?")) return;
+    if (!confirm(t("cardModal.archiveConfirm"))) return;
     setArchiving(true);
     const res = await archiveCard(card.id);
     setArchiving(false);
@@ -515,7 +515,7 @@ export default function CardDetailModal({
     setIsSubmittingComment(true);
     const res = await addComment(
       card.id,
-      commentAuthor.trim() || "Team Member",
+      commentAuthor.trim() || t("cardModal.defaultAuthor"),
       commentContent.trim()
     );
     setIsSubmittingComment(false);
@@ -644,7 +644,7 @@ export default function CardDetailModal({
             {card.completedAt && (
               <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 px-2 py-0.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
                 <CheckCircle className="h-3.5 w-3.5" />
-                <span>Done ({formatDate(card.completedAt, locale)})</span>
+                <span>{t("cardModal.doneBadge")} ({formatDate(card.completedAt, locale)})</span>
               </span>
             )}
           </div>
@@ -653,7 +653,7 @@ export default function CardDetailModal({
               onClick={handleArchive}
               disabled={archiving}
               className="rounded-lg p-2 text-slate-500 hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-400 transition-colors"
-              title="Archive task card"
+              title={t("cardModal.archiveTooltip")}
             >
               <Archive className="h-4 w-4" />
             </button>
@@ -661,7 +661,7 @@ export default function CardDetailModal({
               onClick={handleDelete}
               disabled={deleting}
               className="rounded-lg p-2 text-slate-500 hover:bg-red-500/10 hover:text-red-500 transition-colors"
-              title="Delete task card"
+              title={t("cardModal.deleteTooltip")}
             >
               <Trash2 className="h-4 w-4" />
             </button>
@@ -681,7 +681,7 @@ export default function CardDetailModal({
             <div className="flex items-center justify-between px-3.5 py-2 rounded-xl bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200/70 dark:border-indigo-800/50 text-xs">
               <div className="flex items-center gap-2 overflow-hidden">
                 <CornerDownRight className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
-                <span className="text-slate-500 dark:text-slate-400 font-medium shrink-0">Subtask of:</span>
+                <span className="text-slate-500 dark:text-slate-400 font-medium shrink-0">{t("cardModal.subtaskOf")}:</span>
                 <button
                   type="button"
                   onClick={() => onOpenCard?.(parentCard.id)}
@@ -695,10 +695,10 @@ export default function CardDetailModal({
                 type="button"
                 onClick={handleDetachParent}
                 className="text-[11px] font-semibold text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 flex items-center gap-1 shrink-0 ml-2 transition-colors"
-                title="Detach this subtask from its parent"
+                title={t("cardModal.detachParentTooltip")}
               >
                 <Unlink className="h-3 w-3" />
-                <span>Detach</span>
+                <span>{t("cardModal.detach")}</span>
               </button>
             </div>
           )}
@@ -902,7 +902,7 @@ export default function CardDetailModal({
                 <div className="flex items-center gap-2">
                   <CheckSquare className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
                   <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-                    Subtasks ({subtasks.filter((s) => s.completedAt || s.column?.isDone).length}/{subtasks.length})
+                    {t("cardModal.subtasks")} ({subtasks.filter((s) => s.completedAt || s.column?.isDone).length}/{subtasks.length})
                   </h4>
                 </div>
                 <button
@@ -911,7 +911,7 @@ export default function CardDetailModal({
                   className="inline-flex items-center gap-1 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 px-2.5 py-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition-colors"
                 >
                   <Plus className="h-3.5 w-3.5" />
-                  <span>Add Subtask</span>
+                  <span>{t("cardModal.addSubtask")}</span>
                 </button>
               </div>
 
@@ -920,7 +920,10 @@ export default function CardDetailModal({
                 <div>
                   <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 font-medium">
                     <span>
-                      {subtasks.filter((s) => s.completedAt || s.column?.isDone).length} of {subtasks.length} completed
+                      {t("cardModal.completedCount", {
+                        completed: subtasks.filter((s) => s.completedAt || s.column?.isDone).length,
+                        total: subtasks.length,
+                      })}
                     </span>
                     <span>
                       {Math.round(
@@ -947,7 +950,7 @@ export default function CardDetailModal({
                   <div className="flex items-center gap-2">
                     <input
                       type="text"
-                      placeholder="What needs to be done?..."
+                      placeholder={t("cardModal.subtaskPlaceholder")}
                       value={newSubtaskTitle}
                       onChange={(e) => setNewSubtaskTitle(e.target.value)}
                       autoFocus
@@ -958,7 +961,7 @@ export default function CardDetailModal({
                       disabled={isSubmittingSubtask || !newSubtaskTitle.trim()}
                       className="rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 transition-colors shrink-0 disabled:opacity-50"
                     >
-                      {isSubmittingSubtask ? "Adding..." : "Add"}
+                      {isSubmittingSubtask ? t("cardModal.adding") : t("cardModal.add")}
                     </button>
                     <button
                       type="button"
@@ -1040,7 +1043,7 @@ export default function CardDetailModal({
                             type="button"
                             onClick={() => handleDetachSubtask(subtask.id)}
                             className="opacity-0 group-hover:opacity-100 p-1 rounded text-slate-400 hover:text-rose-500 transition-opacity"
-                            title="Detach subtask from this card"
+                            title={t("cardModal.detachSubtaskTooltip")}
                           >
                             <Unlink className="h-3 w-3" />
                           </button>
@@ -1059,7 +1062,7 @@ export default function CardDetailModal({
               <div className="flex items-center gap-2">
                 <Link2 className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
                 <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-                  Card Dependencies & Relations ({relations.length})
+                  {t("cardModal.dependenciesTitle")} ({relations.length})
                 </h4>
               </div>
               <button
@@ -1068,7 +1071,7 @@ export default function CardDetailModal({
                 className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
               >
                 <Plus className="h-3.5 w-3.5" />
-                <span>Link Card</span>
+                <span>{t("cardModal.linkCard")}</span>
               </button>
             </div>
 
@@ -1081,9 +1084,9 @@ export default function CardDetailModal({
                     onChange={(e) => setRelationTypeInput(e.target.value)}
                     className="rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-semibold focus:outline-none shrink-0"
                   >
-                    <option value="BLOCKS">Blocks</option>
-                    <option value="BLOCKED_BY">Is Blocked By</option>
-                    <option value="RELATES_TO">Relates To</option>
+                    <option value="BLOCKS">{t("cardModal.blocks")}</option>
+                    <option value="BLOCKED_BY">{t("cardModal.blockedBy")}</option>
+                    <option value="RELATES_TO">{t("cardModal.relatesTo")}</option>
                   </select>
 
                   {/* Same-project Cards Dropdown */}
@@ -1095,7 +1098,7 @@ export default function CardDetailModal({
                     }}
                     className="flex-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none"
                   >
-                    <option value="">-- Select card from this project --</option>
+                    <option value="">-- {t("cardModal.selectCardPlaceholder")} --</option>
                     {projectCards.map((pc) => (
                       <option key={pc.id} value={pc.id}>
                         [{pc.identifier}] {pc.title}
@@ -1107,16 +1110,16 @@ export default function CardDetailModal({
                     type="submit"
                     className="rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 transition-colors shrink-0"
                   >
-                    Add
+                    {t("cardModal.add")}
                   </button>
                 </div>
 
                 {/* Free Text Identifier Input */}
                 <div className="flex items-center gap-2 pt-1 border-t border-slate-200 dark:border-slate-700/50">
-                  <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium shrink-0">Or type identifier / ID:</span>
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium shrink-0">{t("cardModal.typeIdentifierOrId")}</span>
                   <input
                     type="text"
-                    placeholder="e.g. OPMR-2 or card ID..."
+                    placeholder={t("cardModal.identifierPlaceholder")}
                     value={targetIdentifierInput}
                     onChange={(e) => {
                       setTargetIdentifierInput(e.target.value);
@@ -1152,7 +1155,11 @@ export default function CardDetailModal({
                         <Link2 className="h-3.5 w-3.5 text-indigo-500" />
                       )}
                       <span className="uppercase text-[10px] font-bold tracking-wider opacity-75">
-                        {rel.relationType.replace("_", " ")}
+                        {rel.relationType === "BLOCKS"
+                          ? t("cardModal.blocks")
+                          : rel.relationType === "BLOCKED_BY"
+                          ? t("cardModal.blockedBy")
+                          : t("cardModal.relatesTo")}
                       </span>
                       <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">
                         {rel.identifier}
@@ -1172,7 +1179,7 @@ export default function CardDetailModal({
                 })
               ) : (
                 <p className="text-xs text-slate-500 dark:text-slate-400 italic">
-                  No linked cards or dependencies.
+                  {t("cardModal.noRelations")}
                 </p>
               )}
             </div>
@@ -1184,7 +1191,7 @@ export default function CardDetailModal({
               <div className="flex items-center gap-2">
                 <Link2 className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
                 <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-                  External Links ({links.length})
+                  {t("cardModal.externalLinks")} ({links.length})
                 </h4>
               </div>
               <button
@@ -1193,7 +1200,7 @@ export default function CardDetailModal({
                 className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
               >
                 <Plus className="h-3.5 w-3.5" />
-                <span>Add Link</span>
+                <span>{t("cardModal.addLink")}</span>
               </button>
             </div>
 
@@ -1213,7 +1220,7 @@ export default function CardDetailModal({
                   />
                   <input
                     type="text"
-                    placeholder="Title (optional)"
+                    placeholder={t("cardModal.linkTitlePlaceholder")}
                     value={newLinkTitle}
                     onChange={(e) => setNewLinkTitle(e.target.value)}
                     className="w-1/3 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none"
@@ -1222,7 +1229,7 @@ export default function CardDetailModal({
                     type="submit"
                     className="rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 transition-colors"
                   >
-                    Add
+                    {t("cardModal.add")}
                   </button>
                 </div>
                 {linkError && (
@@ -1251,7 +1258,7 @@ export default function CardDetailModal({
                       type="button"
                       onClick={() => handleRemoveLink(link.id)}
                       className="text-slate-400 hover:text-rose-500 transition-colors p-1"
-                      title="Remove link"
+                      title={t("cardModal.removeLinkTooltip")}
                     >
                       <Trash2 className="h-3 w-3" />
                     </button>
@@ -1259,7 +1266,7 @@ export default function CardDetailModal({
                 ))
               ) : (
                 <p className="text-xs text-slate-500 dark:text-slate-400 italic">
-                  No external links added.
+                  {t("cardModal.noLinks")}
                 </p>
               )}
             </div>
@@ -1271,12 +1278,12 @@ export default function CardDetailModal({
               <div className="flex items-center gap-2">
                 <Paperclip className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
                 <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-                  Attachments ({attachments.length})
+                  {t("cardModal.attachments")} ({attachments.length})
                 </h4>
               </div>
               <label className="cursor-pointer inline-flex items-center gap-1 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline">
                 <Plus className="h-3 w-3" />
-                <span>Upload File</span>
+                <span>{isUploadingAttachment ? t("cardModal.uploading") : t("cardModal.uploadFile")}</span>
                 <input
                   type="file"
                   onChange={handleFileUpload}
@@ -1313,7 +1320,7 @@ export default function CardDetailModal({
                       type="button"
                       onClick={() => handleDeleteAttachment(att.id)}
                       className="text-slate-400 hover:text-rose-500 transition-colors p-1"
-                      title="Delete attachment"
+                      title={t("cardModal.deleteAttachmentTooltip")}
                     >
                       <Trash2 className="h-3 w-3" />
                     </button>
@@ -1321,7 +1328,7 @@ export default function CardDetailModal({
                 ))
               ) : (
                 <p className="text-xs text-slate-500 dark:text-slate-400 italic">
-                  No file attachments yet.
+                  {t("cardModal.noAttachments")}
                 </p>
               )}
             </div>
@@ -1428,7 +1435,7 @@ export default function CardDetailModal({
                                 type="button"
                                 onClick={() => handleSaveEditComment(c.id)}
                                 className="p-1 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 rounded-md"
-                                title="Save comment"
+                                title={t("cardModal.saveCommentTooltip")}
                               >
                                 <Check className="h-3.5 w-3.5" />
                               </button>
@@ -1436,7 +1443,7 @@ export default function CardDetailModal({
                                 type="button"
                                 onClick={() => setEditingCommentId(null)}
                                 className="p-1 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-md"
-                                title="Cancel edit"
+                                title={t("cardModal.cancelEditTooltip")}
                               >
                                 <X className="h-3.5 w-3.5" />
                               </button>
@@ -1456,7 +1463,7 @@ export default function CardDetailModal({
                                 setEditingCommentText(c.content);
                               }}
                               className="p-1 text-slate-400 hover:text-indigo-500 transition-colors"
-                              title="Edit comment"
+                              title={t("cardModal.editCommentTooltip")}
                             >
                               <Pencil className="h-3 w-3" />
                             </button>
@@ -1464,7 +1471,7 @@ export default function CardDetailModal({
                               type="button"
                               onClick={() => handleDeleteComment(c.id)}
                               className="p-1 text-slate-400 hover:text-red-500 transition-colors"
-                              title="Delete comment"
+                              title={t("cardModal.deleteCommentTooltip")}
                             >
                               <Trash2 className="h-3 w-3" />
                             </button>
@@ -1522,28 +1529,28 @@ export default function CardDetailModal({
                         </div>
                         <div className="flex-1 space-y-0.5 min-w-0">
                           <p className="text-slate-800 dark:text-slate-200 leading-snug">
-                            {act.type === "card_created" && "Card created"}
+                            {act.type === "card_created" && t("cardModal.events.card_created")}
                             {act.type === "moved" &&
                               (act.fromValue && act.toValue
-                                ? `Moved from "${act.fromValue}" to "${act.toValue}"`
-                                : `Moved to "${act.toValue || ""}"`)}
+                                ? `${t("cardModal.events.moved")} ("${act.fromValue}" → "${act.toValue}")`
+                                : `${t("cardModal.events.moved")} ("${act.toValue || ""}")`)}
                             {act.type === "priority_changed" &&
-                              `Priority changed from ${act.fromValue || "NONE"} to ${act.toValue || "NONE"}`}
-                            {act.type === "title_changed" && `Title changed to "${act.toValue}"`}
-                            {act.type === "description_changed" && "Updated description"}
+                              `${t("cardModal.events.priority_changed")} (${act.fromValue || "NONE"} → ${act.toValue || "NONE"})`}
+                            {act.type === "title_changed" && `${t("cardModal.events.title_changed")} ("${act.toValue}")`}
+                            {act.type === "description_changed" && t("cardModal.events.description_changed")}
                             {act.type === "points_changed" &&
-                              (act.toValue ? `Points set to ${act.toValue}` : "Cleared points")}
+                              (act.toValue ? `${t("cardModal.events.points_changed")}: ${act.toValue}` : t("cardModal.events.points_changed"))}
                             {act.type === "due_date_changed" &&
-                              (act.toValue ? `Due date set to ${act.toValue}` : "Removed due date")}
+                              (act.toValue ? `${t("cardModal.events.due_date_changed")}: ${act.toValue}` : t("cardModal.events.due_date_changed"))}
                             {act.type === "type_changed" &&
-                              (act.toValue ? `Card type changed to "${act.toValue}"` : "Removed card type")}
-                            {act.type === "label_added" && `Added label "${act.toValue}"`}
-                            {act.type === "label_removed" && `Removed label "${act.fromValue}"`}
-                            {act.type === "assigned" && `Assigned to ${act.toValue}`}
-                            {act.type === "unassigned" && `Unassigned ${act.fromValue}`}
-                            {act.type === "comment_added" && "Added a comment"}
-                            {act.type === "archived" && "Archived card"}
-                            {act.type === "unarchived" && "Restored card from archive"}
+                              (act.toValue ? `${t("cardModal.events.type_changed")}: "${act.toValue}"` : t("cardModal.events.type_changed"))}
+                            {act.type === "label_added" && `${t("cardModal.events.label_added")} "${act.toValue}"`}
+                            {act.type === "label_removed" && `${t("cardModal.events.label_removed")} "${act.fromValue}"`}
+                            {act.type === "assigned" && `${t("cardModal.events.assigned")} ${act.toValue}`}
+                            {act.type === "unassigned" && `${t("cardModal.events.unassigned")} ${act.fromValue}`}
+                            {act.type === "comment_added" && t("cardModal.events.comment_added")}
+                            {act.type === "archived" && t("cardModal.events.archived")}
+                            {act.type === "unarchived" && t("cardModal.events.unarchived")}
                             {![
                               "card_created",
                               "moved",

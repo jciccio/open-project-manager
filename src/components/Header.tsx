@@ -76,8 +76,8 @@ export default function Header({ user, archivedCount = 0, ssoLinkResult }: Props
             <button
               onClick={toggleLanguage}
               className="flex items-center gap-1 rounded-lg bg-slate-200/80 dark:bg-slate-800/80 px-2 py-1.5 sm:px-2.5 sm:py-2 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700 transition-all border border-slate-300 dark:border-slate-700"
-              title="Switch Language (EN / ES)"
-              aria-label="Switch Language"
+              title={t("header.switchLanguage")}
+              aria-label={t("header.switchLanguage")}
             >
               <Globe className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
               <span className="uppercase text-[11px] sm:text-xs">{locale}</span>
@@ -87,8 +87,8 @@ export default function Header({ user, archivedCount = 0, ssoLinkResult }: Props
             <button
               onClick={toggleTheme}
               className="flex items-center justify-center rounded-lg bg-slate-200/80 dark:bg-slate-800/80 p-1.5 sm:p-2 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700 transition-all border border-slate-300 dark:border-slate-700"
-              title={`Switch to ${theme === "dark" ? "Light" : "Dark"} Mode`}
-              aria-label="Toggle theme"
+              title={theme === "dark" ? t("header.switchToLight") : t("header.switchToDark")}
+              aria-label={t("header.toggleTheme")}
             >
               {theme === "dark" ? (
                 <Sun className="h-4 w-4 text-amber-400" />
