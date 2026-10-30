@@ -24,12 +24,14 @@ import {
   Users,
   Lock,
   Globe,
+  Webhook,
 } from "lucide-react";
 import Link from "next/link";
 import KanbanColumn from "./KanbanColumn";
 import CardDetailModal from "./CardDetailModal";
 import EditProjectModal from "./EditProjectModal";
 import ProjectMembersModal from "./ProjectMembersModal";
+import WebhookManagerModal from "./WebhookManagerModal";
 import ListView from "./views/ListView";
 import AnalyticsView from "./views/AnalyticsView";
 import CalendarView from "./views/CalendarView";
@@ -70,6 +72,7 @@ export default function KanbanBoard({ project }: Props) {
   const [savingViewLoading, setSavingViewLoading] = useState(false);
   const [isEditProjectOpen, setIsEditProjectOpen] = useState(false);
   const [isMembersModalOpen, setIsMembersModalOpen] = useState(false);
+  const [isWebhooksModalOpen, setIsWebhooksModalOpen] = useState(false);
 
   const { t } = useTranslation();
   const router = useRouter();
@@ -337,6 +340,15 @@ export default function KanbanBoard({ project }: Props) {
                       {project.members.length}
                     </span>
                   )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsWebhooksModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-slate-200/80 dark:bg-slate-800/80 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors"
+                  title="Manage project outbound webhooks"
+                >
+                  <Webhook className="h-3.5 w-3.5 text-indigo-500" />
+                  <span>Webhooks</span>
                 </button>
                 {project.members && project.members.length > 0 && (
                   <div
@@ -745,6 +757,14 @@ export default function KanbanBoard({ project }: Props) {
           onMembersChange={() => {
             router.refresh();
           }}
+        />
+      )}
+
+      {/* Project Outbound Webhooks Modal */}
+      {isWebhooksModalOpen && (
+        <WebhookManagerModal
+          project={project}
+          onClose={() => setIsWebhooksModalOpen(false)}
         />
       )}
     </div>
