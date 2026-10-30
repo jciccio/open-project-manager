@@ -92,4 +92,6 @@ export interface ImportDryRunSummary {
 
 export interface RunImportOptions {
   dryRun?: boolean;
+  /** Stamped on every ImportRecord this run writes; a background job passes its own id. */
+  importRunId?: string;
 }

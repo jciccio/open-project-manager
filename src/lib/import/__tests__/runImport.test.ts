@@ -396,4 +396,19 @@ describe("runImport", () => {
     const again = (await runImport(withTypes, userId)) as ImportSummary;
     expect(again.totals.created).toBe(0);
   });
+
+  it("two concurrent runs that both find a new card create it once", async () => {
+    await runImport(makeFakeImporter(baseFixture()), userId);
+    const withNewCard = baseFixture();
+    withNewCard.cards["proj-1"].push({ sourceId: "card-3", columnSourceId: "col-todo", title: "Added later" });
+
+    const [first, second] = (await Promise.all([
+      runImport(makeFakeImporter(withNewCard), userId),
+      runImport(makeFakeImporter(withNewCard), userId),
+    ])) as ImportSummary[];
+
+    expect([...first.records, ...second.records].filter((r) => r.status === "failed")).toEqual([]);
+    expect(await db.card.count({ where: { project: { userId }, title: "Added later" } })).toBe(1);
+    expect(await db.importRecord.count({ where: { userId, entityType: "card", sourceId: "card-3" } })).toBe(1);
+  });
 });

@@ -5,7 +5,28 @@ import { createTestUser, cleanupTestUser } from "@/test/helpers";
 const runImportMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/import/runImport", () => ({ runImport: runImportMock }));
 
+const afterTasks = vi.hoisted(() => [] as (() => unknown)[]);
+vi.mock("next/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/server")>()),
+  after: (task: () => unknown) => afterTasks.push(task),
+}));
+
 import { POST } from "../route";
+import { GET as getJob } from "../[jobId]/route";
+import { db } from "@/lib/db";
+import { STALE_JOB_MS } from "@/lib/import/jobs";
+
+async function runBackgroundWork() {
+  while (afterTasks.length > 0) await afterTasks.shift()!();
+}
+
+async function jobStatus(token: string, jobId: string) {
+  const res = await getJob(
+    new NextRequest(`http://localhost/api/v1/import/${jobId}`, { headers: { authorization: `Bearer ${token}` } }),
+    { params: Promise.resolve({ jobId }) }
+  );
+  return { status: res.status, body: await res.json() };
+}
 
 function post(token: string, body: unknown) {
   return POST(
@@ -29,6 +50,7 @@ describe("POST /api/v1/import", () => {
     process.env.VIKUNJA_API_TOKEN = "server-token";
     process.env.VIKUNJA_IMPORT_USER_EMAIL = owner.user.email.toUpperCase();
     runImportMock.mockReset();
+    afterTasks.length = 0;
     runImportMock.mockResolvedValue({
       mode: "live",
       importRunId: "run-1",
@@ -56,12 +78,56 @@ describe("POST /api/v1/import", () => {
     expect(runImportMock).not.toHaveBeenCalled();
   });
 
-  it("runs for the configured account and hides per-record error details", async () => {
+  it("starts a background job for the configured account and reports it, with per-record errors hidden", async () => {
     const res = await post(owner.token, { source: "vikunja", projectIds: [2] });
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.data.records[0].error).toBe("Failed to import this record; see the server log.");
-    expect(runImportMock).toHaveBeenCalledWith(expect.anything(), owner.user.id, { dryRun: false });
+    expect(res.status).toBe(202);
+    const { jobId, status } = (await res.json()).data;
+    expect(status).toBe("RUNNING");
+
+    await runBackgroundWork();
+    expect(runImportMock).toHaveBeenCalledWith(expect.anything(), owner.user.id, { dryRun: false, importRunId: jobId });
+
+    const job = await jobStatus(owner.token, jobId);
+    expect(job.status).toBe(200);
+    expect(job.body.data.status).toBe("DONE");
+    expect(job.body.data.summary.records[0].error).toBe("Failed to import this record; see the server log.");
+    expect((await db.importJob.findUnique({ where: { id: jobId } }))!.lockKey).toBeNull();
+  });
+
+  it("refuses a second import while one is running, naming the running job", async () => {
+    const running = await db.importJob.create({
+      data: { userId: owner.user.id, source: "vikunja", lockKey: owner.user.id },
+    });
+    const res = await post(owner.token, { source: "vikunja" });
+    expect(res.status).toBe(409);
+    expect((await res.json()).jobId).toBe(running.id);
+    expect(runImportMock).not.toHaveBeenCalled();
+  });
+
+  it("releases the lock of a job that stopped responding and starts a new one", async () => {
+    const stale = await db.importJob.create({
+      data: {
+        userId: owner.user.id,
+        source: "vikunja",
+        lockKey: owner.user.id,
+        heartbeatAt: new Date(Date.now() - STALE_JOB_MS - 1000),
+      },
+    });
+    const res = await post(owner.token, { source: "vikunja" });
+    expect(res.status).toBe(202);
+
+    const released = await db.importJob.findUnique({ where: { id: stale.id } });
+    expect(released).toMatchObject({ status: "FAILED", lockKey: null });
+    await runBackgroundWork();
+  });
+
+  it("only shows a job to the account that started it", async () => {
+    const res = await post(owner.token, { source: "vikunja" });
+    const { jobId } = (await res.json()).data;
+    await runBackgroundWork();
+
+    expect((await jobStatus(other.token, jobId)).status).toBe(404);
+    expect((await jobStatus(owner.token, jobId)).status).toBe(200);
   });
 
   it("rejects inherited property names as a source", async () => {
@@ -85,10 +151,16 @@ describe("POST /api/v1/import", () => {
     expect(runImportMock).not.toHaveBeenCalled();
   });
 
-  it("does not leak the error text when the import throws", async () => {
+  it("marks the job failed without leaking the error text, and releases the lock", async () => {
     runImportMock.mockRejectedValue(new Error("connect ECONNREFUSED 10.0.0.5:3456"));
     const res = await post(owner.token, { source: "vikunja", projectIds: [2] });
-    expect(res.status).toBe(500);
-    expect((await res.json()).error).toBe("Import failed; see the server log.");
+    expect(res.status).toBe(202);
+    const { jobId } = (await res.json()).data;
+    await runBackgroundWork();
+
+    const job = await jobStatus(owner.token, jobId);
+    expect(job.body.data).toMatchObject({ status: "FAILED", error: "Import failed; see the server log." });
+    expect(JSON.stringify(job.body)).not.toContain("ECONNREFUSED");
+    expect((await db.importJob.findUnique({ where: { id: jobId } }))!.lockKey).toBeNull();
   });
 });
