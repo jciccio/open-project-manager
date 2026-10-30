@@ -47,6 +47,7 @@ import MarkdownEditor from "./MarkdownEditor";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import CardTypeManagerModal from "./CardTypeManagerModal";
 import { CardTypeIcon } from "./cardTypeIcons";
+import { useModalA11y } from "./useModalA11y";
 
 interface Props {
   card: {
@@ -151,6 +152,7 @@ export default function CardDetailModal({
     return "";
   });
   const [title, setTitle] = useState(card.title);
+  const modalRef = useModalA11y(onClose);
   const [description, setDescription] = useState(card.description || "");
   const [columnId, setColumnId] = useState(card.columnId);
   const [priority, setPriority] = useState(card.priority);
@@ -628,8 +630,22 @@ export default function CardDetailModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-      <div className="w-full max-w-2xl max-h-[90vh] flex flex-col rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200"
+    >
+      <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="card-modal-title"
+        className="w-full max-w-2xl max-h-[90vh] flex flex-col rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden"
+      >
+        <h2 id="card-modal-title" className="sr-only">
+          {card.title}
+        </h2>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50">
           <div className="flex items-center gap-2">
@@ -652,6 +668,7 @@ export default function CardDetailModal({
             <button
               onClick={handleArchive}
               disabled={archiving}
+              aria-label="Archive task card"
               className="rounded-lg p-2 text-slate-500 hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-400 transition-colors"
               title="Archive task card"
             >
@@ -660,6 +677,7 @@ export default function CardDetailModal({
             <button
               onClick={handleDelete}
               disabled={deleting}
+              aria-label="Delete task card"
               className="rounded-lg p-2 text-slate-500 hover:bg-red-500/10 hover:text-red-500 transition-colors"
               title="Delete task card"
             >
@@ -667,6 +685,7 @@ export default function CardDetailModal({
             </button>
             <button
               onClick={onClose}
+              aria-label="Close"
               className="rounded-lg p-2 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-colors"
             >
               <X className="h-5 w-5" />

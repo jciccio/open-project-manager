@@ -7,6 +7,7 @@ import { useTranslation } from "./LanguageProvider";
 import ColorPicker from "./ColorPicker";
 import ErrorBanner from "./ErrorBanner";
 import { DEFAULT_PROJECT_COLOR } from "@/lib/colors";
+import { useModalA11y } from "./useModalA11y";
 
 interface Props {
   onClose: () => void;
@@ -20,6 +21,7 @@ export default function LabelManagerModal({ onClose }: Props) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const { t } = useTranslation();
+  const modalRef = useModalA11y(onClose);
 
   useEffect(() => {
     fetchLabels();
@@ -75,17 +77,31 @@ export default function LabelManagerModal({ onClose }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-      <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-6">
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200"
+    >
+      <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="label-modal-title"
+        className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-6"
+      >
         <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
               <Tag className="h-5 w-5" />
             </div>
-            <h3 className="text-lg font-bold text-slate-900 dark:text-white">{t("labelModal.title")}</h3>
+            <h3 id="label-modal-title" className="text-lg font-bold text-slate-900 dark:text-white">
+              {t("labelModal.title")}
+            </h3>
           </div>
           <button
             onClick={onClose}
+            aria-label="Close"
             className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-colors"
           >
             <X className="h-5 w-5" />
@@ -100,6 +116,7 @@ export default function LabelManagerModal({ onClose }: Props) {
           <div className="flex gap-2">
             <input
               type="text"
+              aria-label={t("labelModal.namePlaceholder")}
               placeholder={t("labelModal.namePlaceholder")}
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -142,6 +159,7 @@ export default function LabelManagerModal({ onClose }: Props) {
                   <button
                     onClick={() => handleDelete(lbl.id)}
                     disabled={deletingId === lbl.id}
+                    aria-label={`Delete label ${lbl.name}`}
                     className="p-1 text-slate-400 hover:text-red-500 transition-colors disabled:opacity-50"
                   >
                     <Trash2 className="h-3.5 w-3.5" />

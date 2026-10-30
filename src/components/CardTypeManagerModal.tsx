@@ -8,6 +8,7 @@ import { CARD_TYPE_ICON_NAMES, CardTypeIcon } from "./cardTypeIcons";
 import ColorPicker from "./ColorPicker";
 import ErrorBanner from "./ErrorBanner";
 import { DEFAULT_PROJECT_COLOR, PROJECT_COLORS } from "@/lib/colors";
+import { useModalA11y } from "./useModalA11y";
 
 interface Props {
   projectId: string;
@@ -28,6 +29,7 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
   const [icon, setIcon] = useState(CARD_TYPE_ICON_NAMES[0]);
   const [color, setColor] = useState(DEFAULT_PROJECT_COLOR);
   const [loading, setLoading] = useState(false);
+  const modalRef = useModalA11y(onClose);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -122,17 +124,31 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-      <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-6">
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200"
+    >
+      <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="card-type-modal-title"
+        className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-6"
+      >
         <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
               <Layers className="h-5 w-5" />
             </div>
-            <h3 className="text-lg font-bold text-slate-900 dark:text-white">{t("cardTypeModal.title")}</h3>
+            <h3 id="card-type-modal-title" className="text-lg font-bold text-slate-900 dark:text-white">
+              {t("cardTypeModal.title")}
+            </h3>
           </div>
           <button
             onClick={onClose}
+            aria-label="Close"
             className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-colors"
           >
             <X className="h-5 w-5" />

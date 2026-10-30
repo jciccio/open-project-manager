@@ -75,12 +75,13 @@ export function RegisterForm() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+            <label htmlFor="register-name" className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
               {t("auth.fullNameLabel")}
             </label>
             <div className="relative">
               <User className="absolute left-3.5 top-3 h-4 w-4 text-slate-400" />
               <input
+                id="register-name"
                 type="text"
                 required
                 value={name}
@@ -92,12 +93,13 @@ export function RegisterForm() {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+            <label htmlFor="register-email" className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
               {t("auth.emailLabel")}
             </label>
             <div className="relative">
               <Mail className="absolute left-3.5 top-3 h-4 w-4 text-slate-400" />
               <input
+                id="register-email"
                 type="email"
                 required
                 value={email}
@@ -109,12 +111,13 @@ export function RegisterForm() {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+            <label htmlFor="register-password" className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
               {t("auth.passwordLabel")}
             </label>
             <div className="relative">
               <Key className="absolute left-3.5 top-3 h-4 w-4 text-slate-400" />
               <input
+                id="register-password"
                 type="password"
                 required
                 value={password}
@@ -126,12 +129,13 @@ export function RegisterForm() {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+            <label htmlFor="register-confirm-password" className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
               {t("auth.confirmPasswordLabel")}
             </label>
             <div className="relative">
               <Key className="absolute left-3.5 top-3 h-4 w-4 text-slate-400" />
               <input
+                id="register-confirm-password"
                 type="password"
                 required
                 value={confirmPassword}
