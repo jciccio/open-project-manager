@@ -5,16 +5,19 @@ import { getOidcConfig, getOidcRedirectUri, isOidcConfigured, resolveOidcUser } 
 
 const OIDC_COOKIE_NAMES = ["opm_oidc_verifier", "opm_oidc_state", "opm_oidc_nonce", "opm_oidc_link"] as const;
 
-function redirectClearingFlow(url: URL) {
+function redirectClearingFlow(url: URL, state?: string | null) {
   const response = NextResponse.redirect(url);
   for (const name of OIDC_COOKIE_NAMES) {
     response.cookies.delete(name);
   }
+  if (state) {
+    response.cookies.delete(`opm_oidc_${state}`);
+  }
   return response;
 }
 
-function redirectToLogin(publicOrigin: string, error: string) {
-  return redirectClearingFlow(new URL(`/login?error=${error}`, publicOrigin));
+function redirectToLogin(publicOrigin: string, error: string, state?: string | null) {
+  return redirectClearingFlow(new URL(`/login?error=${error}`, publicOrigin), state);
 }
 
 export async function GET(request: NextRequest) {
@@ -29,13 +32,35 @@ export async function GET(request: NextRequest) {
   // to the IdP, since openid-client derives it from the URL passed in below.
   const publicOrigin = new URL(getOidcRedirectUri()).origin;
 
-  const codeVerifier = request.cookies.get("opm_oidc_verifier")?.value;
-  const expectedState = request.cookies.get("opm_oidc_state")?.value;
-  const expectedNonce = request.cookies.get("opm_oidc_nonce")?.value;
-  const linkMode = request.cookies.get("opm_oidc_link")?.value === "1";
+  const returnedState = request.nextUrl.searchParams.get("state");
+  const stateCookie = returnedState ? request.cookies.get(`opm_oidc_${returnedState}`)?.value : null;
+
+  let codeVerifier: string | undefined;
+  let expectedState: string | undefined;
+  let expectedNonce: string | undefined;
+  let linkMode = false;
+
+  if (stateCookie) {
+    try {
+      const parsed = JSON.parse(stateCookie);
+      codeVerifier = parsed.verifier;
+      expectedState = parsed.state ?? returnedState ?? undefined;
+      expectedNonce = parsed.nonce;
+      linkMode = Boolean(parsed.link);
+    } catch {
+      // Fallback to legacy cookies on parse error
+    }
+  }
+
+  if (!codeVerifier) {
+    codeVerifier = request.cookies.get("opm_oidc_verifier")?.value;
+    expectedState = request.cookies.get("opm_oidc_state")?.value;
+    expectedNonce = request.cookies.get("opm_oidc_nonce")?.value;
+    linkMode = request.cookies.get("opm_oidc_link")?.value === "1";
+  }
 
   if (!codeVerifier || !expectedState || !expectedNonce) {
-    return redirectToLogin(publicOrigin, "oidc_session_expired");
+    return redirectToLogin(publicOrigin, "oidc_session_expired", returnedState);
   }
 
   try {
@@ -55,7 +80,7 @@ export async function GET(request: NextRequest) {
 
     const linkSession = linkMode ? await getSession() : null;
     if (linkMode && !linkSession) {
-      return redirectToLogin(publicOrigin, "oidc_session_expired");
+      return redirectToLogin(publicOrigin, "oidc_session_expired", returnedState);
     }
 
     const result = await resolveOidcUser(
@@ -70,11 +95,11 @@ export async function GET(request: NextRequest) {
     );
 
     if (linkSession) {
-      return redirectClearingFlow(new URL(`/?sso_link=${result.ok ? "linked" : result.error}`, publicOrigin));
+      return redirectClearingFlow(new URL(`/?sso_link=${result.ok ? "linked" : result.error}`, publicOrigin), returnedState);
     }
 
     if (!result.ok) {
-      return redirectToLogin(publicOrigin, `oidc_${result.error}`);
+      return redirectToLogin(publicOrigin, `oidc_${result.error}`, returnedState);
     }
 
     await createSession({
@@ -88,9 +113,12 @@ export async function GET(request: NextRequest) {
     for (const name of OIDC_COOKIE_NAMES) {
       response.cookies.delete(name);
     }
+    if (returnedState) {
+      response.cookies.delete(`opm_oidc_${returnedState}`);
+    }
     return response;
   } catch (error) {
     console.error("OIDC callback error:", error);
-    return redirectToLogin(publicOrigin, "oidc_failed");
+    return redirectToLogin(publicOrigin, "oidc_failed", returnedState);
   }
 }
