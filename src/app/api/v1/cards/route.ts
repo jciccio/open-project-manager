@@ -4,8 +4,7 @@ import { createCard } from "@/lib/services/cards";
 import { db } from "@/lib/db";
 import { cardPage, cardPageQuery, decodeCardCursor } from "@/lib/cardPagination";
 import { verifyProjectAccess } from "@/lib/permissions";
-import { parseColumnGroupFilter } from "@/lib/columnGroups";
-import { cardTextSearch } from "@/lib/cardSearch";
+import { buildCardWhere, parseCardOrderBy, countCards } from "@/lib/cardFilters";
 
 const DEFAULT_LIST_CARDS_LIMIT = 100;
 
@@ -19,13 +18,27 @@ export async function GET(request: NextRequest) {
   const projectId = searchParams.get("projectId");
   const columnId = searchParams.get("columnId");
   const parentId = searchParams.get("parentId");
+  const hasParentParam = searchParams.get("hasParent");
   const typeId = searchParams.get("typeId");
   const columnGroup = searchParams.get("columnGroup");
+  const stateGroup = searchParams.get("stateGroup");
   const assignedUserId = searchParams.get("assignedUserId") || searchParams.get("assignedTo");
   const query = searchParams.get("query");
   const limitParam = searchParams.get("limit");
   const cursor = searchParams.get("cursor");
   const isArchivedParam = searchParams.get("isArchived");
+  const isOverdueParam = searchParams.get("isOverdue");
+  const dueBefore = searchParams.get("dueBefore");
+  const dueAfter = searchParams.get("dueAfter");
+  const countParam = searchParams.get("count");
+  const groupBy = searchParams.get("groupBy");
+  const orderBy = searchParams.get("orderBy");
+  const orderDirection = searchParams.get("orderDirection");
+
+  const labelIdsParam = [
+    ...searchParams.getAll("labelIds"),
+    ...(searchParams.get("labelId") ? [searchParams.get("labelId")!] : []),
+  ];
 
   let limit: number = DEFAULT_LIST_CARDS_LIMIT;
   if (limitParam) {
@@ -42,51 +55,75 @@ export async function GET(request: NextRequest) {
   if (isArchivedParam !== null && isArchivedParam !== "true" && isArchivedParam !== "false") {
     return NextResponse.json({ error: "isArchived must be true or false" }, { status: 400 });
   }
+  if (hasParentParam !== null && hasParentParam !== "true" && hasParentParam !== "false") {
+    return NextResponse.json({ error: "hasParent must be true or false" }, { status: 400 });
+  }
+  if (isOverdueParam !== null && isOverdueParam !== "true" && isOverdueParam !== "false") {
+    return NextResponse.json({ error: "isOverdue must be true or false" }, { status: 400 });
+  }
 
   try {
     if (projectId) {
       const hasAccess = await verifyProjectAccess(projectId, session.userId, "VIEWER");
       if (!hasAccess) {
+        if (countParam === "true") {
+          return NextResponse.json({ success: true, count: 0 });
+        }
         return NextResponse.json({ success: true, data: [], nextCursor: null });
       }
     }
 
-    const where: any = {
-      isArchived: isArchivedParam === "true",
-      ...(columnId ? { columnId } : {}),
-      ...(projectId
-        ? { projectId }
-        : {
-            project: {
-              OR: [
-                { userId: session.userId },
-                { members: { some: { userId: session.userId } } },
-              ],
-            },
-          }),
-    };
-    if (parentId !== null) {
-      where.parentId = parentId === "null" ? null : parentId;
+    const accessibleScope = projectId
+      ? undefined
+      : {
+          project: {
+            OR: [
+              { userId: session.userId },
+              { members: { some: { userId: session.userId } } },
+            ],
+          },
+        };
+
+    const filterRes = buildCardWhere(
+      {
+        projectId,
+        columnId,
+        parentId,
+        hasParent: hasParentParam === "true" ? true : hasParentParam === "false" ? false : undefined,
+        typeId,
+        columnGroup: columnGroup ?? undefined,
+        stateGroup: stateGroup ?? undefined,
+        assignedTo: assignedUserId,
+        query,
+        isArchived: isArchivedParam === "true",
+        isOverdue: isOverdueParam === "true" ? true : isOverdueParam === "false" ? false : undefined,
+        dueBefore,
+        dueAfter,
+        labelIds: labelIdsParam.length > 0 ? labelIdsParam : undefined,
+      },
+      accessibleScope
+    );
+
+    if (!filterRes.success) {
+      return NextResponse.json({ error: filterRes.error }, { status: 400 });
     }
-    if (typeId) {
-      where.typeId = typeId;
-    }
-    if (columnGroup !== null) {
-      const groupFilter = parseColumnGroupFilter(columnGroup);
-      if (!groupFilter.success) {
-        return NextResponse.json({ error: groupFilter.error }, { status: 400 });
+
+    if (countParam === "true") {
+      try {
+        const countRes = await countCards(filterRes.where, groupBy);
+        return NextResponse.json({ success: true, ...countRes });
+      } catch (err: any) {
+        return NextResponse.json({ error: err.message }, { status: 400 });
       }
-      where.column = { group: { in: groupFilter.groups } };
     }
-    if (assignedUserId) {
-      where.assignees = { some: { userId: assignedUserId } };
-    }
-    if (query) {
-      where.OR = cardTextSearch(query);
+
+    const sortRes = parseCardOrderBy(orderBy, orderDirection);
+    if (!sortRes.success) {
+      return NextResponse.json({ error: sortRes.error }, { status: 400 });
     }
 
     const queryOptions: any = {
-      ...cardPageQuery(where, after, limit),
+      ...cardPageQuery(filterRes.where, after, limit, sortRes.sort),
       include: {
         type: true,
         labels: { include: { label: true } },
