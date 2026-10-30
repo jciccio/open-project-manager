@@ -624,7 +624,13 @@ export async function reorderCards(items: ReorderItem[], userId: string) {
       where: {
         id: { in: cardIds },
       },
-      select: { id: true, projectId: true, completedAt: true },
+      select: {
+        id: true,
+        projectId: true,
+        completedAt: true,
+        columnId: true,
+        column: { select: { name: true } },
+      },
     });
 
     if (existingCards.length !== cardIds.length) {
@@ -642,12 +648,38 @@ export async function reorderCards(items: ReorderItem[], userId: string) {
     const columnIds = [...new Set(items.map((i) => i.columnId).filter((id): id is string => !!id))];
     const columns = await db.column.findMany({
       where: { id: { in: columnIds } },
-      select: { id: true, projectId: true, isDone: true },
+      select: { id: true, projectId: true, isDone: true, name: true },
     });
     const columnById = new Map(columns.map((c) => [c.id, c]));
     for (const item of items) {
       if (item.columnId && columnById.get(item.columnId)?.projectId !== cardById.get(item.id)!.projectId) {
         return { success: false, error: "Invalid column" };
+      }
+    }
+
+    const movedActivities: Array<{
+      cardId: string;
+      projectId: string;
+      actorUserId: string;
+      type: string;
+      fromValue?: string | null;
+      toValue?: string | null;
+    }> = [];
+    for (const item of items) {
+      if (item.columnId) {
+        const existingCard = cardById.get(item.id);
+        if (existingCard && existingCard.columnId !== item.columnId) {
+          const fromCol = existingCard.column?.name;
+          const toCol = columnById.get(item.columnId)?.name;
+          movedActivities.push({
+            cardId: item.id,
+            projectId: existingCard.projectId,
+            actorUserId: userId,
+            type: "moved",
+            fromValue: fromCol,
+            toValue: toCol,
+          });
+        }
       }
     }
 
@@ -666,6 +698,10 @@ export async function reorderCards(items: ReorderItem[], userId: string) {
     });
 
     await db.$transaction(updates);
+
+    for (const act of movedActivities) {
+      await recordActivity(act);
+    }
     const projectIds = new Set(existingCards.map((c) => c.projectId));
     for (const projectId of projectIds) {
       safeRevalidatePath(`/projects/${projectId}`);

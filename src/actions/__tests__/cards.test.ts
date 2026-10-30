@@ -173,6 +173,21 @@ describe("Cards Server Actions", () => {
     expect(card.data?.completedAt).toBeNull();
   });
 
+  it("records a 'moved' activity when reorderCards moves a card to a different column", async () => {
+    const cardRes = await createCard({ projectId, columnId, title: "Activity Reorder Card" });
+    const cardId = cardRes.data!.id;
+
+    const res = await reorderCards([{ id: cardId, order: 10000, columnId: targetColumnId }]);
+    expect(res.success).toBe(true);
+
+    const activities = await db.activity.findMany({
+      where: { cardId, type: "moved" },
+    });
+    expect(activities.length).toBe(1);
+    expect(activities[0].fromValue).toBe("Backlog");
+    expect(activities[0].toValue).toBe("To Do");
+  });
+
   it("preserves the original completedAt when a card re-enters a Done column via updateCard", async () => {
     const projectDetails = await getProjectById(projectId);
     const doneColumnId = projectDetails.data!.columns.find((c) => c.isDone)!.id;
