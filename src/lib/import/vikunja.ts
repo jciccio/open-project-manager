@@ -360,6 +360,7 @@ export class VikunjaImporter implements Importer {
         columnSourceId: bucketSourceId(bucketId ?? -1),
         title: task.title,
         description,
+        number: typeof task.index === "number" && task.index > 0 ? task.index : undefined,
         priority: mapPriority(task.priority),
         owner: owner || undefined,
         dueDate: normalizeDueDateToUtcMidnight(task.due_date),

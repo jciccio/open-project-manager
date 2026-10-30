@@ -11,6 +11,9 @@ export interface ImportColumn {
   name: string;
   order?: number;
   isDone?: boolean;
+  group?: string;
+  color?: string;
+  description?: string;
 }
 
 export interface ImportCardType {
@@ -24,6 +27,17 @@ export interface ImportLabel {
   sourceId: string;
   name: string;
   color?: string;
+  description?: string;
+}
+
+export interface ImportCardRelation {
+  targetCardSourceId: string;
+  type: "BLOCKS" | "BLOCKED_BY" | "RELATES_TO";
+}
+
+export interface ImportCardLink {
+  url: string;
+  title?: string;
 }
 
 export interface ImportCard {
@@ -31,14 +45,23 @@ export interface ImportCard {
   columnSourceId: string;
   title: string;
   description?: string;
+  /** Authoritative card sequence number. When provided, skips auto-increment allocation to preserve source numbers (e.g. META-109). */
+  number?: number;
   priority?: string;
   points?: number;
   owner?: string;
   dueDate?: string;
   /** When the source marked the card finished. Imported cards keep their original completion time. */
   completedAt?: string;
+  /** Original creation timestamp from the source. */
+  createdAt?: string;
+  startDate?: string;
+  isArchived?: boolean;
+  parentSourceId?: string;
   typeSourceId?: string;
   labelSourceIds?: string[];
+  relations?: ImportCardRelation[];
+  links?: ImportCardLink[];
 }
 
 export interface ImportComment {
