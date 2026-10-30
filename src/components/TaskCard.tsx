@@ -39,7 +39,10 @@ interface Props {
         color: string;
       };
     }>;
-    comments: Array<any>;
+    comments?: Array<any>;
+    _count?: {
+      comments?: number;
+    };
     incomingRelations?: Array<{
       type: string;
       sourceCard?: {
@@ -202,10 +205,13 @@ export default function TaskCard({ card, onClick }: Props) {
 
         <div className="flex items-center gap-3 text-slate-500 dark:text-slate-400 text-[11px]">
           {/* Comments Count */}
-          {card.comments && card.comments.length > 0 && (
-            <div className="flex items-center gap-1" title={`${card.comments.length} comments`}>
+          {((card._count?.comments ?? card.comments?.length ?? 0) > 0) && (
+            <div
+              className="flex items-center gap-1"
+              title={`${card._count?.comments ?? card.comments?.length} comments`}
+            >
               <MessageSquare className="h-3 w-3 text-slate-400" />
-              <span>{card.comments.length}</span>
+              <span>{card._count?.comments ?? card.comments?.length}</span>
             </div>
           )}
 

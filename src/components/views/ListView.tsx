@@ -189,10 +189,10 @@ export default function ListView({
                         ) : null}
 
                         {/* Comments count */}
-                        {card.comments && card.comments.length > 0 && (
+                        {(((card as any)._count?.comments ?? card.comments?.length ?? 0) > 0) && (
                           <div className="flex items-center gap-1 text-slate-500 dark:text-slate-400">
                             <MessageSquare className="h-3 w-3 text-slate-400" />
-                            <span>{card.comments.length}</span>
+                            <span>{(card as any)._count?.comments ?? card.comments?.length}</span>
                           </div>
                         )}
                       </div>

@@ -54,3 +54,40 @@ export async function recordActivity(data: {
     return null;
   }
 }
+
+export interface ActivityRecordData {
+  cardId: string;
+  projectId: string;
+  actorUserId: string;
+  type: string;
+  fromValue?: string | null;
+  toValue?: string | null;
+}
+
+export async function recordActivities(records: ActivityRecordData[]) {
+  if (records.length === 0) return;
+  try {
+    const dataToInsert = records.map((r) => ({
+      cardId: r.cardId,
+      actorUserId: r.actorUserId,
+      type: r.type,
+      fromValue: r.fromValue !== undefined ? r.fromValue : null,
+      toValue: r.toValue !== undefined ? r.toValue : null,
+    }));
+
+    await db.activity.createMany({
+      data: dataToInsert,
+    });
+
+    for (const r of records) {
+      triggerWebhooks(r.projectId, r.type, {
+        cardId: r.cardId,
+        actorUserId: r.actorUserId,
+        fromValue: r.fromValue !== undefined ? r.fromValue : null,
+        toValue: r.toValue !== undefined ? r.toValue : null,
+      });
+    }
+  } catch (err) {
+    console.error("Error batch recording activities:", err);
+  }
+}
