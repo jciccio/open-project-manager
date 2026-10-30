@@ -288,7 +288,7 @@ export default function KanbanBoard({ project }: Props) {
             <Link
               href={project.isArchived ? "/archived" : "/"}
               className="rounded-xl bg-slate-200/80 dark:bg-slate-800/80 p-2 text-slate-600 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white transition-colors"
-              title={project.isArchived ? "Back to Archived Projects" : "Back to Projects"}
+              title={project.isArchived ? t("kanban.backToArchived") : t("kanban.backToProjects")}
             >
               <ArrowLeft className="h-4 w-4" />
             </Link>
@@ -315,23 +315,23 @@ export default function KanbanBoard({ project }: Props) {
                       ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
                       : "bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20"
                   }`}
-                  title={project.visibility === "INTERNAL" ? "Internal project" : "Private project"}
+                  title={project.visibility === "INTERNAL" ? t("kanban.internalProject") : t("kanban.privateProject")}
                 >
                   {project.visibility === "INTERNAL" ? (
                     <Globe className="h-2.5 w-2.5" />
                   ) : (
                     <Lock className="h-2.5 w-2.5" />
                   )}
-                  <span>{project.visibility === "INTERNAL" ? "Internal" : "Private"}</span>
+                  <span>{project.visibility === "INTERNAL" ? t("kanban.internal") : t("kanban.private")}</span>
                 </span>
                 <button
                   type="button"
                   onClick={() => setIsMembersModalOpen(true)}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-slate-200/80 dark:bg-slate-800/80 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors"
-                  title="Manage project members and access"
+                  title={t("kanban.manageMembers")}
                 >
                   <Users className="h-3.5 w-3.5 text-indigo-500" />
-                  <span>Members</span>
+                  <span>{t("kanban.members")}</span>
                   {project.members && project.members.length > 0 && (
                     <span className="rounded-full bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 px-1.5 py-0.5 text-[10px] font-bold">
                       {project.members.length}
@@ -342,7 +342,7 @@ export default function KanbanBoard({ project }: Props) {
                   <div
                     className="flex -space-x-1.5 overflow-hidden items-center cursor-pointer"
                     onClick={() => setIsMembersModalOpen(true)}
-                    title="View members"
+                    title={t("kanban.viewMembers")}
                   >
                     {project.members.slice(0, 4).map((m: any) => {
                       const initial = (m.user?.name || m.user?.email || "?")[0].toUpperCase();
@@ -489,11 +489,11 @@ export default function KanbanBoard({ project }: Props) {
                     className="bg-transparent text-slate-900 dark:text-white focus:outline-none cursor-pointer"
                   >
                     <option value="ALL">{t("kanban.allPriorities")}</option>
-                    <option value="NONE">None</option>
-                    <option value="LOW">Low</option>
-                    <option value="MEDIUM">Medium</option>
-                    <option value="HIGH">High</option>
-                    <option value="URGENT">Urgent</option>
+                    <option value="NONE">{t("cardModal.priorityNone")}</option>
+                    <option value="LOW">{t("cardModal.priorityLow")}</option>
+                    <option value="MEDIUM">{t("cardModal.priorityMedium")}</option>
+                    <option value="HIGH">{t("cardModal.priorityHigh")}</option>
+                    <option value="URGENT">{t("cardModal.priorityUrgent")}</option>
                   </select>
                 </div>
 
@@ -505,8 +505,8 @@ export default function KanbanBoard({ project }: Props) {
                       onChange={(e) => setTypeFilter(e.target.value)}
                       className="bg-transparent text-slate-900 dark:text-white focus:outline-none cursor-pointer max-w-[110px]"
                     >
-                      <option value="ALL">All Types</option>
-                      <option value="NONE">No Type</option>
+                      <option value="ALL">{t("kanban.allTypes")}</option>
+                      <option value="NONE">{t("kanban.noTypeFilter")}</option>
                       {project.cardTypes.map((ct: any) => (
                         <option key={ct.id} value={ct.id}>
                           {ct.name}
@@ -525,10 +525,10 @@ export default function KanbanBoard({ project }: Props) {
                       ? "bg-indigo-50 dark:bg-indigo-500/20 border-indigo-300 dark:border-indigo-500/40 text-indigo-700 dark:text-indigo-300"
                       : "bg-white dark:bg-slate-800/80 border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                   }`}
-                  title={hideSubtasks ? "Subtasks are hidden from board columns" : "Subtasks are visible on board columns"}
+                  title={hideSubtasks ? t("kanban.subtasksHiddenTooltip") : t("kanban.hideSubtasksTooltip")}
                 >
                   <ListTree className="h-3.5 w-3.5" />
-                  <span>{hideSubtasks ? "Subtasks Hidden" : "Hide Subtasks"}</span>
+                  <span>{hideSubtasks ? t("kanban.subtasksHidden") : t("kanban.hideSubtasks")}</span>
                 </button>
               </>
             )}

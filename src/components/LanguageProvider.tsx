@@ -44,6 +44,10 @@ export function LanguageProvider({
   const [locale, setLocaleState] = useState<SupportedLocale>(initialLocale ?? DEFAULT_LOCALE);
 
   useEffect(() => {
+    document.documentElement.lang = locale;
+  }, [locale]);
+
+  useEffect(() => {
     if (localeFromCookie) return;
     // No cookie reached the server: it guessed from Accept-Language (or had no
     // request at all). A choice saved before the cookie existed lives only in

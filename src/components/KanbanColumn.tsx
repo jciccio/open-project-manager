@@ -96,10 +96,10 @@ export default function KanbanColumn({
       if (res.success) {
         onRefresh();
       } else {
-        setError(res.error || "Failed to delete column.");
+        setError(res.error || t("kanban.deleteColumnFailed"));
       }
     } catch {
-      setError("Failed to delete column.");
+      setError(t("kanban.deleteColumnFailed"));
     } finally {
       setDeletingColumn(false);
     }
@@ -190,7 +190,7 @@ export default function KanbanColumn({
             onClick={handleDeleteColumn}
             disabled={deletingColumn}
             className="rounded-lg p-1 text-slate-500 hover:bg-red-500/10 hover:text-red-500 transition-colors disabled:opacity-50"
-            title="Delete column"
+            title={t("kanban.deleteColumnTooltip")}
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>
@@ -248,16 +248,16 @@ export default function KanbanColumn({
               onChange={(e) => setNewPriority(e.target.value)}
               className="flex-1 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2 py-1 text-[11px] text-slate-900 dark:text-white focus:outline-none"
             >
-              <option value="NONE">None</option>
-              <option value="LOW">Low</option>
-              <option value="MEDIUM">Medium</option>
-              <option value="HIGH">High</option>
-              <option value="URGENT">Urgent</option>
+              <option value="NONE">{t("cardModal.priorityNone")}</option>
+              <option value="LOW">{t("cardModal.priorityLow")}</option>
+              <option value="MEDIUM">{t("cardModal.priorityMedium")}</option>
+              <option value="HIGH">{t("cardModal.priorityHigh")}</option>
+              <option value="URGENT">{t("cardModal.priorityUrgent")}</option>
             </select>
 
             <input
               type="number"
-              placeholder="Pts"
+              placeholder={t("kanban.pts")}
               value={newPoints}
               onChange={(e) => setNewPoints(e.target.value === "" ? "" : Number(e.target.value))}
               className="w-16 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2 py-1 text-[11px] text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none"

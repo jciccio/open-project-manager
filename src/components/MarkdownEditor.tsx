@@ -24,11 +24,12 @@ interface Props {
 export default function MarkdownEditor({
   value,
   onChange,
-  placeholder = "Write description in Markdown...",
+  placeholder,
   rows = 5,
 }: Props) {
   const [activeTab, setActiveTab] = useState<"write" | "preview">("write");
   const { t } = useTranslation();
+  const effectivePlaceholder = placeholder ?? t("markdownEditor.writePlaceholder");
 
   function insertFormatting(prefix: string, suffix: string = "") {
     const textarea = document.getElementById(
@@ -147,7 +148,7 @@ export default function MarkdownEditor({
             rows={rows}
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            placeholder={placeholder}
+            placeholder={effectivePlaceholder}
             className="w-full bg-transparent text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none resize-y leading-relaxed font-mono"
           />
         ) : (
