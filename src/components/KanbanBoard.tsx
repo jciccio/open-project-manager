@@ -35,7 +35,7 @@ import AnalyticsView from "./views/AnalyticsView";
 import CalendarView from "./views/CalendarView";
 
 import { createColumn, reorderColumns } from "@/actions/columns";
-import { moveCard } from "@/actions/cards";
+import { moveCard, reorderCards } from "@/actions/cards";
 import { unarchiveProject } from "@/actions/projects";
 import { createSavedView, deleteSavedView, updateSavedView } from "@/actions/views";
 import { useRouter } from "next/navigation";
@@ -211,19 +211,88 @@ export default function KanbanBoard({ project }: Props) {
     e.dataTransfer.setData("text/plain", JSON.stringify({ cardId, sourceColumnId }));
   }
 
-  async function handleDropCard(e: React.DragEvent, targetColumnId: string) {
+  async function handleDropCard(
+    e: React.DragEvent,
+    targetColumnId: string,
+    targetCardId?: string,
+    position?: "before" | "after"
+  ) {
     const rawData = e.dataTransfer.getData("text/plain");
     if (!rawData) return;
 
     try {
       const { cardId, sourceColumnId } = JSON.parse(rawData);
-      if (sourceColumnId === targetColumnId) return;
 
+      const sourceCol = project.columns.find((c: any) => c.id === sourceColumnId);
       const targetCol = project.columns.find((c: any) => c.id === targetColumnId);
-      const newOrder = targetCol?.cards ? targetCol.cards.length : 0;
+      if (!sourceCol || !targetCol) return;
 
-      await moveCard(cardId, targetColumnId, newOrder);
-      router.refresh();
+      const card = sourceCol.cards?.find((c: any) => c.id === cardId);
+      if (!card) return;
+
+      // If dropped onto itself in the same column, do nothing
+      if (sourceColumnId === targetColumnId && targetCardId === cardId) {
+        return;
+      }
+
+      const ORDER_GAP = 10000;
+
+      if (sourceColumnId === targetColumnId) {
+        const currentCards = [...(targetCol.cards || [])];
+        const currentIndex = currentCards.findIndex((c: any) => c.id === cardId);
+        if (currentIndex === -1) return;
+
+        const [movedCard] = currentCards.splice(currentIndex, 1);
+
+        if (targetCardId) {
+          const targetIndex = currentCards.findIndex((c: any) => c.id === targetCardId);
+          if (targetIndex !== -1) {
+            const insertIndex = position === "after" ? targetIndex + 1 : targetIndex;
+            currentCards.splice(insertIndex, 0, movedCard);
+          } else {
+            currentCards.push(movedCard);
+          }
+        } else {
+          currentCards.push(movedCard);
+        }
+
+        const reorderItems = currentCards.map((c: any, index: number) => ({
+          id: c.id,
+          order: (index + 1) * ORDER_GAP,
+          columnId: targetColumnId,
+        }));
+
+        const res = await reorderCards(reorderItems);
+        if (res.success) {
+          router.refresh();
+        }
+      } else {
+        const targetCards = [...(targetCol.cards || [])];
+        const movedCard = { ...card, columnId: targetColumnId };
+
+        if (targetCardId) {
+          const targetIndex = targetCards.findIndex((c: any) => c.id === targetCardId);
+          if (targetIndex !== -1) {
+            const insertIndex = position === "after" ? targetIndex + 1 : targetIndex;
+            targetCards.splice(insertIndex, 0, movedCard);
+          } else {
+            targetCards.push(movedCard);
+          }
+        } else {
+          targetCards.push(movedCard);
+        }
+
+        const reorderItems = targetCards.map((c: any, index: number) => ({
+          id: c.id,
+          order: (index + 1) * ORDER_GAP,
+          columnId: targetColumnId,
+        }));
+
+        const res = await reorderCards(reorderItems);
+        if (res.success) {
+          router.refresh();
+        }
+      }
     } catch (err) {
       console.error("Drop card error:", err);
     }
@@ -262,7 +331,7 @@ export default function KanbanBoard({ project }: Props) {
   });
 
   return (
-    <div className="flex flex-col h-[calc(100vh-65px)] overflow-hidden bg-slate-100/70 dark:bg-slate-950">
+    <div className="flex flex-col flex-1 min-h-0 overflow-hidden bg-slate-100/70 dark:bg-slate-950">
       {/* Archived Banner */}
       {project.isArchived && (
         <div className="bg-amber-500/15 border-b border-amber-500/30 px-6 py-2 flex items-center justify-between text-xs text-amber-800 dark:text-amber-300 shrink-0">

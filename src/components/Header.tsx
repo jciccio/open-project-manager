@@ -49,12 +49,12 @@ export default function Header({ user, archivedCount = 0, ssoLinkResult }: Props
   return (
     <>
       <header className="sticky top-0 z-30 w-full glass-panel border-b border-slate-200 dark:border-slate-800 px-3 sm:px-6 py-2.5 sm:py-3.5">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-2">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2">
           {/* Logo & Brand */}
           <Link href="/" className="flex items-center gap-2 sm:gap-3 group shrink-0">
             <div className="flex h-8 w-8 sm:h-10 sm:w-10 items-center justify-center rounded-lg sm:rounded-xl bg-gradient-to-br from-amber-400 via-indigo-600 to-purple-600 p-0.5 shadow-lg shadow-amber-500/20 group-hover:scale-105 transition-transform">
               <div className="flex h-full w-full items-center justify-center rounded-[6px] sm:rounded-[10px] bg-slate-950 overflow-hidden">
-                <Image src="/logo.png" alt="Nanobanana Logo" width={32} height={32} unoptimized className="h-6 w-6 sm:h-8 sm:w-8 object-cover rounded-md sm:rounded-lg" />
+                <Image src="/logo.png" alt="Open Project Manager Logo" width={32} height={32} unoptimized className="h-6 w-6 sm:h-8 sm:w-8 object-cover rounded-md sm:rounded-lg" />
               </div>
             </div>
             <div>
@@ -71,7 +71,7 @@ export default function Header({ user, archivedCount = 0, ssoLinkResult }: Props
           </Link>
 
           {/* User Profile & Actions */}
-          <div className="flex items-center gap-1 sm:gap-2.5 shrink-0">
+          <div className="flex flex-wrap items-center justify-end gap-1 sm:gap-2.5">
             {/* Language Selector Button */}
             <button
               onClick={toggleLanguage}
