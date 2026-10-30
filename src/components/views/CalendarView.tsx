@@ -3,12 +3,14 @@
 import { useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Zap } from "lucide-react";
 import { useTranslation } from "../LanguageProvider";
+import { filterCards } from "@/lib/cardFilter";
 
 interface Props {
   project: any;
   onCardClick: (card: any) => void;
   searchQuery: string;
   priorityFilter: string;
+  typeFilter?: string;
 }
 
 export default function CalendarView({
@@ -16,6 +18,7 @@ export default function CalendarView({
   onCardClick,
   searchQuery,
   priorityFilter,
+  typeFilter = "ALL",
 }: Props) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const { t, locale } = useTranslation();
@@ -28,19 +31,8 @@ export default function CalendarView({
         list.push({ ...card, columnStatus: col.name });
       });
     });
-    return list.filter((card) => {
-      const matchesSearch =
-        searchQuery === "" ||
-        card.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (card.description && card.description.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        (card.owner && card.owner.toLowerCase().includes(searchQuery.toLowerCase()));
-
-      const matchesPriority =
-        priorityFilter === "ALL" || card.priority === priorityFilter;
-
-      return matchesSearch && matchesPriority;
-    });
-  }, [project, searchQuery, priorityFilter]);
+    return filterCards(list, { searchQuery, priorityFilter, typeFilter });
+  }, [project, searchQuery, priorityFilter, typeFilter]);
 
   // Separate scheduled vs unscheduled
   const { scheduledMap, unscheduledCards } = useMemo(() => {
