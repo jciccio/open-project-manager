@@ -73,14 +73,24 @@ export async function signToken(sessionData: UserSession, durationSeconds = 30 *
 // signature (unforgeable without JWT_SECRET) proves authenticity, and the DB
 // row is revocation metadata only — deleting the row invalidates the token
 // even though the JWT itself remains cryptographically valid until expiry.
-export async function signApiToken(sessionData: UserSession, tokenId: string) {
-  return await new SignJWT({ ...toClaims(sessionData), jti: tokenId, type: "api_token" })
+export async function signApiToken(
+  sessionData: UserSession,
+  tokenId: string,
+  expiresAt?: Date | null
+) {
+  const jwt = new SignJWT({ ...toClaims(sessionData), jti: tokenId, type: "api_token" })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuer(TOKEN_ISSUER)
     .setAudience(API_TOKEN_AUDIENCE)
-    .setIssuedAt()
-    .setExpirationTime(`${API_TOKEN_DURATION}s`)
-    .sign(JWT_SECRET);
+    .setIssuedAt();
+
+  if (expiresAt) {
+    jwt.setExpirationTime(Math.floor(expiresAt.getTime() / 1000));
+  } else if (expiresAt === undefined) {
+    jwt.setExpirationTime(`${API_TOKEN_DURATION}s`);
+  }
+
+  return await jwt.sign(JWT_SECRET);
 }
 
 export async function createSession(sessionData: UserSession) {
