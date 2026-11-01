@@ -11,6 +11,7 @@ function redirectClearingFlow(url: URL, state?: string | null) {
     response.cookies.delete(name);
   }
   if (state) {
+    response.cookies.delete(`opm_oidc_flow_${state}`);
     response.cookies.delete(`opm_oidc_${state}`);
   }
   return response;
@@ -33,7 +34,9 @@ export async function GET(request: NextRequest) {
   const publicOrigin = new URL(getOidcRedirectUri()).origin;
 
   const returnedState = request.nextUrl.searchParams.get("state");
-  const stateCookie = returnedState ? request.cookies.get(`opm_oidc_${returnedState}`)?.value : null;
+  const stateCookie = returnedState
+    ? (request.cookies.get(`opm_oidc_flow_${returnedState}`)?.value ?? request.cookies.get(`opm_oidc_${returnedState}`)?.value ?? null)
+    : null;
 
   let codeVerifier: string | undefined;
   let expectedState: string | undefined;
@@ -44,7 +47,7 @@ export async function GET(request: NextRequest) {
     try {
       const parsed = JSON.parse(stateCookie);
       codeVerifier = parsed.verifier;
-      expectedState = parsed.state ?? returnedState ?? undefined;
+      expectedState = typeof parsed.state === "string" ? parsed.state : undefined;
       expectedNonce = parsed.nonce;
       linkMode = Boolean(parsed.link);
     } catch {
@@ -114,6 +117,7 @@ export async function GET(request: NextRequest) {
       response.cookies.delete(name);
     }
     if (returnedState) {
+      response.cookies.delete(`opm_oidc_flow_${returnedState}`);
       response.cookies.delete(`opm_oidc_${returnedState}`);
     }
     return response;

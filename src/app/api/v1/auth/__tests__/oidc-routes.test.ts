@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { NextRequest } from "next/server";
+import * as oidcClient from "openid-client";
 import { db } from "@/lib/db";
 import { createSession, destroySession } from "@/lib/auth";
 import { cleanupTestUser } from "@/test/helpers";
@@ -102,8 +103,8 @@ describe("OIDC routes", () => {
     const flow2Data = JSON.stringify({ verifier: "verifier_2", state: "state_2", nonce: "nonce_2", link: 0 });
 
     const sharedCookies = [
-      `opm_oidc_state_1=${encodeURIComponent(flow1Data)}`,
-      `opm_oidc_state_2=${encodeURIComponent(flow2Data)}`,
+      `opm_oidc_flow_state_1=${encodeURIComponent(flow1Data)}`,
+      `opm_oidc_flow_state_2=${encodeURIComponent(flow2Data)}`,
       // Legacy cookies overwritten by flow 2
       "opm_oidc_verifier=verifier_2",
       "opm_oidc_state=state_2",
@@ -120,6 +121,12 @@ describe("OIDC routes", () => {
       })
     );
 
+    expect(vi.mocked(oidcClient.authorizationCodeGrant)).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.anything(),
+      { pkceCodeVerifier: "verifier_1", expectedState: "state_1", expectedNonce: "nonce_1" },
+    );
+
     // Tab 1 succeeds and creates session for user 1
     expect(res1.headers.get("location")).toBe("https://opm.example.com/");
     const user1 = await db.user.findUnique({ where: { email: email1 } });
@@ -134,6 +141,12 @@ describe("OIDC routes", () => {
       new NextRequest("https://opm.example.com/api/v1/auth/oidc/callback?code=code_2&state=state_2", {
         headers: { cookie: sharedCookies },
       })
+    );
+
+    expect(vi.mocked(oidcClient.authorizationCodeGrant)).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.anything(),
+      { pkceCodeVerifier: "verifier_2", expectedState: "state_2", expectedNonce: "nonce_2" },
     );
 
     // Tab 2 also succeeds

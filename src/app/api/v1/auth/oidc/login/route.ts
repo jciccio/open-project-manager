@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
       path: "/",
       maxAge: OIDC_COOKIE_MAX_AGE,
     };
-    const stateCookieName = `opm_oidc_${state}`;
+    const stateCookieName = `opm_oidc_flow_${state}`;
     const flowData = JSON.stringify({
       verifier: codeVerifier,
       state,
