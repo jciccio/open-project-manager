@@ -112,7 +112,6 @@ export default function ListView({
                           onCardClick(card);
                         }
                       }}
-                      aria-label={card.title}
                       className="group flex flex-col md:flex-row md:items-center justify-between p-3.5 hover:bg-slate-100/80 dark:hover:bg-slate-800/40 rounded-xl transition-all cursor-pointer gap-3 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     >
                       {/* Left: Title & Labels */}

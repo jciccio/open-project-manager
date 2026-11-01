@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { useTranslation } from "./LanguageProvider";
 import ColorPicker from "./ColorPicker";
 import { DEFAULT_PROJECT_COLOR } from "@/lib/colors";
-import { useModalA11y } from "./useModalA11y";
+import { useModalA11y, useBackdropClose } from "./useModalA11y";
 
 interface Props {
   onClose: () => void;
@@ -22,6 +22,7 @@ export default function NewProjectModal({ onClose }: Props) {
   const { t } = useTranslation();
   const router = useRouter();
   const modalRef = useModalA11y(onClose);
+  const backdropProps = useBackdropClose(onClose);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -55,9 +56,7 @@ export default function NewProjectModal({ onClose }: Props) {
 
   return (
     <div
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+      {...backdropProps}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200"
     >
       <div

@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 import { useTranslation } from "./LanguageProvider";
 import { formatDate } from "@/lib/formatDate";
 import ErrorBanner from "./ErrorBanner";
-import { useModalA11y } from "./useModalA11y";
+import { useModalA11y, useBackdropClose } from "./useModalA11y";
 
 interface Props {
   user: {
@@ -36,6 +36,7 @@ interface ApiTokenSummary {
 
 export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props) {
   const modalRef = useModalA11y(onClose);
+  const backdropProps = useBackdropClose(onClose);
   const [name, setName] = useState(user.name);
   const [email, setEmail] = useState(user.email);
   const [currentPassword, setCurrentPassword] = useState("");
@@ -233,9 +234,7 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
 
   return (
     <div
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+      {...backdropProps}
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4 animate-in fade-in duration-200"
     >
       <div

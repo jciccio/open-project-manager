@@ -34,6 +34,47 @@ describe("Accessibility (Issue #113)", () => {
       fireEvent.keyDown(window, { key: "Escape" });
       expect(onClose).toHaveBeenCalled();
     });
+
+    it("does not re-focus the first element when parent re-renders", () => {
+      const onClose = vi.fn();
+      const { rerender } = render(
+        <LanguageProvider>
+          <NewProjectModal onClose={onClose} />
+        </LanguageProvider>
+      );
+
+      const descInput = screen.getByLabelText(/Description/i);
+      descInput.focus();
+      expect(document.activeElement).toBe(descInput);
+
+      // Re-render with new inline arrow for onClose
+      rerender(
+        <LanguageProvider>
+          <NewProjectModal onClose={() => {}} />
+        </LanguageProvider>
+      );
+
+      // Focus should remain on description input
+      expect(document.activeElement).toBe(descInput);
+    });
+
+    it("closes only the topmost modal when Escape is pressed", () => {
+      const onClose1 = vi.fn();
+      const onClose2 = vi.fn();
+
+      render(
+        <LanguageProvider>
+          <div>
+            <NewProjectModal onClose={onClose1} />
+            <NewProjectModal onClose={onClose2} />
+          </div>
+        </LanguageProvider>
+      );
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(onClose2).toHaveBeenCalledTimes(1);
+      expect(onClose1).not.toHaveBeenCalled();
+    });
   });
 
   describe("TaskCard Keyboard Accessibility", () => {

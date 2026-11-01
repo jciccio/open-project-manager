@@ -47,7 +47,7 @@ import MarkdownEditor from "./MarkdownEditor";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import CardTypeManagerModal from "./CardTypeManagerModal";
 import { CardTypeIcon } from "./cardTypeIcons";
-import { useModalA11y } from "./useModalA11y";
+import { useModalA11y, useBackdropClose } from "./useModalA11y";
 
 interface Props {
   card: {
@@ -153,6 +153,7 @@ export default function CardDetailModal({
   });
   const [title, setTitle] = useState(card.title);
   const modalRef = useModalA11y(onClose);
+  const backdropProps = useBackdropClose(onClose);
   const [description, setDescription] = useState(card.description || "");
   const [columnId, setColumnId] = useState(card.columnId);
   const [priority, setPriority] = useState(card.priority);
@@ -631,9 +632,7 @@ export default function CardDetailModal({
 
   return (
     <div
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+      {...backdropProps}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200"
     >
       <div
