@@ -274,12 +274,19 @@ export async function createApiToken(
       return { success: false, error: "Token name is required." };
     }
 
+    const ALLOWED_EXPIRATION_DAYS = [30, 60, 90, 365] as const;
+
     let expiresAt: Date | null = null;
-    if (expiresInDays !== undefined && expiresInDays !== null && expiresInDays !== "never") {
-      const days = Number(expiresInDays);
-      if (!isNaN(days) && days > 0) {
-        expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+    if (expiresInDays === "never") {
+      expiresAt = null;
+    } else if (expiresInDays === undefined || expiresInDays === null || expiresInDays === "") {
+      expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+    } else {
+      const days = typeof expiresInDays === "number" ? expiresInDays : Number(expiresInDays);
+      if (!ALLOWED_EXPIRATION_DAYS.includes(days as any) || isNaN(days)) {
+        return { success: false, error: "Invalid token expiration option." };
       }
+      expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
     }
 
     const record = await db.apiToken.create({

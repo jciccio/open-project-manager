@@ -70,6 +70,32 @@ describe("API Token Expiration", () => {
     expect(session?.userId).toBe(userId);
   });
 
+  it("defaults to 365 days when expiresInDays is omitted or undefined", async () => {
+    const before = Date.now();
+    const res = await createApiToken("Default Expiration Token");
+    expect(res.success).toBe(true);
+    expect(res.token).toBeDefined();
+
+    const tokenRecord = await db.apiToken.findUnique({ where: { id: res.token!.id } });
+    expect(tokenRecord?.expiresAt).not.toBeNull();
+
+    const expiresTime = tokenRecord!.expiresAt!.getTime();
+    const expectedTime = before + 365 * 24 * 60 * 60 * 1000;
+    expect(Math.abs(expiresTime - expectedTime)).toBeLessThan(5000);
+
+    const payload = decodeJwt(res.token!.secret);
+    expect(payload.exp).toBeDefined();
+    expect(payload.exp).toBe(Math.floor(expiresTime / 1000));
+  });
+
+  it("rejects invalid expiresInDays options", async () => {
+    for (const invalid of [0, -5, "abc", 45, 1000]) {
+      const res = await createApiToken("Invalid Option", invalid as any);
+      expect(res.success).toBe(false);
+      expect(res.error).toBe("Invalid token expiration option.");
+    }
+  });
+
   it("rejects token when expiresAt in the DB is in the past", async () => {
     const res = await createApiToken("Expired DB Token", 30);
     expect(res.success).toBe(true);
