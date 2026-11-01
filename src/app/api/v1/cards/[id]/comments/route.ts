@@ -38,7 +38,7 @@ export async function POST(
       return NextResponse.json({ error: "Comment content is required" }, { status: 400 });
     }
 
-    const author = session.name || (typeof body.author === "string" ? body.author : "Team Member");
+    const author = session.name || session.email || session.userId || "Team Member";
     const res = await addComment(cardId, author, body.content, session.userId);
 
     if (!res.success) {

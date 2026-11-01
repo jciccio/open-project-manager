@@ -419,7 +419,6 @@ export const MCP_TOOLS = [
       type: "object",
       properties: {
         cardId: { type: "string", description: "Target card ID" },
-        author: { type: "string", description: "Optional name of the author" },
         content: { type: "string", description: "Comment body text" },
       },
       required: ["cardId", "content"],
@@ -1295,8 +1294,8 @@ export async function executeMcpTool(
     case "add_comment": {
       const parentCard = await db.card.findUnique({ where: { id: args.cardId } });
       if (!parentCard || !(await verifyProjectAccess(parentCard.projectId, userId, "MEMBER"))) throw new Error(`Card with ID ${args.cardId} not found.`);
-      const mcpUser = await db.user.findUnique({ where: { id: userId }, select: { name: true } });
-      const author = args.author?.trim() || mcpUser?.name || "Team Member";
+      const mcpUser = await db.user.findUnique({ where: { id: userId }, select: { name: true, email: true } });
+      const author = mcpUser?.name || mcpUser?.email || "Team Member";
       const comment = await db.comment.create({
         data: {
           cardId: args.cardId,
@@ -1497,7 +1496,7 @@ export async function executeMcpTool(
           filename: args.filename,
           contentBuffer: buffer,
           mimeType: args.mimeType,
-          uploadedBy: mcpUser?.name || args.uploadedBy || userId,
+          uploadedBy: mcpUser?.name || mcpUser?.email || userId,
         },
         userId
       );

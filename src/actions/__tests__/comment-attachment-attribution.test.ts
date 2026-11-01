@@ -87,6 +87,18 @@ describe("Comment and attachment attribution", () => {
     expect(listRes.data![0].authorUser?.name).toBe(userName);
   });
 
+  it("prevents spoofing comment author via MCP add_comment", async () => {
+    const { executeMcpTool } = await import("@/mcp/core");
+    const mcpRes = await executeMcpTool(
+      "add_comment",
+      { cardId, author: "Mallory", content: "Hi from MCP" },
+      { userId }
+    );
+    expect(mcpRes.success).toBe(true);
+    expect((mcpRes as any).comment.author).toBe(userName);
+    expect((mcpRes as any).comment.authorUserId).toBe(userId);
+  });
+
   it("uploadAttachment attributes uploadedBy to authenticated session user", async () => {
     const res = await uploadAttachment({
       cardId,

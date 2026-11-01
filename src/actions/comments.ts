@@ -13,7 +13,7 @@ export async function addComment(cardId: string, authorOrContent: string, maybeC
   const session = await getSession();
   if (!session) return { success: false as const, error: "Unauthorized" };
   const content = maybeContent !== undefined ? maybeContent : authorOrContent;
-  const author = session.name || (maybeContent !== undefined ? authorOrContent : "Team Member");
+  const author = session.name || session.email || session.userId || "Team Member";
   return commentsService.addComment(cardId, author, content, session.userId);
 }
 
