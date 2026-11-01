@@ -45,7 +45,7 @@ describe("Issue #131 Cleanup Verifications", () => {
     expect(registerContainer.querySelector('img[alt="Open Project Manager Logo"]')).toBeInTheDocument();
     expect(registerContainer.querySelector('img[alt="Nanobanana Logo"]')).toBeNull();
 
-    const { container: loginContainer } = renderWithProviders(<LoginForm />);
+    const { container: loginContainer } = renderWithProviders(<LoginForm oidcEnabled={false} registrationOpen={false} />);
     expect(loginContainer.querySelector('img[alt="Open Project Manager Logo"]')).toBeInTheDocument();
     expect(loginContainer.querySelector('img[alt="Nanobanana Logo"]')).toBeNull();
   });

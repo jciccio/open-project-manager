@@ -96,7 +96,8 @@ export default function KanbanBoard({ project }: Props) {
         applySavedView(defaultView);
       }
     }
-  }, [project.id, project.savedViews, applySavedView]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id]);
 
   function handleSelectView(viewId: string) {
     if (viewId === "all") {

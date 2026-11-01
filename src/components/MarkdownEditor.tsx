@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useId } from "react";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import {
   Bold,
@@ -23,12 +23,14 @@ interface Props {
 }
 
 export default function MarkdownEditor({
-  id = "markdown-editor-textarea",
+  id,
   value,
   onChange,
   placeholder = "Write description in Markdown...",
   rows = 5,
 }: Props) {
+  const generatedId = useId();
+  const textareaId = id ?? generatedId;
   const [activeTab, setActiveTab] = useState<"write" | "preview">("write");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { t } = useTranslation();
@@ -144,7 +146,7 @@ export default function MarkdownEditor({
       <div className="p-3">
         {activeTab === "write" ? (
           <textarea
-            id={id}
+            id={textareaId}
             ref={textareaRef}
             rows={rows}
             value={value}
