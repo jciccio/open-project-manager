@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
 import { reorderCards } from "@/lib/services/cards";
+import { CardReorderSchema } from "@/lib/validation/cards";
+import { parseInput } from "@/lib/validation/errors";
 
 export async function POST(request: NextRequest) {
   const session = await getApiSession(request);
@@ -9,14 +11,12 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const body = await request.json();
-    const { items } = body;
-
-    if (!items || !Array.isArray(items) || items.length === 0) {
-      return NextResponse.json({ error: "items array is required" }, { status: 400 });
+    const parsed = parseInput(CardReorderSchema, await request.json());
+    if (!parsed.success) {
+      return NextResponse.json({ error: parsed.error }, { status: 400 });
     }
 
-    const res = await reorderCards(items, session.userId);
+    const res = await reorderCards(parsed.data.items, session.userId);
     if (!res.success) {
       return NextResponse.json(
         { error: res.error || "Unauthorized or card not found" },
