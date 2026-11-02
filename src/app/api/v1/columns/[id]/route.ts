@@ -15,7 +15,18 @@ export async function PUT(request: NextRequest, { params }: Props) {
   const { id } = await params;
   try {
     const body = await request.json();
-    const res = await updateColumn(id, { name: body.name, order: body.order }, session.userId);
+    const res = await updateColumn(
+      id,
+      {
+        name: body.name,
+        order: body.order,
+        isDone: body.isDone,
+        group: body.group,
+        color: body.color,
+        description: body.description,
+      },
+      session.userId
+    );
     if (!res.success) {
       return NextResponse.json({ error: res.error }, { status: 400 });
     }

@@ -16,6 +16,7 @@
     "load-test": "npx tsx scripts/load-test.ts",
     "smoke-test": "npx tsx scripts/smoke-test.ts",
     "mcp": "npx tsx scripts/mcp-server.ts",
+    "user:revoke": "npx tsx scripts/revoke-user.ts",
     "update": "./deploy/update.sh",
     "install-skills": "npx tsx scripts/install-skills.ts",
     "db:seed": "npx tsx prisma/seed.ts"

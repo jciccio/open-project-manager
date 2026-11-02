@@ -2,16 +2,17 @@
 
 import { getSession } from "@/lib/auth";
 import * as columnsService from "@/lib/services/columns";
+import type { ColumnDetailsInput, ColumnUpdateInput } from "@/lib/validation/columns";
 
-export async function createColumn(projectId: string, name: string, isDone?: boolean) {
+export async function createColumn(projectId: string, name: string, details: ColumnDetailsInput = {}) {
   const session = await getSession();
   if (!session) {
     return { success: false as const, error: "Unauthorized" };
   }
-  return columnsService.createColumn(projectId, name, isDone, session.userId);
+  return columnsService.createColumn(projectId, name, details, session.userId);
 }
 
-export async function updateColumn(id: string, data: { name?: string; order?: number; isDone?: boolean }) {
+export async function updateColumn(id: string, data: ColumnUpdateInput) {
   const session = await getSession();
   if (!session) return { success: false as const, error: "Unauthorized" };
   return columnsService.updateColumn(id, data, session.userId);

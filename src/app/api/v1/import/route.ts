@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { z } from "zod";
 import { getApiSession } from "@/lib/auth";
-import { runImport } from "@/lib/import/runImport";
+import { ImportInProgressError, startImportJob } from "@/lib/import/jobs";
 import { VikunjaImporter } from "@/lib/import/vikunja";
 import type { Importer } from "@/lib/import/types";
 
@@ -86,18 +86,17 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const summary = await runImport(importer, session.userId, { dryRun: body.dryRun === true });
-    if (summary.mode === "live") {
-      for (const record of summary.records) {
-        if (record.status === "failed") {
-          console.error(`Import ${summary.importRunId} ${record.entityType} ${record.sourceId} failed:`, record.error);
-          record.error = "Failed to import this record; see the server log.";
-        }
-      }
-    }
-    return NextResponse.json({ success: true, data: summary });
+    const { jobId, done } = await startImportJob(importer, session.userId, { dryRun: body.dryRun === true });
+    after(() => done);
+    return NextResponse.json(
+      { success: true, data: { jobId, status: "RUNNING", statusUrl: `/api/v1/import/${jobId}` } },
+      { status: 202 }
+    );
   } catch (err) {
-    console.error("Import failed:", err);
+    if (err instanceof ImportInProgressError) {
+      return NextResponse.json({ error: err.message, jobId: err.jobId }, { status: 409 });
+    }
+    console.error("Import failed to start:", err);
     return NextResponse.json({ error: "Import failed; see the server log." }, { status: 500 });
   }
 }

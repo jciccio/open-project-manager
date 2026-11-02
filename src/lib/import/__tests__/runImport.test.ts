@@ -360,4 +360,55 @@ describe("runImport", () => {
     const healthyColumn = summary.records.find((r) => r.sourceId === "col-ok" && r.status === "created");
     expect(healthyColumn).toBeDefined();
   });
+
+  it("reuses a card type that already exists in the project under the same name", async () => {
+    const withoutTypes = { ...baseFixture(), cardTypes: {}, cards: {}, comments: {} };
+    await runImport(makeFakeImporter(withoutTypes), userId);
+    const project = await db.project.findFirst({ where: { userId, name: "Imported Project" } });
+    const handMade = await db.cardType.create({ data: { projectId: project!.id, name: "Task" } });
+
+    const withTypes = makeFakeImporter({
+      ...withoutTypes,
+      cardTypes: {
+        "proj-1": [
+          { sourceId: "type-task", name: "Task" },
+          { sourceId: "type-bug", name: "Bug" },
+        ],
+      },
+    });
+
+    const dryRun = (await runImport(withTypes, userId, { dryRun: true })) as ImportDryRunSummary;
+    expect(dryRun.records.filter((r) => r.entityType === "cardType").map((r) => [r.sourceId, r.status])).toEqual([
+      ["type-task", "would_skip"],
+      ["type-bug", "would_create"],
+    ]);
+
+    const live = (await runImport(withTypes, userId)) as ImportSummary;
+    const typeResults = live.records.filter((r) => r.entityType === "cardType");
+    expect(typeResults.map((r) => [r.sourceId, r.status])).toEqual([
+      ["type-task", "skipped"],
+      ["type-bug", "created"],
+    ]);
+    expect(typeResults[0].localId).toBe(handMade.id);
+    expect(live.totals.failed).toBe(0);
+    expect(await db.cardType.count({ where: { projectId: project!.id } })).toBe(2);
+
+    const again = (await runImport(withTypes, userId)) as ImportSummary;
+    expect(again.totals.created).toBe(0);
+  });
+
+  it("two concurrent runs that both find a new card create it once", async () => {
+    await runImport(makeFakeImporter(baseFixture()), userId);
+    const withNewCard = baseFixture();
+    withNewCard.cards["proj-1"].push({ sourceId: "card-3", columnSourceId: "col-todo", title: "Added later" });
+
+    const [first, second] = (await Promise.all([
+      runImport(makeFakeImporter(withNewCard), userId),
+      runImport(makeFakeImporter(withNewCard), userId),
+    ])) as ImportSummary[];
+
+    expect([...first.records, ...second.records].filter((r) => r.status === "failed")).toEqual([]);
+    expect(await db.card.count({ where: { project: { userId }, title: "Added later" } })).toBe(1);
+    expect(await db.importRecord.count({ where: { userId, entityType: "card", sourceId: "card-3" } })).toBe(1);
+  });
 });

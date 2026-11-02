@@ -20,6 +20,8 @@ import { generateProjectKey } from "@/lib/projectKey";
 import { createScopedLabel } from "@/lib/scopedLabels";
 import { verifyProjectAccess } from "@/lib/permissions";
 import { deriveCompletedAt } from "@/lib/cardCompletion";
+import { DEFAULT_PROJECT_COLUMNS, isClosedColumn, parseColumnGroupFilter } from "@/lib/columnGroups";
+import { parseColumnCreate, parseColumnUpdate } from "@/lib/validation/columns";
 import { cardTextSearch } from "@/lib/cardSearch";
 
 const DEFAULT_LIST_CARDS_LIMIT = 100;
@@ -29,6 +31,10 @@ function requireUserId(providedUserId?: string): string {
   throw new Error(
     "userId is required — MCP tool calls must include an authenticated userId."
   );
+}
+
+function emptyToNull(value: unknown) {
+  return value === "" ? null : value;
 }
 
 export const MCP_TOOLS = [
@@ -144,7 +150,18 @@ export const MCP_TOOLS = [
         projectId: { type: "string", description: "Target project ID" },
         name: { type: "string", description: "Column name" },
         order: { type: "number", description: "Optional column order position index" },
-        isDone: { type: "boolean", description: "Whether cards in this column count as complete (default: false)" },
+        isDone: {
+          type: "boolean",
+          description: "Shorthand for group COMPLETED (true). Must agree with group when both are given.",
+        },
+        group: {
+          type: "string",
+          enum: ["BACKLOG", "UNSTARTED", "STARTED", "COMPLETED", "CANCELLED"],
+          description:
+            "State group. COMPLETED columns are done (cards get completedAt); CANCELLED columns are closed without completing.",
+        },
+        color: { type: "string", description: "Hex color like #6366f1, or empty string to clear" },
+        description: { type: "string", description: "Column description, or empty string to clear" },
       },
       required: ["projectId", "name"],
     },
@@ -155,14 +172,26 @@ export const MCP_TOOLS = [
   },
   {
     name: "update_column",
-    description: "Update column title, position order, or done-state. Flipping isDone bulk-updates completedAt on the column's cards.",
+    description:
+      "Update a column's name, position, state group, color or description. Moving into or out of the COMPLETED group bulk-updates completedAt on the column's cards.",
     inputSchema: {
       type: "object",
       properties: {
         id: { type: "string", description: "Column ID" },
         name: { type: "string", description: "New column name" },
         order: { type: "number", description: "New order position index" },
-        isDone: { type: "boolean", description: "Whether cards in this column count as complete" },
+        isDone: {
+          type: "boolean",
+          description: "Shorthand for group COMPLETED (true). Must agree with group when both are given.",
+        },
+        group: {
+          type: "string",
+          enum: ["BACKLOG", "UNSTARTED", "STARTED", "COMPLETED", "CANCELLED"],
+          description:
+            "State group. COMPLETED columns are done (cards get completedAt); CANCELLED columns are closed without completing.",
+        },
+        color: { type: "string", description: "Hex color like #6366f1, or empty string to clear" },
+        description: { type: "string", description: "Column description, or empty string to clear" },
       },
       required: ["id"],
     },
@@ -199,6 +228,11 @@ export const MCP_TOOLS = [
         query: { type: "string", description: "Free-text search across card title and description (case-insensitive substring match)" },
         parentId: { type: "string", description: "Filter by parent card ID" },
         typeId: { type: "string", description: "Filter by card type ID" },
+        columnGroup: {
+          type: "array",
+          items: { type: "string", enum: ["BACKLOG", "UNSTARTED", "STARTED", "COMPLETED", "CANCELLED"] },
+          description: "Only cards whose column is in one of these state groups",
+        },
         isArchived: { type: "boolean", description: "Filter by archived status (default: false)" },
         limit: { type: "number", description: "Maximum number of cards to return (1-100, default 100)" },
         cursor: { type: "string", description: "The nextCursor value from the previous page (returns the cards after it)" },
@@ -810,12 +844,7 @@ export async function executeMcpTool(
           color: args.color ? assertHexColor(args.color) : "#6366f1",
           visibility: args.visibility || "PRIVATE",
           columns: {
-            create: [
-              { name: "Backlog", order: 0, isDone: false },
-              { name: "To Do", order: 1, isDone: false },
-              { name: "In Progress", order: 2, isDone: false },
-              { name: "Done", order: 3, isDone: true },
-            ],
+            create: DEFAULT_PROJECT_COLUMNS.map((column) => ({ ...column })),
           },
           cardTypes: {
             create: DEFAULT_CARD_TYPES,
@@ -870,7 +899,14 @@ export async function executeMcpTool(
     case "create_column": {
       const project = await db.project.findUnique({ where: { id: args.projectId } });
       if (!project || !(await verifyProjectAccess(project.id, userId, "ADMIN"))) throw new Error(`Project with ID ${args.projectId} not found.`);
-
+      const parsed = parseColumnCreate({
+        name: args.name,
+        isDone: args.isDone,
+        group: args.group,
+        color: emptyToNull(args.color),
+        description: emptyToNull(args.description),
+      });
+      if (!parsed.success) throw new Error(parsed.error);
       let order = args.order;
       if (order === undefined) {
         const lastCol = await db.column.findFirst({
@@ -882,9 +918,12 @@ export async function executeMcpTool(
       const column = await db.column.create({
         data: {
           projectId: args.projectId,
-          name: args.name.trim(),
+          name: parsed.data.name,
           order,
-          isDone: args.isDone ?? false,
+          isDone: parsed.isDone,
+          group: parsed.group,
+          color: parsed.data.color,
+          description: parsed.data.description,
         },
       });
       return { success: true, column };
@@ -893,20 +932,34 @@ export async function executeMcpTool(
     case "update_column": {
       const existingColumn = await db.column.findUnique({ where: { id: args.id } });
       if (!existingColumn || !(await verifyProjectAccess(existingColumn.projectId, userId, "ADMIN"))) throw new Error(`Column with ID ${args.id} not found.`);
-
-      const data: any = {};
-      if (args.name !== undefined) data.name = args.name.trim();
-      if (args.order !== undefined) data.order = args.order;
-      if (args.isDone !== undefined) data.isDone = args.isDone;
+      const parsed = parseColumnUpdate(
+        {
+          name: args.name,
+          order: args.order,
+          isDone: args.isDone,
+          group: args.group,
+          color: emptyToNull(args.color),
+          description: emptyToNull(args.description),
+        },
+        existingColumn.group
+      );
+      if (!parsed.success) throw new Error(parsed.error);
 
       const column = await db.$transaction(async (tx) => {
         const updatedColumn = await tx.column.update({
           where: { id: args.id },
-          data,
+          data: {
+            name: parsed.data.name,
+            order: parsed.data.order,
+            isDone: parsed.isDone,
+            group: parsed.group,
+            color: parsed.data.color,
+            description: parsed.data.description,
+          },
         });
 
-        if (args.isDone !== undefined && args.isDone !== existingColumn?.isDone) {
-          if (args.isDone) {
+        if (parsed.isDone !== existingColumn.isDone) {
+          if (parsed.isDone) {
             await tx.card.updateMany({
               where: { columnId: args.id, completedAt: null },
               data: { completedAt: new Date() },
@@ -951,6 +1004,11 @@ export async function executeMcpTool(
         where.parentId = args.parentId || null;
       }
       if (args.typeId) where.typeId = args.typeId;
+      if (args.columnGroup !== undefined) {
+        const groupFilter = parseColumnGroupFilter(args.columnGroup);
+        if (!groupFilter.success) throw new Error(groupFilter.error);
+        where.column = { group: { in: groupFilter.groups } };
+      }
 
       let limit: number = DEFAULT_LIST_CARDS_LIMIT;
       if (typeof args.limit === "number") {
@@ -968,7 +1026,7 @@ export async function executeMcpTool(
       const queryOptions: any = {
         ...cardPageQuery(where, after, limit),
         include: {
-          column: { select: { name: true } },
+          column: { select: { name: true, group: true } },
           type: true,
           labels: { include: { label: true } },
           assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
@@ -1347,6 +1405,7 @@ export async function executeMcpTool(
           identifier: `${r.targetCard.project.key}-${r.targetCard.number}`,
           columnName: r.targetCard.column.name,
           isDone: r.targetCard.column.isDone,
+          isClosed: isClosedColumn(r.targetCard.column),
           direction: "outgoing",
         })),
         ...incoming.map((r) => ({
@@ -1357,6 +1416,7 @@ export async function executeMcpTool(
           identifier: `${r.sourceCard.project.key}-${r.sourceCard.number}`,
           columnName: r.sourceCard.column.name,
           isDone: r.sourceCard.column.isDone,
+          isClosed: isClosedColumn(r.sourceCard.column),
           direction: "incoming",
         })),
       ];
@@ -1603,7 +1663,60 @@ export async function executeMcpTool(
   }
 }
 
-export function createMcpServer(): Server {
+// Shared by the REST resources route, the JSON-RPC resources/read branch, and
+// the stdio ReadResourceRequestSchema handler — all three fetch the exact same
+// data (read-only, no revalidatePath), so the ownership scoping lives once here.
+export async function readMcpResource(uri: string, userId: string) {
+  if (uri === "opm://projects") {
+    const projects = await db.project.findMany({
+      where: { isArchived: false, OR: accessibleProjectsFilter(userId) },
+      include: { _count: { select: { cards: true, columns: true } } },
+    });
+    return { uri, mimeType: "application/json", data: projects };
+  }
+
+  if (uri.startsWith("opm://projects/")) {
+    const id = uri.replace("opm://projects/", "");
+    const project = await db.project.findUnique({
+      where: { id },
+      include: {
+        columns: {
+          orderBy: { order: "asc" },
+          include: { cards: true },
+        },
+      },
+    });
+    if (!project || !(await verifyProjectAccess(project.id, userId, "VIEWER"))) {
+      throw new Error(`Project resource '${id}' not found`);
+    }
+    return { uri, mimeType: "application/json", data: project };
+  }
+
+  if (uri.startsWith("opm://cards/")) {
+    const id = uri.replace("opm://cards/", "");
+    const card = await db.card.findUnique({
+      where: { id },
+      include: {
+        column: true,
+        comments: true,
+      },
+    });
+    if (!card || !(await verifyProjectAccess(card.projectId, userId, "VIEWER"))) {
+      throw new Error(`Card resource '${id}' not found`);
+    }
+    return { uri, mimeType: "application/json", data: card };
+  }
+
+  throw new Error(`Resource non-existent: ${uri}`);
+}
+
+// `userId` pins the stdio server to one account (scripts/mcp-server.ts reads it
+// from OPM_MCP_USER). Unpinned, the acting user is whatever `userId` argument
+// the client sends.
+export function createMcpServer(options: { userId?: string } = {}): Server {
+  const actingUserId = (provided?: unknown) =>
+    options.userId ?? requireUserId(typeof provided === "string" ? provided : undefined);
+
   const server = new Server(
     {
       name: "open-project-manager-mcp",
@@ -1626,10 +1739,7 @@ export function createMcpServer(): Server {
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
     try {
-      // stdio has no session/cookie mechanism, so identity is trusted from the
-      // caller-supplied userId argument here — this is issue #122's scope, not #83's.
-      const providedUserId = args?.userId;
-      const ctx = { userId: requireUserId(typeof providedUserId === "string" ? providedUserId : undefined) };
+      const ctx = { userId: actingUserId(args?.userId) };
       const result = await executeMcpTool(name, args || {}, ctx);
       return {
         content: [
@@ -1668,65 +1778,18 @@ export function createMcpServer(): Server {
 
   server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     const { uri } = request.params;
-    if (uri === "opm://projects") {
-      const projects = await db.project.findMany({
-        where: { isArchived: false },
-        include: { _count: { select: { cards: true, columns: true } } },
-      });
-      return {
-        contents: [
-          {
-            uri,
-            mimeType: "application/json",
-            text: JSON.stringify(projects, null, 2),
-          },
-        ],
-      };
-    }
+    const userId = actingUserId((request.params as { userId?: unknown }).userId);
 
-    if (uri.startsWith("opm://projects/")) {
-      const id = uri.replace("opm://projects/", "");
-      const project = await db.project.findUnique({
-        where: { id },
-        include: {
-          columns: {
-            orderBy: { order: "asc" },
-            include: { cards: true },
-          },
+    const resource = await readMcpResource(uri, userId);
+    return {
+      contents: [
+        {
+          uri: resource.uri,
+          mimeType: resource.mimeType,
+          text: JSON.stringify(resource.data, null, 2),
         },
-      });
-      return {
-        contents: [
-          {
-            uri,
-            mimeType: "application/json",
-            text: JSON.stringify(project, null, 2),
-          },
-        ],
-      };
-    }
-
-    if (uri.startsWith("opm://cards/")) {
-      const id = uri.replace("opm://cards/", "");
-      const card = await db.card.findUnique({
-        where: { id },
-        include: {
-          column: true,
-          comments: true,
-        },
-      });
-      return {
-        contents: [
-          {
-            uri,
-            mimeType: "application/json",
-            text: JSON.stringify(card, null, 2),
-          },
-        ],
-      };
-    }
-
-    throw new Error(`Resource non-existent: ${uri}`);
+      ],
+    };
   });
 
   // Prompts Handlers
@@ -1762,15 +1825,21 @@ export function createMcpServer(): Server {
   server.setRequestHandler(GetPromptRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
     if (name === "summarize_project") {
+      const userId = actingUserId(args?.userId);
       const projectId = args?.projectId;
-      const project = await db.project.findUnique({
-        where: { id: projectId },
-        include: {
-          columns: {
-            include: { cards: true },
-          },
-        },
-      });
+      const project = projectId
+        ? await db.project.findUnique({
+            where: { id: projectId },
+            include: {
+              columns: {
+                include: { cards: true },
+              },
+            },
+          })
+        : null;
+      if (!project || !(await verifyProjectAccess(project.id, userId, "VIEWER"))) {
+        throw new Error(`Project with ID ${projectId} not found.`);
+      }
       return {
         description: `Project Summary Prompt for ${project?.name || projectId}`,
         messages: [

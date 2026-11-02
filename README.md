@@ -30,7 +30,7 @@ A lightweight, fast, and self-hosted project management web application inspired
 - 📊 **Multiple Project Views**: Switch between Kanban Board, Structured List View, Analytics & Graphs (Recharts), and Monthly Calendar View.
 - 🏷️ **Human-Friendly Card Identifiers**: Stable per-project human keys (`PROJ-123`) with instant lookup API (`GET /api/v1/cards/by-identifier/:id`).
 - 📁 **Project & Card Archiving**: Archive completed projects or individual cards (`isArchived: true`) to maintain clean active views.
-- 📋 **Customizable & Reorganizable Board Columns**: Create custom columns and reorder columns left/right with instant SQLite persistence.
+- 📋 **Customizable & Reorganizable Board Columns**: Create custom columns and reorder columns left/right with instant SQLite persistence. Each column belongs to a state group (Backlog, Unstarted, Started, Completed, Cancelled) and can carry a color and a description. Cards in Completed columns get a completion timestamp; Cancelled columns close cards without completing them.
 - 🎯 **Rich Task Card Metadata**:
   - **Story Points**: Track task estimation points.
   - **Priority Levels**: Explicit `NONE`, `LOW`, `MEDIUM`, `HIGH`, or `URGENT` priorities.
@@ -327,6 +327,18 @@ curl -X POST http://localhost:3000/api/v1/import \
   -d '{"source": "vikunja", "projectIds": [2]}'
 ```
 
+The import runs in the background. Both calls answer `202` with a `jobId` right
+away; poll the job until its `status` is `DONE` (the `summary` holds the per-record
+results) or `FAILED`:
+
+```bash
+curl http://localhost:3000/api/v1/import/JOB_ID -H "Authorization: Bearer YOUR_OPM_TOKEN"
+```
+
+One import runs per account at a time. Starting another while one is running
+answers `409` with the running job's id, and the command line below refuses to
+start until it finishes.
+
 On the machine that owns the database you can skip the API token entirely and run
 the same import from the command line:
 
@@ -344,12 +356,21 @@ How Vikunja concepts land in OPM:
 | Vikunja | Open Project Manager |
 |---|---|
 | Project | Project |
-| Kanban bucket | Column (the view's `done_bucket_id` becomes `isDone`) |
+| Kanban bucket | Column (the view's `done_bucket_id` becomes the Completed group; other buckets are Unstarted) |
 | Task | Card (done tasks are forced into the done column when the view has one, keeping `done_at` as `completedAt`) |
 | Priority `0…5` | `NONE, LOW, MEDIUM, HIGH, URGENT, URGENT` |
 | Label (instance-wide) | Project label — only labels the imported tasks actually use |
 | Comment | Comment, keeping the original author and timestamp |
-| HTML description | Markdown (OPM renders descriptions with `react-markdown`) |
+| HTML description | Markdown (OPM renders descriptions with `react-markdown`); checklists keep their checked state |
+| Assignees | The card's owner field, listing every assignee's name |
+| (no card types in Vikunja) | The default Task, Bug and Feature types, as for a project created in OPM |
+
+Not imported: related tasks, attachments, start and end dates, reminders, repeating
+tasks, percent done, task colour, created and updated timestamps (imported cards are
+dated at import time), task order within a bucket, archived projects, and the project
+hierarchy (sub-projects arrive as top-level projects). Images embedded in a description
+still point at the Vikunja instance, so they may not display in OPM (Vikunja attachment
+URLs usually need a Vikunja login).
 
 Adding another source is one adapter implementing `Importer` (`src/lib/import/types.ts`)
 plus one line in the `SOURCES` registry in `src/app/api/v1/import/route.ts`.
@@ -392,13 +413,16 @@ yarn mcp
     "open-project-manager": {
       "command": "npx",
       "args": ["-y", "tsx", "scripts/mcp-server.ts"],
-      "cwd": "/path/to/open-project-manager"
+      "cwd": "/path/to/open-project-manager",
+      "env": { "OPM_MCP_USER": "you@example.com" }
     }
   }
 }
 ```
 
-Stdio connections have no authenticated session, so tools that create data scoped to a user (e.g. `create_project`) require an explicit `userId` argument from the calling client — there is no fallback identity.
+Stdio connections have no login, so set `OPM_MCP_USER` (an email or user id) to pin the server to one account: every tool call then acts as that user, and a `userId` argument from the client is ignored. The server refuses to start if the value matches no user. Without `OPM_MCP_USER`, each call acts as the `userId` argument the client sends, and the server logs a warning. Anyone who can start this process can already read the database directly, so pinning is about which identity the AI client acts as, not about access control.
+
+The server reads `DATABASE_URL` from its environment (it does not load `.env`). Without it, it uses `dev.db` in its working directory, so set `cwd` as above or add `DATABASE_URL` to `env`.
 
 ### 2. Remote REST API for LLM Models (`/api/v1/mcp/*`)
 

@@ -81,6 +81,7 @@ export async function GET(request: NextRequest) {
       userId: result.user.id,
       email: result.user.email,
       name: result.user.name,
+      tokenVersion: result.user.tokenVersion,
     });
 
     const response = NextResponse.redirect(new URL("/", publicOrigin));

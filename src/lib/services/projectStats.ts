@@ -36,12 +36,13 @@ export async function getProjectStats(
   const countByProject = (where: object) =>
     db.card.groupBy({ by: ["projectId"], where: { ...scope, ...where }, _count: { _all: true } });
 
-  const [total, done, overdue, archived] = await Promise.all([
+  const [total, done, cancelled, overdue, archived] = await Promise.all([
     countByProject({ isArchived: false }),
     countByProject({ isArchived: false, column: { isDone: true } }),
+    countByProject({ isArchived: false, column: { isDone: false, group: "CANCELLED" } }),
     countByProject({
       isArchived: false,
-      column: { isDone: false },
+      column: { isDone: false, group: { not: "CANCELLED" } },
       dueDate: { lt: startOfUtcToday(now) },
     }),
     countByProject({ isArchived: true }),
@@ -51,6 +52,7 @@ export async function getProjectStats(
     new Map(rows.map((row) => [row.projectId, row._count._all]));
   const totals = toMap(total);
   const dones = toMap(done);
+  const cancelleds = toMap(cancelled);
   const overdues = toMap(overdue);
   const archiveds = toMap(archived);
 
@@ -58,13 +60,14 @@ export async function getProjectStats(
   for (const id of projectIds) {
     const totalCount = totals.get(id) ?? 0;
     const doneCount = dones.get(id) ?? 0;
+    const countable = totalCount - (cancelleds.get(id) ?? 0);
     stats[id] = {
       total: totalCount,
       done: doneCount,
-      open: totalCount - doneCount,
+      open: countable - doneCount,
       overdue: overdues.get(id) ?? 0,
       archived: archiveds.get(id) ?? 0,
-      percentComplete: totalCount === 0 ? null : Math.round((doneCount / totalCount) * 100),
+      percentComplete: countable === 0 ? null : Math.round((doneCount / countable) * 100),
     };
   }
   return stats;

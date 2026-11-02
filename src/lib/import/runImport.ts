@@ -1,5 +1,7 @@
 import { randomUUID } from "crypto";
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { DEFAULT_COLUMN_GROUP } from "@/lib/columnGroups";
 import { generateProjectKey } from "@/lib/projectKey";
 import { withCardNumberRetry } from "@/lib/cardNumbering";
 import type {
@@ -13,6 +15,10 @@ import type {
 } from "./types";
 
 const ORDER_GAP = 10000;
+
+function isUniqueViolation(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+}
 
 function unknownColumnError(columnSourceId: string): string {
   return `Unknown columnSourceId "${columnSourceId}": no matching column was imported for this project`;
@@ -76,6 +82,15 @@ async function findLegacyLabelInProject(userId: string, source: string, labelSou
   if (!legacy) return undefined;
   const label = await db.label.findUnique({ where: { id: legacy.localId }, select: { projectId: true } });
   return label?.projectId === projectLocalId ? legacy.localId : undefined;
+}
+
+/** A card type with the same name already in the project (names are unique per project). */
+async function findCardTypeByName(projectLocalId: string, name: string) {
+  const existing = await db.cardType.findUnique({
+    where: { name_projectId: { name, projectId: projectLocalId } },
+    select: { id: true },
+  });
+  return existing?.id;
 }
 
 async function rowStillExists(entityType: ImportEntityType, localId: string): Promise<boolean> {
@@ -147,10 +162,23 @@ async function createOrSkip(
 
     const localId = await create();
     try {
-      await recordMapping(ctx.userId, ctx.source, entityType, mappingKey, localId, ctx.importRunId);
+      if (existing) {
+        await recordMapping(ctx.userId, ctx.source, entityType, mappingKey, localId, ctx.importRunId);
+      } else {
+        await db.importRecord.create({
+          data: { userId: ctx.userId, source: ctx.source, entityType, sourceId: mappingKey, localId, importRunId: ctx.importRunId },
+        });
+      }
     } catch (err) {
       // An unmapped row would be created again on the next run.
       await deleteImportedRow(entityType, localId).catch(() => {});
+      // A concurrent run mapped this record first: its row stands, ours is gone.
+      const winner = isUniqueViolation(err)
+        ? await findExistingMapping(ctx.userId, ctx.source, entityType, mappingKey)
+        : null;
+      if (winner) {
+        return { localId: winner.localId, result: { entityType, sourceId, status: "skipped", localId: winner.localId } };
+      }
       throw err;
     }
     return { localId, result: { entityType, sourceId, status: "created", localId } };
@@ -191,7 +219,13 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
           for await (const col of ctx.importer.fetchColumns(projectRec.sourceId)) {
             const { localId, result } = await createOrSkip(ctx, "column", col.sourceId, async () => {
               const created = await db.column.create({
-                data: { projectId: projectLocalId, name: col.name, order: col.order ?? 0, isDone: col.isDone ?? false },
+                data: {
+                  projectId: projectLocalId,
+                  name: col.name,
+                  order: col.order ?? 0,
+                  isDone: !!col.isDone,
+                  group: col.isDone ? "COMPLETED" : DEFAULT_COLUMN_GROUP,
+                },
               });
               return created.id;
             });
@@ -210,12 +244,18 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
         const cardTypeMap = new Map<string, string>();
         try {
           for await (const ct of ctx.importer.fetchCardTypes(projectRec.sourceId)) {
-            const { localId, result } = await createOrSkip(ctx, "cardType", ct.sourceId, async () => {
-              const created = await db.cardType.create({
-                data: { projectId: projectLocalId, name: ct.name, icon: ct.icon || "Tag", color: ct.color || "#6366f1" },
-              });
-              return created.id;
-            });
+            const { localId, result } = await createOrSkip(
+              ctx,
+              "cardType",
+              ct.sourceId,
+              async () => {
+                const created = await db.cardType.create({
+                  data: { projectId: projectLocalId, name: ct.name, icon: ct.icon || "Tag", color: ct.color || "#6366f1" },
+                });
+                return created.id;
+              },
+              { findLegacy: () => findCardTypeByName(projectLocalId, ct.name) }
+            );
             records.push(result);
             if (localId) cardTypeMap.set(ct.sourceId, localId);
           }
@@ -412,7 +452,11 @@ async function classifyForDryRun(
         }
 
         try {
-          for await (const ct of importer.fetchCardTypes(project.sourceId)) await classify("cardType", ct.sourceId);
+          for await (const ct of importer.fetchCardTypes(project.sourceId)) {
+            const mapped = !!(await liveMapping("cardType", ct.sourceId));
+            const sameName = !mapped && projectMapping ? !!(await findCardTypeByName(projectMapping.localId, ct.name)) : false;
+            records.push({ entityType: "cardType", sourceId: ct.sourceId, status: mapped || sameName ? "would_skip" : "would_create" });
+          }
         } catch (err) {
           records.push({
             entityType: "cardType",
@@ -497,7 +541,7 @@ export async function runImport(
   userId: string,
   options: RunImportOptions = {}
 ): Promise<ImportSummary | ImportDryRunSummary> {
-  const importRunId = randomUUID();
+  const importRunId = options.importRunId ?? randomUUID();
 
   if (options.dryRun) {
     const records: ImportDryRunRecordResult[] = [];
