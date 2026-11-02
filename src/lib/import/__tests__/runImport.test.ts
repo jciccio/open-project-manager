@@ -621,7 +621,7 @@ describe("runImport", () => {
     expect(autoCard?.number).toBe(2);
   });
 
-  it("reports a per-record error when explicit card number already exists in project", async () => {
+  it("falls back to auto-numbering and annotates description when explicit card number already exists in project", async () => {
     const fixture = baseFixture();
     fixture.cards["proj-1"] = [
       { sourceId: "card-initial", columnSourceId: "col-todo", title: "Initial Card", number: 1 },
@@ -632,12 +632,183 @@ describe("runImport", () => {
     // Second import with a new card attempting to reuse number 1
     const fixture2 = baseFixture();
     fixture2.cards["proj-1"] = [
-      { sourceId: "card-duplicate-number", columnSourceId: "col-todo", title: "Colliding Card", number: 1 },
+      {
+        sourceId: "card-duplicate-number",
+        columnSourceId: "col-todo",
+        title: "Colliding Card",
+        description: "Existing details",
+        number: 1,
+      },
     ];
 
     const live2 = (await runImport(makeFakeImporter(fixture2), userId)) as ImportSummary;
-    const failedRecord = live2.records.find((r) => r.sourceId === "card-duplicate-number");
-    expect(failedRecord?.status).toBe("failed");
-    expect(failedRecord?.error).toContain("Card number 1 already exists in project");
+    const cardRecord = live2.records.find((r) => r.sourceId === "card-duplicate-number");
+    expect(cardRecord?.status).toBe("created");
+
+    const createdCard = await db.card.findFirst({
+      where: { project: { userId }, title: "Colliding Card" },
+    });
+    expect(createdCard).not.toBeNull();
+    expect(createdCard?.number).toBe(2);
+    expect(createdCard?.description).toBe("Existing details\n\n[Original card index: 1]");
+  });
+
+  it("imports partially fetched cards when fetchCards throws mid-stream", async () => {
+    const fixture = baseFixture();
+    const importer: Importer = {
+      ...makeFakeImporter(fixture),
+      async *fetchCards() {
+        yield { sourceId: "card-partial-1", columnSourceId: "col-todo", title: "Partial 1" };
+        yield { sourceId: "card-partial-2", columnSourceId: "col-todo", title: "Partial 2" };
+        throw new Error("Mid-stream 500 error from source");
+      },
+    };
+
+    const live = (await runImport(importer, userId)) as ImportSummary;
+    expect(live.records.find((r) => r.sourceId === "proj-1:cards")?.status).toBe("failed");
+    expect(live.records.find((r) => r.sourceId === "card-partial-1")?.status).toBe("created");
+    expect(live.records.find((r) => r.sourceId === "card-partial-2")?.status).toBe("created");
+
+    const cardsInDb = await db.card.findMany({ where: { project: { userId } } });
+    expect(cardsInDb.map((c) => c.title)).toContain("Partial 1");
+    expect(cardsInDb.map((c) => c.title)).toContain("Partial 2");
+  });
+
+  it("rejects unsafe link URLs like javascript: and records failure in live and dry run", async () => {
+    const fixture = baseFixture();
+    fixture.cards["proj-1"] = [
+      {
+        sourceId: "card-bad-link",
+        columnSourceId: "col-todo",
+        title: "Bad Link Card",
+        links: [{ url: "javascript:alert(1)" }],
+      },
+    ];
+
+    const dry = (await runImport(makeFakeImporter(fixture), userId, { dryRun: true })) as ImportDryRunSummary;
+    const dryRec = dry.records.find((r) => r.sourceId === "card-bad-link");
+    expect(dryRec?.status).toBe("would_fail");
+    expect(dryRec?.error).toContain("Invalid link URL");
+
+    const live = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
+    const liveRec = live.records.find((r) => r.sourceId === "card-bad-link");
+    expect(liveRec?.status).toBe("failed");
+    expect(liveRec?.error).toContain("Invalid link URL");
+  });
+
+  it("rejects self-relations and invalid relation types", async () => {
+    const fixture = baseFixture();
+    fixture.cards["proj-1"] = [
+      {
+        sourceId: "card-self-rel",
+        columnSourceId: "col-todo",
+        title: "Self Rel Card",
+        relations: [{ targetCardSourceId: "card-self-rel", type: "BLOCKS" }],
+      },
+      {
+        sourceId: "card-target",
+        columnSourceId: "col-todo",
+        title: "Target Card",
+      },
+      {
+        sourceId: "card-invalid-rel",
+        columnSourceId: "col-todo",
+        title: "Invalid Rel Card",
+        relations: [{ targetCardSourceId: "card-target", type: "INVALID_TYPE" as any }],
+      },
+    ];
+
+    const live = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
+    const selfRelRec = live.records.find((r) => r.sourceId === "card-self-rel:relation:card-self-rel");
+    expect(selfRelRec?.status).toBe("failed");
+    expect(selfRelRec?.error).toContain("A card cannot relate to itself");
+
+    const invalidRelRec = live.records.find((r) => r.sourceId === "card-invalid-rel:relation:card-target");
+    expect(invalidRelRec?.status).toBe("failed");
+    expect(invalidRelRec?.error).toContain("Invalid relation type");
+  });
+
+  it("canonicalizes inverse relations preventing duplicate rows", async () => {
+    const fixture = baseFixture();
+    fixture.cards["proj-1"] = [
+      {
+        sourceId: "card-a",
+        columnSourceId: "col-todo",
+        title: "Card A",
+        relations: [{ targetCardSourceId: "card-b", type: "BLOCKS" }],
+      },
+      {
+        sourceId: "card-b",
+        columnSourceId: "col-todo",
+        title: "Card B",
+        relations: [{ targetCardSourceId: "card-a", type: "BLOCKED_BY" }],
+      },
+    ];
+
+    const live = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
+    expect(live.totals.created).toBeGreaterThanOrEqual(2);
+
+    const relCount = await db.cardRelation.count();
+    expect(relCount).toBe(1);
+  });
+
+  it("allows already-mapped cards to skip cleanly even if label is not fetched", async () => {
+    const fixture = baseFixture();
+    fixture.cards["proj-1"] = [
+      {
+        sourceId: "card-labelled",
+        columnSourceId: "col-todo",
+        title: "Labelled Card",
+        labelSourceIds: ["label-urgent"],
+      },
+    ];
+
+    await runImport(makeFakeImporter(fixture), userId);
+
+    // Second run where fetchLabels fails / yields empty
+    const fixture2 = baseFixture();
+    fixture2.labels["proj-1"] = [];
+    fixture2.cards["proj-1"] = [
+      {
+        sourceId: "card-labelled",
+        columnSourceId: "col-todo",
+        title: "Labelled Card",
+        labelSourceIds: ["label-urgent"],
+      },
+    ];
+
+    const live2 = (await runImport(makeFakeImporter(fixture2), userId)) as ImportSummary;
+    const cardRec = live2.records.find((r) => r.sourceId === "card-labelled");
+    expect(cardRec?.status).toBe("skipped");
+  });
+
+  it("does not re-update parents or relations for skipped cards on re-import", async () => {
+    const fixture = baseFixture();
+    fixture.cards["proj-1"] = [
+      { sourceId: "parent-card", columnSourceId: "col-todo", title: "Parent" },
+      {
+        sourceId: "child-card",
+        columnSourceId: "col-todo",
+        title: "Child",
+        parentSourceId: "parent-card",
+      },
+    ];
+
+    await runImport(makeFakeImporter(fixture), userId);
+
+    const childInDb = await db.card.findFirst({ where: { project: { userId }, title: "Child" } });
+    expect(childInDb?.parentId).not.toBeNull();
+
+    // User manually un-parents the card in OPM UI
+    await db.card.update({ where: { id: childInDb!.id }, data: { parentId: null } });
+
+    // Re-run import
+    const live2 = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
+    const childRec = live2.records.find((r) => r.sourceId === "child-card");
+    expect(childRec?.status).toBe("skipped");
+
+    // ParentId should still be null (not overwritten!)
+    const childAfterReimport = await db.card.findUnique({ where: { id: childInDb!.id } });
+    expect(childAfterReimport?.parentId).toBeNull();
   });
 });

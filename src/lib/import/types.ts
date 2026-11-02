@@ -27,7 +27,6 @@ export interface ImportLabel {
   sourceId: string;
   name: string;
   color?: string;
-  description?: string;
 }
 
 export interface ImportCardRelation {
@@ -55,7 +54,6 @@ export interface ImportCard {
   completedAt?: string;
   /** Original creation timestamp from the source. */
   createdAt?: string;
-  startDate?: string;
   isArchived?: boolean;
   parentSourceId?: string;
   typeSourceId?: string;
