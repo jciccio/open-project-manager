@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { getProjectById } from "../projects";
+import { getProjectById, getProjectBoard } from "../projects";
 import { createCard, updateCard } from "../cards";
 import { db } from "@/lib/db";
 import { createTestUser, cleanupTestUser } from "@/test/helpers";
@@ -41,7 +41,7 @@ describe("Project data fetching performance optimizations (Issue #105)", () => {
     }
   });
 
-  it("returns cards with _count.comments and without bulk activities in getProjectById", async () => {
+  it("returns cards with _count.comments and moved activities in getProjectBoard, while getProjectById preserves full history", async () => {
     const cardRes = await createCard({
       projectId,
       columnId,
@@ -60,8 +60,11 @@ describe("Project data fetching performance optimizations (Issue #105)", () => {
     await db.activity.create({
       data: { cardId, actorUserId: userId, type: "test_activity" },
     });
+    await db.activity.create({
+      data: { cardId, actorUserId: userId, type: "moved", fromValue: "Col1", toValue: "Col2" },
+    });
 
-    const project = await getProjectById(projectId, userId);
+    const project = await getProjectBoard(projectId, userId);
     expect(project.success).toBe(true);
     const fetchedCard = project.data!.columns[0].cards[0] as any;
 
@@ -71,7 +74,16 @@ describe("Project data fetching performance optimizations (Issue #105)", () => {
 
     // comments should not be loaded on the board, and activities only includes narrow moved activities for analytics
     expect(fetchedCard.comments).toBeUndefined();
-    expect(fetchedCard.activities).toEqual([]);
+    expect(fetchedCard.activities.length).toBe(1);
+    expect(fetchedCard.activities[0].type).toBe("moved");
+    expect(fetchedCard.activities[0].id).toBeDefined();
+
+    // Verify getProjectById still preserves full relations for public REST callers
+    const fullProject = await getProjectById(projectId, userId);
+    expect(fullProject.success).toBe(true);
+    const fullCard = fullProject.data!.columns[0].cards[0] as any;
+    expect(fullCard.comments.length).toBe(2);
+    expect(fullCard.activities.length).toBe(3);
   });
 
   it("batches multiple activity updates in updateCard atomically", async () => {
@@ -115,9 +127,15 @@ describe("Project data fetching performance optimizations (Issue #105)", () => {
     const cardId = cardRes.data!.id;
 
     // Add 15 comments
+    const baseTime = Date.now();
     for (let i = 0; i < 15; i++) {
       await db.comment.create({
-        data: { cardId, author: `User ${i}`, content: `Comment ${i}` },
+        data: {
+          cardId,
+          author: `User ${i}`,
+          content: `Comment ${i}`,
+          createdAt: new Date(baseTime + i * 1000),
+        },
       });
     }
 
@@ -132,7 +150,9 @@ describe("Project data fetching performance optimizations (Issue #105)", () => {
     const card = body.data[0];
 
     expect(card._count?.comments).toBe(15);
-    // Comments on card list should be bounded to 10
-    expect(card.comments.length).toBeLessThanOrEqual(10);
+    // Comments on card list should be bounded to 10 newest in chronological order
+    expect(card.comments.length).toBe(10);
+    expect(card.comments[0].content).toBe("Comment 5");
+    expect(card.comments[9].content).toBe("Comment 14");
   });
 });

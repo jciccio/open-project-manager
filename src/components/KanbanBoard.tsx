@@ -717,6 +717,7 @@ export default function KanbanBoard({ project }: Props) {
       {/* Card Detail Modal */}
       {activeCard && (
         <CardDetailModal
+          key={activeCard.id}
           card={activeCard}
           columns={project.columns}
           projectKey={project.key}

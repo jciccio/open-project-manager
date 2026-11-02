@@ -300,10 +300,6 @@ export async function updateCard(
     const logChange = (type: string, values: { fromValue?: string | null; toValue?: string | null }) =>
       activityEntries.push({ cardId: id, actorUserId: userId, type, ...values });
 
-    const activityEntries: ActivityEntry[] = [];
-    const logChange = (type: string, values: { fromValue?: string | null; toValue?: string | null }) =>
-      activityEntries.push({ cardId: id, actorUserId: userId, type, ...values });
-
     if (data.title !== undefined && data.title !== existingCard.title) {
       logChange("title_changed", { fromValue: existingCard.title, toValue: data.title });
     }
