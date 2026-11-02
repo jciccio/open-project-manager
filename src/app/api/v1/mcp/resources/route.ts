@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { getApiSession } from "@/lib/auth";
+import { readMcpResource } from "@/mcp/core";
 
 export async function GET(request: NextRequest) {
+  const session = await getApiSession(request);
+  if (!session) {
+    return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+  }
+
   const { searchParams } = new URL(request.url);
   const uri = searchParams.get("uri");
 
@@ -20,75 +26,17 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    if (uri === "opm://projects") {
-      const projects = await db.project.findMany({
-        where: { isArchived: false },
-        include: { _count: { select: { cards: true, columns: true } } },
-      });
-      return NextResponse.json({
-        success: true,
-        uri,
-        mimeType: "application/json",
-        data: projects,
-      });
-    }
-
-    if (uri.startsWith("opm://projects/")) {
-      const id = uri.replace("opm://projects/", "");
-      const project = await db.project.findUnique({
-        where: { id },
-        include: {
-          columns: {
-            orderBy: { order: "asc" },
-            include: { cards: true },
-          },
-        },
-      });
-      if (!project) {
-        return NextResponse.json(
-          { success: false, error: `Project resource '${id}' not found` },
-          { status: 404 }
-        );
-      }
-      return NextResponse.json({
-        success: true,
-        uri,
-        mimeType: "application/json",
-        data: project,
-      });
-    }
-
-    if (uri.startsWith("opm://cards/")) {
-      const id = uri.replace("opm://cards/", "");
-      const card = await db.card.findUnique({
-        where: { id },
-        include: {
-          column: true,
-          comments: true,
-        },
-      });
-      if (!card) {
-        return NextResponse.json(
-          { success: false, error: `Card resource '${id}' not found` },
-          { status: 404 }
-        );
-      }
-      return NextResponse.json({
-        success: true,
-        uri,
-        mimeType: "application/json",
-        data: card,
-      });
-    }
-
-    return NextResponse.json(
-      { success: false, error: `Resource non-existent: ${uri}` },
-      { status: 404 }
-    );
+    const resource = await readMcpResource(uri, session.userId);
+    return NextResponse.json({
+      success: true,
+      uri: resource.uri,
+      mimeType: resource.mimeType,
+      data: resource.data,
+    });
   } catch (error: any) {
     return NextResponse.json(
       { success: false, error: error.message || "Failed to read MCP resource" },
-      { status: 500 }
+      { status: 404 }
     );
   }
 }

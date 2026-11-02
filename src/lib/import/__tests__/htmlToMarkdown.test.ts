@@ -33,4 +33,22 @@ describe("htmlToMarkdown shared converter", () => {
     expect(htmlToMarkdown(null)).toBe("");
     expect(htmlToMarkdown(undefined)).toBe("");
   });
+
+  it("keeps the checked state of Vikunja (TipTap) checklist items", () => {
+    const html =
+      '<ul data-type="taskList">' +
+      '<li data-checked="true" data-task-id="ab12cd34"><label><input type="checkbox" checked="checked"><span></span></label><div><p>Ship it</p></div></li>' +
+      '<li data-checked="false" data-task-id="ef56gh78"><label><input type="checkbox"><span></span></label><div><p>Write docs</p></div></li>' +
+      "</ul>";
+    expect(htmlToMarkdown(html)).toBe("- [x] Ship it\n- [ ] Write docs");
+  });
+
+  it("reads the checkbox inside the label when data-checked is missing, and leaves plain items alone", () => {
+    expect(htmlToMarkdown('<ul><li><label><input type="checkbox" checked></label><div><p>Done</p></div></li></ul>')).toBe("- [x] Done");
+    expect(htmlToMarkdown("<ul><li>Plain item</li></ul>")).toBe("- Plain item");
+  });
+
+  it("decodes hex, decimal and named HTML entities", () => {
+    expect(htmlToMarkdown("<p>caf&#xE9; &#233; &eacute; &amp; &#x1F600;</p>")).toBe("café é é & 😀");
+  });
 });

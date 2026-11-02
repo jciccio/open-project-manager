@@ -2,7 +2,7 @@ import { db } from "@/lib/db";
 import { deleteRowsAndAttachmentFiles } from "@/lib/attachmentCleanup";
 import { validateParentCard } from "@/lib/cardParent";
 import { safeRevalidatePath } from "@/lib/revalidate";
-import { recordActivity } from "@/lib/services/activity";
+import { createActivities, notifyActivity, type ActivityEntry } from "@/lib/services/activity";
 import { nextCardNumber, withCardNumberRetry } from "@/lib/cardNumbering";
 import { verifyProjectAccess } from "@/lib/permissions";
 import { deriveCompletedAt } from "@/lib/cardCompletion";
@@ -113,62 +113,67 @@ export async function createCard(
     const targetColumn = await db.column.findUnique({ where: { id: data.columnId } });
     const completedAt = deriveCompletedAt(targetColumn?.isDone, null);
 
+    const createdEntry = (created: { id: string; title: string }): ActivityEntry => ({
+      cardId: created.id,
+      actorUserId: userId,
+      type: "card_created",
+      toValue: created.title,
+    });
+
     const firstAttemptNumber = await nextCardNumber(data.projectId);
     const card = await withCardNumberRetry(data.projectId, firstAttemptNumber, (number) =>
-      db.card.create({
-        data: {
-          projectId: data.projectId,
-          columnId: data.columnId,
-          title: data.title.trim(),
-          description: data.description,
-          number,
-          priority: data.priority || "NONE",
-          points: data.points ?? null,
-          owner: data.owner || null,
-          dueDate: data.dueDate ? new Date(data.dueDate) : null,
-          completedAt,
-          order: newOrder,
-          parentId: data.parentId || null,
-          typeId: data.typeId || null,
-          labels:
-            data.labelIds && data.labelIds.length > 0
-              ? {
-                  create: data.labelIds.map((labelId) => ({ labelId })),
-                }
-              : undefined,
-          assignees:
-            data.assigneeIds && data.assigneeIds.length > 0
-              ? {
-                  create: data.assigneeIds.map((assigneeId) => ({ userId: assigneeId })),
-                }
-              : undefined,
-        },
-        include: {
-          type: true,
-          labels: {
-            include: { label: true },
+      db.$transaction(async (tx) => {
+        const created = await tx.card.create({
+          data: {
+            projectId: data.projectId,
+            columnId: data.columnId,
+            title: data.title.trim(),
+            description: data.description,
+            number,
+            priority: data.priority || "NONE",
+            points: data.points ?? null,
+            owner: data.owner || null,
+            dueDate: data.dueDate ? new Date(data.dueDate) : null,
+            completedAt,
+            order: newOrder,
+            parentId: data.parentId || null,
+            typeId: data.typeId || null,
+            labels:
+              data.labelIds && data.labelIds.length > 0
+                ? {
+                    create: data.labelIds.map((labelId) => ({ labelId })),
+                  }
+                : undefined,
+            assignees:
+              data.assigneeIds && data.assigneeIds.length > 0
+                ? {
+                    create: data.assigneeIds.map((assigneeId) => ({ userId: assigneeId })),
+                  }
+                : undefined,
           },
-          comments: true,
-          activities: {
-            orderBy: { createdAt: "desc" },
+          include: {
+            type: true,
+            labels: {
+              include: { label: true },
+            },
+            comments: true,
+            activities: {
+              orderBy: { createdAt: "desc" },
+            },
+            assignees: {
+              include: { user: { select: { id: true, name: true, email: true } } },
+            },
+            parent: { select: { id: true, number: true, title: true } },
+            children: { select: { id: true, number: true, title: true, completedAt: true } },
+            links: true,
           },
-          assignees: {
-            include: { user: { select: { id: true, name: true, email: true } } },
-          },
-          parent: { select: { id: true, number: true, title: true } },
-          children: { select: { id: true, number: true, title: true, completedAt: true } },
-          links: true,
-        },
+        });
+        await createActivities(tx, [createdEntry(created)]);
+        return created;
       })
     );
 
-    await recordActivity({
-      cardId: card.id,
-      projectId: data.projectId,
-      actorUserId: userId,
-      type: "card_created",
-      toValue: card.title,
-    });
+    notifyActivity(data.projectId, [createdEntry(card)]);
 
     safeRevalidatePath(`/projects/${data.projectId}`);
     return { success: true, data: card };
@@ -285,96 +290,46 @@ export async function updateCard(
       },
     });
 
-    // deleteMany + update run in one transaction so a failure partway through
-    // never leaves the card with its labels/assignees wiped but not replaced.
-    const transactionOps = [
-      ...(data.labelIds !== undefined ? [db.cardLabel.deleteMany({ where: { cardId: id } })] : []),
-      ...(data.assigneeIds !== undefined ? [db.cardAssignee.deleteMany({ where: { cardId: id } })] : []),
-      updateCardQuery,
-    ] as [typeof updateCardQuery];
-    const results = await db.$transaction(transactionOps);
-    const card = results[results.length - 1];
+    const activityEntries: ActivityEntry[] = [];
+    const logChange = (type: string, values: { fromValue?: string | null; toValue?: string | null }) =>
+      activityEntries.push({ cardId: id, actorUserId: userId, type, ...values });
 
-    // Record activity events
     if (data.title !== undefined && data.title !== existingCard.title) {
-      await recordActivity({
-        cardId: id,
-        projectId: existingCard.projectId,
-        actorUserId: userId,
-        type: "title_changed",
-        fromValue: existingCard.title,
-        toValue: data.title,
-      });
+      logChange("title_changed", { fromValue: existingCard.title, toValue: data.title });
     }
 
     if (data.description !== undefined && data.description !== existingCard.description) {
-      await recordActivity({
-        cardId: id,
-        projectId: existingCard.projectId,
-        actorUserId: userId,
-        type: "description_changed",
+      logChange("description_changed", {
         fromValue: existingCard.description || undefined,
         toValue: data.description || undefined,
       });
     }
 
     if (data.priority !== undefined && data.priority !== existingCard.priority) {
-      await recordActivity({
-        cardId: id,
-        projectId: existingCard.projectId,
-        actorUserId: userId,
-        type: "priority_changed",
-        fromValue: existingCard.priority,
-        toValue: data.priority,
-      });
+      logChange("priority_changed", { fromValue: existingCard.priority, toValue: data.priority });
     }
 
     if (data.points !== undefined && data.points !== existingCard.points) {
-      await recordActivity({
-        cardId: id,
-        projectId: existingCard.projectId,
-        actorUserId: userId,
-        type: "points_changed",
+      logChange("points_changed", {
         fromValue: existingCard.points != null ? String(existingCard.points) : undefined,
         toValue: data.points != null ? String(data.points) : undefined,
       });
     }
 
     if (data.columnId !== undefined && data.columnId !== existingCard.columnId) {
-      await recordActivity({
-        cardId: id,
-        projectId: existingCard.projectId,
-        actorUserId: userId,
-        type: "moved",
-        fromValue: existingCard.column?.name,
-        toValue: targetColumn?.name,
-      });
+      logChange("moved", { fromValue: existingCard.column?.name, toValue: targetColumn?.name });
     }
 
     if (data.typeId !== undefined && data.typeId !== existingCard.typeId) {
       const newType = data.typeId ? await db.cardType.findUnique({ where: { id: data.typeId } }) : null;
-      await recordActivity({
-        cardId: id,
-        projectId: existingCard.projectId,
-        actorUserId: userId,
-        type: "type_changed",
-        fromValue: existingCard.type?.name,
-        toValue: newType?.name,
-      });
+      logChange("type_changed", { fromValue: existingCard.type?.name, toValue: newType?.name });
     }
 
     if (data.dueDate !== undefined) {
       const oldDue = existingCard.dueDate ? new Date(existingCard.dueDate).toISOString().slice(0, 10) : "";
       const newDue = data.dueDate ? new Date(data.dueDate).toISOString().slice(0, 10) : "";
       if (oldDue !== newDue) {
-        await recordActivity({
-          cardId: id,
-          projectId: existingCard.projectId,
-          actorUserId: userId,
-          type: "due_date_changed",
-          fromValue: oldDue || undefined,
-          toValue: newDue || undefined,
-        });
+        logChange("due_date_changed", { fromValue: oldDue || undefined, toValue: newDue || undefined });
       }
     }
 
@@ -384,24 +339,12 @@ export async function updateCard(
       for (const addedId of data.labelIds) {
         if (!oldLabelIds.has(addedId)) {
           const l = await db.label.findUnique({ where: { id: addedId } });
-          await recordActivity({
-            cardId: id,
-            projectId: existingCard.projectId,
-            actorUserId: userId,
-            type: "label_added",
-            toValue: l?.name || addedId,
-          });
+          logChange("label_added", { toValue: l?.name || addedId });
         }
       }
       for (const old of existingCard.labels) {
         if (!newLabelIds.has(old.labelId)) {
-          await recordActivity({
-            cardId: id,
-            projectId: existingCard.projectId,
-            actorUserId: userId,
-            type: "label_removed",
-            fromValue: old.label.name,
-          });
+          logChange("label_removed", { fromValue: old.label.name });
         }
       }
     }
@@ -412,28 +355,30 @@ export async function updateCard(
       for (const addedId of data.assigneeIds) {
         if (!oldAssigneeIds.has(addedId)) {
           const u = await db.user.findUnique({ where: { id: addedId } });
-          await recordActivity({
-            cardId: id,
-            projectId: existingCard.projectId,
-            actorUserId: userId,
-            type: "assigned",
-            toValue: u?.name || addedId,
-          });
+          logChange("assigned", { toValue: u?.name || addedId });
         }
       }
       for (const old of existingCard.assignees) {
         if (!newAssigneeIds.has(old.userId)) {
           const u = await db.user.findUnique({ where: { id: old.userId } });
-          await recordActivity({
-            cardId: id,
-            projectId: existingCard.projectId,
-            actorUserId: userId,
-            type: "unassigned",
-            fromValue: u?.name || old.userId,
-          });
+          logChange("unassigned", { fromValue: u?.name || old.userId });
         }
       }
     }
+
+    // One transaction: the label/assignee rewrite, the card update and its
+    // activity rows all commit or none do. The rows go first so the returned
+    // card's `activities` include them.
+    const transactionOps = [
+      ...(data.labelIds !== undefined ? [db.cardLabel.deleteMany({ where: { cardId: id } })] : []),
+      ...(data.assigneeIds !== undefined ? [db.cardAssignee.deleteMany({ where: { cardId: id } })] : []),
+      ...(activityEntries.length > 0 ? [createActivities(db, activityEntries)] : []),
+      updateCardQuery,
+    ] as [typeof updateCardQuery];
+    const results = await db.$transaction(transactionOps);
+    const card = results[results.length - 1];
+
+    notifyActivity(existingCard.projectId, activityEntries);
 
     safeRevalidatePath(`/projects/${existingCard.projectId}`);
     return { success: true, data: card };
@@ -460,25 +405,25 @@ export async function moveCard(cardId: string, targetColumnId: string, newOrder:
     }
     const completedAt = deriveCompletedAt(targetColumn.isDone, existingCard.completedAt);
 
-    const card = await db.card.update({
-      where: { id: cardId },
-      data: {
-        columnId: targetColumnId,
-        order: newOrder,
-        completedAt,
-      },
+    const activityEntries: ActivityEntry[] =
+      existingCard.columnId !== targetColumnId
+        ? [{ cardId, actorUserId: userId, type: "moved", fromValue: existingCard.column?.name, toValue: targetColumn.name }]
+        : [];
+
+    const card = await db.$transaction(async (tx) => {
+      const moved = await tx.card.update({
+        where: { id: cardId },
+        data: {
+          columnId: targetColumnId,
+          order: newOrder,
+          completedAt,
+        },
+      });
+      await createActivities(tx, activityEntries);
+      return moved;
     });
 
-    if (existingCard.columnId !== targetColumnId) {
-      await recordActivity({
-        cardId,
-        projectId: existingCard.projectId,
-        actorUserId: userId,
-        type: "moved",
-        fromValue: existingCard.column?.name,
-        toValue: targetColumn?.name,
-      });
-    }
+    notifyActivity(existingCard.projectId, activityEntries);
 
     safeRevalidatePath(`/projects/${card.projectId}`);
     return { success: true, data: card };

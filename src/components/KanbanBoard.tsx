@@ -40,6 +40,7 @@ import { unarchiveProject } from "@/actions/projects";
 import { createSavedView, deleteSavedView, updateSavedView } from "@/actions/views";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "./LanguageProvider";
+import { COLUMN_GROUPS, DEFAULT_COLUMN_GROUP, type ColumnGroup } from "@/lib/columnGroups";
 
 interface Props {
   project: any;
@@ -51,6 +52,7 @@ export default function KanbanBoard({ project }: Props) {
   const [viewMode, setViewMode] = useState<ViewMode>("kanban");
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [newColumnName, setNewColumnName] = useState("");
+  const [newColumnGroup, setNewColumnGroup] = useState<ColumnGroup>(DEFAULT_COLUMN_GROUP);
   const [isAddingColumn, setIsAddingColumn] = useState(false);
   const [loadingCol, setLoadingCol] = useState(false);
   const [restoring, setRestoring] = useState(false);
@@ -167,11 +169,12 @@ export default function KanbanBoard({ project }: Props) {
     if (!newColumnName.trim()) return;
 
     setLoadingCol(true);
-    const res = await createColumn(project.id, newColumnName.trim());
+    const res = await createColumn(project.id, newColumnName.trim(), { group: newColumnGroup });
     setLoadingCol(false);
 
     if (res.success) {
       setNewColumnName("");
+      setNewColumnGroup(DEFAULT_COLUMN_GROUP);
       setIsAddingColumn(false);
       router.refresh();
     }
@@ -567,6 +570,18 @@ export default function KanbanBoard({ project }: Props) {
                   className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-indigo-500 focus:outline-none"
                   autoFocus
                 />
+                <select
+                  aria-label={t("kanban.columnGroup")}
+                  value={newColumnGroup}
+                  onChange={(e) => setNewColumnGroup(e.target.value as ColumnGroup)}
+                  className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-2 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
+                >
+                  {COLUMN_GROUPS.map((group) => (
+                    <option key={group} value={group}>
+                      {t(`kanban.columnGroups.${group}`)}
+                    </option>
+                  ))}
+                </select>
                 <div className="flex items-center justify-end gap-2">
                   <button
                     type="button"

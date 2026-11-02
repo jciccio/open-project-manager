@@ -46,7 +46,11 @@ If you are developing locally or have access to the Open Project Manager codebas
         "-y",
         "tsx",
         "/path/to/open-project-manager/scripts/mcp-server.ts"
-      ]
+      ],
+      "env": {
+        "OPM_MCP_USER": "you@example.com",
+        "DATABASE_URL": "file:/path/to/open-project-manager/dev.db"
+      }
     }
   }
 }
@@ -62,11 +66,17 @@ If you are developing locally or have access to the Open Project Manager codebas
         "-y",
         "tsx",
         "/path/to/open-project-manager/scripts/mcp-server.ts"
-      ]
+      ],
+      "env": {
+        "OPM_MCP_USER": "you@example.com",
+        "DATABASE_URL": "file:/path/to/open-project-manager/dev.db"
+      }
     }
   }
 }
 ```
+
+`OPM_MCP_USER` (an email or user id) makes every tool call act as that account; without it, each call acts as the `userId` the assistant sends. `DATABASE_URL` points the server at your database, since it doesn't load `.env`. See the MCP section of the README for details.
 
 ### Option 2: REST API (Remote / Docker Deployments)
 

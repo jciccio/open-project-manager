@@ -1,7 +1,6 @@
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
-import Database from "better-sqlite3";
 import path from "path";
 import { Pool } from "pg";
 
@@ -46,19 +45,19 @@ export function createPrismaClient(): PrismaClient {
     ? relativePath
     : path.join(/*turbopackIgnore: true*/ process.cwd(), relativePath);
 
-  // Ensure WAL mode is active on file-backed databases
-  if (dbPath !== ":memory:") {
-    try {
-      const initDb = new Database(dbPath);
-      initDb.pragma("journal_mode = WAL");
-      initDb.close();
-    } catch {
-      // Ignore if directory doesn't exist yet or during build-time evaluation
-    }
-  }
-
-  const adapter = new PrismaBetterSqlite3({ url: dbPath });
+  const adapter = new WalBetterSqlite3({ url: dbPath });
   return new PrismaClient({ adapter });
+}
+
+// Set WAL on the adapter's own connection. Opening the file with any other
+// better-sqlite3 copy (the adapter bundles its own) puts two SQLite libraries in
+// one process, and closing either one drops the other's POSIX locks (#238).
+class WalBetterSqlite3 extends PrismaBetterSqlite3 {
+  async connect() {
+    const adapter = await super.connect();
+    await adapter.executeScript("PRAGMA journal_mode = WAL;");
+    return adapter;
+  }
 }
 
 export const db = globalForPrisma.prisma ?? createPrismaClient();

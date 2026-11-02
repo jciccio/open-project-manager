@@ -131,14 +131,14 @@ describe("ColorPicker & Project Modal UI Components", () => {
   });
 
   it("names the swatches in Spanish when the locale is Spanish", async () => {
-    localStorage.setItem("opm_locale", "es");
+    document.cookie = "opm_locale=es; path=/";
     try {
       renderWithProviders(<ColorPicker value="#6366f1" onChange={vi.fn()} />);
       expect(await screen.findByRole("button", { name: "Esmeralda" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Azul marino" })).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "Emerald" })).not.toBeInTheDocument();
     } finally {
-      localStorage.removeItem("opm_locale");
+      document.cookie = "opm_locale=; path=/; max-age=0";
     }
   });
 });

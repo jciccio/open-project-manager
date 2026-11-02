@@ -6,6 +6,8 @@ import { deleteProject, archiveProject, unarchiveProject } from "@/actions/proje
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "./LanguageProvider";
+import { formatDate } from "@/lib/formatDate";
+import { useHydrated } from "@/lib/useHydrated";
 import EditProjectModal from "./EditProjectModal";
 import ErrorBanner from "./ErrorBanner";
 import type { ProjectStats } from "@/lib/services/projectStats";
@@ -35,7 +37,8 @@ export default function ProjectCard({ project, stats, currentUserId, onDeleteSuc
   const [loading, setLoading] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [error, setError] = useState("");
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
+  const hydrated = useHydrated();
   const router = useRouter();
 
   async function handleArchiveToggle(e: React.MouseEvent) {
@@ -146,7 +149,7 @@ export default function ProjectCard({ project, stats, currentUserId, onDeleteSuc
                 )}
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                {t("projectCard.created")} {new Date(project.createdAt).toLocaleDateString()}
+                {t("projectCard.created")} {hydrated ? formatDate(project.createdAt, locale) : null}
               </p>
             </div>
           </div>

@@ -14,7 +14,7 @@ export default async function DashboardPage({
 }) {
   const session = await getSession();
   if (!session) {
-    redirect("/login");
+    redirect("/api/v1/auth/session-expired");
   }
 
   const res = await getProjects(false);

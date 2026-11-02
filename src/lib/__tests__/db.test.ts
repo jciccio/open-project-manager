@@ -1,4 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { execFileSync } from "child_process";
+import { mkdtempSync, rmSync } from "fs";
+import os from "os";
+import path from "path";
 import { getDatabaseProvider, createPrismaClient } from "../db";
 
 describe("Database Provider & Client Configuration", () => {
@@ -61,11 +65,46 @@ describe("Database Provider & Client Configuration", () => {
     });
 
     it("configures SQLite with WAL journal mode pragma", async () => {
+      const dir = mkdtempSync(path.join(os.tmpdir(), "opm-wal-"));
       delete process.env.DATABASE_PROVIDER;
-      delete process.env.DATABASE_URL;
+      process.env.DATABASE_URL = `file:${path.join(dir, "fresh.db")}`;
       const client = createPrismaClient();
-      const result = await client.$queryRawUnsafe<Array<{ journal_mode: string }>>("PRAGMA journal_mode;");
-      expect(result[0].journal_mode.toLowerCase()).toBe("wal");
+      try {
+        const result = await client.$queryRawUnsafe<Array<{ journal_mode: string }>>("PRAGMA journal_mode;");
+        expect(result[0].journal_mode.toLowerCase()).toBe("wal");
+      } finally {
+        await client.$disconnect();
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("every client in the process sees writes from another process", async () => {
+      const dir = mkdtempSync(path.join(os.tmpdir(), "opm-wal-"));
+      const dbPath = path.join(dir, "wal.db");
+      delete process.env.DATABASE_PROVIDER;
+      process.env.DATABASE_URL = `file:${dbPath}`;
+      const count = async (client: ReturnType<typeof createPrismaClient>) =>
+        Number((await client.$queryRawUnsafe<Array<{ n: bigint }>>("SELECT count(*) AS n FROM t"))[0].n);
+
+      const first = createPrismaClient();
+      await first.$executeRawUnsafe("CREATE TABLE t (x INTEGER)");
+      await count(first);
+      const second = createPrismaClient();
+      try {
+        await count(second);
+
+        execFileSync(process.execPath, [
+          "-e",
+          `const D = require("better-sqlite3"); const d = new D(${JSON.stringify(dbPath)}); d.prepare("INSERT INTO t VALUES (1)").run(); d.close();`,
+        ]);
+
+        expect(await count(first)).toBe(1);
+        expect(await count(second)).toBe(1);
+      } finally {
+        await first.$disconnect();
+        await second.$disconnect();
+        rmSync(dir, { recursive: true, force: true });
+      }
     });
 
     it("refuses to fall back to built-in Postgres credentials when DATABASE_URL is missing", () => {

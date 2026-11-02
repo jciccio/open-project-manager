@@ -3,7 +3,9 @@
 import { MessageSquare, Calendar, Zap, ShieldAlert, CheckSquare, CornerDownRight } from "lucide-react";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { useTranslation } from "./LanguageProvider";
+import { formatDueDate } from "@/lib/formatDate";
 import { CardTypeIcon } from "./cardTypeIcons";
+import { isClosedColumn } from "@/lib/columnGroups";
 
 interface Props {
   card: {
@@ -44,7 +46,7 @@ interface Props {
         number?: number;
         title?: string;
         project?: { key: string };
-        column?: { isDone: boolean };
+        column?: { isDone: boolean; group?: string };
       };
     }>;
   };
@@ -61,11 +63,11 @@ const PRIORITY_COLORS: Record<string, { bg: string; text: string; border: string
 
 export default function TaskCard({ card, onClick }: Props) {
   const priorityStyle = PRIORITY_COLORS[card.priority] || PRIORITY_COLORS.MEDIUM;
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
 
   const activeBlockers = card.incomingRelations
     ? card.incomingRelations.filter(
-        (r) => r.type === "BLOCKS" && (!r.sourceCard?.column || !r.sourceCard.column.isDone)
+        (r) => r.type === "BLOCKS" && (!r.sourceCard?.column || !isClosedColumn(r.sourceCard.column))
       )
     : [];
 
@@ -212,11 +214,7 @@ export default function TaskCard({ card, onClick }: Props) {
             <div className="flex items-center gap-1 text-slate-600 dark:text-slate-400" title="Due Date">
               <Calendar className="h-3 w-3 text-indigo-500 dark:text-indigo-400" />
               <span>
-                {new Date(card.dueDate).toLocaleDateString(undefined, {
-                  month: "short",
-                  day: "numeric",
-                  timeZone: "UTC",
-                })}
+                {formatDueDate(card.dueDate, locale, { month: "short", day: "numeric" })}
               </span>
             </div>
           )}

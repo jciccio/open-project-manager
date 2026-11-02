@@ -19,6 +19,24 @@ turndownService.addRule("lineBreak", {
 });
 
 // Rule for list items to produce compact list markers without 4-space tabs
+interface ListItemElement {
+  getAttribute(name: string): string | null;
+  firstElementChild: (ListItemElement & { nodeName: string; querySelector(selector: string): ListItemElement | null }) | null;
+  hasAttribute(name: string): boolean;
+}
+
+// Vikunja's TipTap editor writes checklist items as
+// <li data-checked="true"><label><input type="checkbox"></label><div>…</div></li>.
+// The GFM plugin only recognises a checkbox directly inside the <li>, so these
+// would lose their state. Returns null for an ordinary list item.
+function taskItemState(item: ListItemElement): boolean | null {
+  const dataChecked = item.getAttribute("data-checked");
+  if (dataChecked === "true" || dataChecked === "false") return dataChecked === "true";
+  const label = item.firstElementChild;
+  const box = label?.nodeName === "LABEL" ? label.querySelector('input[type="checkbox"]') : null;
+  return box ? box.hasAttribute("checked") : null;
+}
+
 turndownService.addRule("cleanListItem", {
   filter: "li",
   replacement: function (content, node, options) {
@@ -33,6 +51,8 @@ turndownService.addRule("cleanListItem", {
       const index = parent.children ? Array.prototype.indexOf.call(parent.children, node) : 0;
       prefix = (start ? Number(start) + index : index + 1) + ". ";
     }
+    const checked = taskItemState(node as unknown as ListItemElement);
+    if (checked !== null) prefix += checked ? "[x] " : "[ ] ";
     return prefix + content + (node.nextSibling && !/\n$/.test(content) ? "\n" : "");
   },
 });

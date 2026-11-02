@@ -8,9 +8,11 @@ import bcrypt from "bcryptjs";
 import { getClientIp } from "@/lib/clientIp";
 import { checkLoginRateLimit, recordLoginFailure, recordLoginSuccess } from "@/lib/loginRateLimit";
 import { safeRevalidatePath } from "@/lib/revalidate";
-import { passwordMatches } from "@/lib/passwords";
+import { localPasswordAllowed, passwordMatches, ssoAccountsKeepLocalPasswords } from "@/lib/passwords";
 import { isRegistrationOpen } from "@/lib/registration";
 import { isOidcConfigured } from "@/lib/oidc";
+
+const SSO_ONLY_PASSWORD_ERROR = "This account signs in through SSO, so it cannot have a local password.";
 
 const loginSchema = z.object({
   email: z.string().trim().min(1),
@@ -64,6 +66,7 @@ export async function registerUser(formData: {
       userId: user.id,
       email: user.email,
       name: user.name,
+      tokenVersion: user.tokenVersion,
     });
 
     safeRevalidatePath("/");
@@ -97,7 +100,7 @@ export async function loginUser(formData: { email: string; password: string }) {
     });
 
     const isValidPassword = await passwordMatches(password, user?.passwordHash);
-    if (!user || !isValidPassword) {
+    if (!user || !isValidPassword || !localPasswordAllowed(user)) {
       recordLoginFailure(email, ip);
       return { success: false, error: "Invalid email or password." };
     }
@@ -108,6 +111,7 @@ export async function loginUser(formData: { email: string; password: string }) {
       userId: user.id,
       email: user.email,
       name: user.name,
+      tokenVersion: user.tokenVersion,
     });
 
     safeRevalidatePath("/");
@@ -132,7 +136,13 @@ export async function getSsoStatus() {
   const session = await getSession();
   if (!session) return { success: false as const, error: "Unauthorized" };
   const user = await db.user.findUnique({ where: { id: session.userId }, select: { oidcSubject: true } });
-  return { success: true as const, oidcEnabled: isOidcConfigured(), linked: Boolean(user?.oidcSubject) };
+  return {
+    success: true as const,
+    oidcEnabled: isOidcConfigured(),
+    linked: Boolean(user?.oidcSubject),
+    localPasswordAllowed: localPasswordAllowed({ oidcSubject: user?.oidcSubject ?? null }),
+    linkingDisablesPassword: !ssoAccountsKeepLocalPasswords(),
+  };
 }
 
 export async function updateUserProfile(data: {
@@ -182,6 +192,9 @@ export async function updateUserProfile(data: {
     }
 
     if (data.newPassword) {
+      if (!localPasswordAllowed(user)) {
+        return { success: false, error: SSO_ONLY_PASSWORD_ERROR };
+      }
       // A user with no passwordHash yet (OIDC-only) has nothing to verify
       // against — the active session already proves their identity.
       if (user.passwordHash) {
@@ -208,6 +221,7 @@ export async function updateUserProfile(data: {
       userId: updatedUser.id,
       email: updatedUser.email,
       name: updatedUser.name,
+      tokenVersion: updatedUser.tokenVersion,
     });
 
     safeRevalidatePath("/");

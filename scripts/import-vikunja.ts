@@ -3,14 +3,15 @@
  *
  * Runs on the machine that owns the database (no OPM API token needed) — the
  * server-side counterpart to `POST /api/v1/import`. Same adapter, same
- * ImportRecord idempotency, so re-running is safe.
+ * ImportRecord idempotency and the same one-import-per-user lock, so
+ * re-running is safe.
  *
  *   VIKUNJA_URL=http://localhost:3456/api/v1 \
  *   VIKUNJA_API_TOKEN=… \
  *   npx tsx scripts/import-vikunja.ts --user jose@example.com --project 2 --dry-run
  */
 import { db } from "../src/lib/db";
-import { runImport } from "../src/lib/import/runImport";
+import { ImportInProgressError, runImportJob } from "../src/lib/import/jobs";
 import { VikunjaImporter } from "../src/lib/import/vikunja";
 import type { ImportSummary, ImportDryRunSummary } from "../src/lib/import/types";
 import { parseImportVikunjaArgs, type ImportVikunjaArgs } from "./import-vikunja-args";
@@ -61,7 +62,16 @@ async function main() {
       (args.projectIds.length ? ` (projects ${args.projectIds.join(", ")})` : " (all visible projects)")
   );
 
-  const summary = await runImport(importer, userId, { dryRun: args.dryRun });
+  let summary: ImportSummary | ImportDryRunSummary;
+  try {
+    ({ summary } = await runImportJob(importer, userId, { dryRun: args.dryRun }));
+  } catch (err) {
+    if (err instanceof ImportInProgressError) {
+      console.error(`${err.message} Wait for it to finish (GET /api/v1/import/<jobId>), then run this again.`);
+      process.exit(1);
+    }
+    throw err;
+  }
 
   if (summary.mode === "dry-run") {
     const dryRun = summary as ImportDryRunSummary;

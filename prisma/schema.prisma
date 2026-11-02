@@ -13,6 +13,7 @@ model User {
   passwordHash String?
   oidcIssuer   String?
   oidcSubject  String?
+  tokenVersion Int      @default(0)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -21,6 +22,7 @@ model User {
   apiTokens     ApiToken[]
   assignedCards CardAssignee[]
   importRecords ImportRecord[]
+  importJobs    ImportJob[]
   projectMembers ProjectMember[]
 
   @@unique([oidcIssuer, oidcSubject])
@@ -63,14 +65,17 @@ model Project {
 }
 
 model Column {
-  id        String   @id @default(cuid())
-  projectId String
-  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  name      String
-  order     Int      @default(0)
-  isDone    Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name        String
+  order       Int      @default(0)
+  isDone      Boolean  @default(false)
+  group       String   @default("UNSTARTED")
+  color       String?
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   cards Card[]
 
@@ -263,6 +268,25 @@ model ImportRecord {
 
   @@unique([userId, source, entityType, sourceId])
   @@index([importRunId])
+}
+
+/// A background import run. `lockKey` holds the user's id while the job runs,
+/// so the unique index allows one running import per user.
+model ImportJob {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  source      String
+  dryRun      Boolean   @default(false)
+  status      String    @default("RUNNING")
+  lockKey     String?   @unique
+  summaryJson String?
+  error       String?
+  heartbeatAt DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+  finishedAt  DateTime?
+
+  @@index([userId])
 }
 
 model CardLink {

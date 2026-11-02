@@ -21,6 +21,8 @@ export interface VikunjaImporterConfig {
   maxRetries?: number;
   /** Initial retry backoff delay in ms (default: 100). */
   retryDelayMs?: number;
+  /** Per-request timeout in ms, covering the response body (default: 30000). A timeout is retried. */
+  timeoutMs?: number;
 }
 
 const PER_PAGE = 50;
@@ -63,6 +65,7 @@ export function mapPriority(priority: number | undefined): string {
 }
 
 import { htmlToMarkdown } from "./htmlToMarkdown";
+import { DEFAULT_CARD_TYPES } from "../cardTypeDefaults";
 export { htmlToMarkdown };
 
 interface VikunjaProject {
@@ -131,6 +134,9 @@ export function labelSourceId(id: number): string {
 export function taskSourceId(id: number): string {
   return `vikunja:task:${id}`;
 }
+export function cardTypeSourceId(projectId: number, name: string): string {
+  return `vikunja:cardtype:${projectId}:${name}`;
+}
 export function commentSourceId(id: number): string {
   return `vikunja:comment:${id}`;
 }
@@ -147,6 +153,7 @@ export class VikunjaImporter implements Importer {
   private readonly projectIds?: number[];
   private readonly maxRetries: number;
   private readonly retryDelayMs: number;
+  private readonly timeoutMs: number;
 
   /** Per-project kanban layout, resolved once and shared by fetchColumns/fetchCards. */
   private layouts = new Map<number, BucketLayout>();
@@ -157,6 +164,7 @@ export class VikunjaImporter implements Importer {
     this.projectIds = config.projectIds?.length ? config.projectIds : undefined;
     this.maxRetries = config.maxRetries ?? 3;
     this.retryDelayMs = config.retryDelayMs ?? 100;
+    this.timeoutMs = config.timeoutMs ?? 30_000;
 
     const hostOrHash =
       config.instanceId ??
@@ -177,6 +185,7 @@ export class VikunjaImporter implements Importer {
       try {
         const res = await fetch(`${this.baseUrl}${path}`, {
           headers: { Authorization: `Bearer ${this.token}`, Accept: "application/json" },
+          signal: AbortSignal.timeout(this.timeoutMs),
         });
 
         if (res.status === 429 || (res.status >= 500 && res.status <= 599)) {
@@ -203,6 +212,9 @@ export class VikunjaImporter implements Importer {
           const delay = this.retryDelayMs * Math.pow(2, attempt - 1);
           await new Promise((resolve) => setTimeout(resolve, delay));
           continue;
+        }
+        if (err instanceof Error && err.name === "TimeoutError") {
+          throw new Error(`Vikunja GET ${path} timed out after ${this.timeoutMs}ms`);
         }
         throw err;
       }
@@ -297,8 +309,14 @@ export class VikunjaImporter implements Importer {
     }
   }
 
-  // Vikunja has no equivalent of OPM card types.
-  async *fetchCardTypes(): AsyncGenerator<ImportCardType> {}
+  // Vikunja has no card types. Projects created through the UI get OPM's
+  // defaults, so imported ones do too.
+  async *fetchCardTypes(projectSourceIdValue: string): AsyncGenerator<ImportCardType> {
+    const projectId = numericId(projectSourceIdValue);
+    for (const type of DEFAULT_CARD_TYPES) {
+      yield { sourceId: cardTypeSourceId(projectId, type.name), ...type };
+    }
+  }
 
   async *fetchLabels(projectSourceIdValue: string): AsyncGenerator<ImportLabel> {
     const projectId = numericId(projectSourceIdValue);
@@ -332,7 +350,8 @@ export class VikunjaImporter implements Importer {
         setId(task.bucket_id) ??
         layout.defaultBucketId;
 
-      const owner = task.assignees?.[0]?.username || task.assignees?.[0]?.name;
+      const assigneeNames = (task.assignees || []).map((a) => a.username || a.name).filter(Boolean);
+      const owner = [...new Set(assigneeNames)].join(", ");
       const body = htmlToMarkdown(task.description);
       const description = [`> Imported from Vikunja #${task.index}`, body].filter(Boolean).join("\n\n");
 

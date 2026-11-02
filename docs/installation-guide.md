@@ -182,6 +182,18 @@ echo "OIDC_TRUST_UNVERIFIED_EMAIL=true" >> .env
 ```
 Leave it unset if anyone can sign up at your provider or change their email there.
 
+An account linked to SSO signs in only through your identity provider: password login is refused and the profile page hides the password fields. Disabling someone at the provider then stops new sign-ins. This also applies to an account that registered with a password and later linked SSO from its profile, so after upgrading, those users sign in with SSO. To let SSO-linked accounts keep a local password (for example as a fallback while the provider is down), add:
+```bash
+echo "OIDC_ALLOW_LOCAL_PASSWORD=true" >> .env
+```
+
+#### Offboarding a user
+Sessions last up to 7 days and API tokens up to a year, so disabling a user at the provider is not enough on its own. Also run this on the server, with the same database settings as the app:
+```bash
+yarn user:revoke --user jose@example.com
+```
+It ends every session and API token the user holds and deletes their API tokens. With Docker Compose, run it through the `migrate` service, which has the database settings and the scripts: `docker compose run --rm migrate npx tsx scripts/revoke-user.ts --user jose@example.com` (add `-f docker-compose.postgres.yml` for the Postgres setup).
+
 ---
 
 ### Option A: SQLite (Zero-Config Default)

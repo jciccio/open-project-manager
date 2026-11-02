@@ -4,6 +4,7 @@ import { createCard } from "@/lib/services/cards";
 import { db } from "@/lib/db";
 import { cardPage, cardPageQuery, decodeCardCursor } from "@/lib/cardPagination";
 import { verifyProjectAccess } from "@/lib/permissions";
+import { parseColumnGroupFilter } from "@/lib/columnGroups";
 import { cardTextSearch } from "@/lib/cardSearch";
 
 const DEFAULT_LIST_CARDS_LIMIT = 100;
@@ -19,6 +20,7 @@ export async function GET(request: NextRequest) {
   const columnId = searchParams.get("columnId");
   const parentId = searchParams.get("parentId");
   const typeId = searchParams.get("typeId");
+  const columnGroup = searchParams.get("columnGroup");
   const assignedUserId = searchParams.get("assignedUserId") || searchParams.get("assignedTo");
   const query = searchParams.get("query");
   const limitParam = searchParams.get("limit");
@@ -68,6 +70,13 @@ export async function GET(request: NextRequest) {
     }
     if (typeId) {
       where.typeId = typeId;
+    }
+    if (columnGroup !== null) {
+      const groupFilter = parseColumnGroupFilter(columnGroup);
+      if (!groupFilter.success) {
+        return NextResponse.json({ error: groupFilter.error }, { status: 400 });
+      }
+      where.column = { group: { in: groupFilter.groups } };
     }
     if (assignedUserId) {
       where.assignees = { some: { userId: assignedUserId } };
