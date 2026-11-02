@@ -141,7 +141,7 @@ export default function AnalyticsView({ project }: Props) {
         }
 
         // Assignee map
-        const ownerName = card.owner ? card.owner : "Unassigned";
+        const ownerName = card.owner ? card.owner : t("cardModal.unassigned");
         if (!assigneeMap[ownerName]) {
           assigneeMap[ownerName] = { name: ownerName, points: 0, cards: 0 };
         }

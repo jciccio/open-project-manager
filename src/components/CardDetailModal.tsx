@@ -1495,6 +1495,17 @@ export default function CardDetailModal({
                   </p>
                 ) : activities && activities.length > 0 ? (
                   activities.map((act) => {
+                    const formatPriority = (p?: string | null) => {
+                      switch (p) {
+                        case "NONE": return t("cardModal.priorityNone");
+                        case "LOW": return t("cardModal.priorityLow");
+                        case "MEDIUM": return t("cardModal.priorityMedium");
+                        case "HIGH": return t("cardModal.priorityHigh");
+                        case "URGENT": return t("cardModal.priorityUrgent");
+                        default: return p || t("cardModal.priorityNone");
+                      }
+                    };
+
                     return (
                       <div
                         key={act.id}
@@ -1532,22 +1543,36 @@ export default function CardDetailModal({
                             {act.type === "card_created" && t("cardModal.events.card_created")}
                             {act.type === "moved" &&
                               (act.fromValue && act.toValue
-                                ? `${t("cardModal.events.moved")} ("${act.fromValue}" → "${act.toValue}")`
-                                : `${t("cardModal.events.moved")} ("${act.toValue || ""}")`)}
+                                ? t("cardModal.events.moved", { from: act.fromValue, to: act.toValue })
+                                : t("cardModal.events.movedTo", { to: act.toValue || "" }))}
                             {act.type === "priority_changed" &&
-                              `${t("cardModal.events.priority_changed")} (${act.fromValue || "NONE"} → ${act.toValue || "NONE"})`}
-                            {act.type === "title_changed" && `${t("cardModal.events.title_changed")} ("${act.toValue}")`}
+                              t("cardModal.events.priority_changed", {
+                                from: formatPriority(act.fromValue),
+                                to: formatPriority(act.toValue),
+                              })}
+                            {act.type === "title_changed" &&
+                              t("cardModal.events.title_changed", { title: act.toValue || "" })}
                             {act.type === "description_changed" && t("cardModal.events.description_changed")}
                             {act.type === "points_changed" &&
-                              (act.toValue ? `${t("cardModal.events.points_changed")}: ${act.toValue}` : t("cardModal.events.points_changed"))}
+                              (act.toValue
+                                ? t("cardModal.events.points_changed", { points: act.toValue })
+                                : t("cardModal.events.points_cleared"))}
                             {act.type === "due_date_changed" &&
-                              (act.toValue ? `${t("cardModal.events.due_date_changed")}: ${act.toValue}` : t("cardModal.events.due_date_changed"))}
+                              (act.toValue
+                                ? t("cardModal.events.due_date_changed", { date: act.toValue })
+                                : t("cardModal.events.due_date_removed"))}
                             {act.type === "type_changed" &&
-                              (act.toValue ? `${t("cardModal.events.type_changed")}: "${act.toValue}"` : t("cardModal.events.type_changed"))}
-                            {act.type === "label_added" && `${t("cardModal.events.label_added")} "${act.toValue}"`}
-                            {act.type === "label_removed" && `${t("cardModal.events.label_removed")} "${act.fromValue}"`}
-                            {act.type === "assigned" && `${t("cardModal.events.assigned")} ${act.toValue}`}
-                            {act.type === "unassigned" && `${t("cardModal.events.unassigned")} ${act.fromValue}`}
+                              (act.toValue
+                                ? t("cardModal.events.type_changed", { type: act.toValue })
+                                : t("cardModal.events.type_removed"))}
+                            {act.type === "label_added" &&
+                              t("cardModal.events.label_added", { label: act.toValue || "" })}
+                            {act.type === "label_removed" &&
+                              t("cardModal.events.label_removed", { label: act.fromValue || "" })}
+                            {act.type === "assigned" &&
+                              t("cardModal.events.assigned", { user: act.toValue || "" })}
+                            {act.type === "unassigned" &&
+                              t("cardModal.events.unassigned", { user: act.fromValue || "" })}
                             {act.type === "comment_added" && t("cardModal.events.comment_added")}
                             {act.type === "archived" && t("cardModal.events.archived")}
                             {act.type === "unarchived" && t("cardModal.events.unarchived")}
