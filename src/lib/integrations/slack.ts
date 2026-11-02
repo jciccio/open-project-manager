@@ -2,11 +2,73 @@ import crypto from "crypto";
 import { db } from "@/lib/db";
 import { withCardNumberRetry } from "@/lib/cardNumbering";
 import { createActivities, notifyActivity, type ActivityEntry } from "@/lib/services/activity";
+import { verifyProjectAccess } from "@/lib/permissions";
 
 export interface SlackUnfurlBlock {
   type: string;
   text?: { type: string; text: string };
   fields?: Array<{ type: string; text: string }>;
+}
+
+export function escapeSlackMrkdwn(text: string): string {
+  if (!text) return "";
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+export function getAppBaseUrl(): string {
+  const url = process.env.APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
+  return url.replace(/\/$/, "");
+}
+
+export async function getLinkedOpmUser(slackUserId: string) {
+  if (!slackUserId) return null;
+  const record = await db.importRecord.findFirst({
+    where: {
+      source: "slack",
+      entityType: "user",
+      sourceId: slackUserId,
+    },
+  });
+  if (!record) return null;
+  return db.user.findUnique({ where: { id: record.localId } });
+}
+
+export async function linkSlackUser(slackUserId: string, opmUserId: string) {
+  await db.importRecord.upsert({
+    where: {
+      userId_source_entityType_sourceId: {
+        userId: opmUserId,
+        source: "slack",
+        entityType: "user",
+        sourceId: slackUserId,
+      },
+    },
+    create: {
+      userId: opmUserId,
+      source: "slack",
+      entityType: "user",
+      sourceId: slackUserId,
+      localId: opmUserId,
+      importRunId: "slack-link",
+    },
+    update: {
+      localId: opmUserId,
+      importRunId: "slack-link",
+    },
+  });
+}
+
+export async function unlinkSlackUser(slackUserId: string) {
+  await db.importRecord.deleteMany({
+    where: {
+      source: "slack",
+      entityType: "user",
+      sourceId: slackUserId,
+    },
+  });
 }
 
 export function verifySlackSignature(options: {
@@ -48,6 +110,12 @@ export function formatCardUnfurl(card: {
   const priority = card.priority && card.priority !== "NONE" ? card.priority : "None";
   const owner = card.owner || "Unassigned";
   const points = card.points != null ? `${card.points} pts` : "None";
+  const safeTitle = escapeSlackMrkdwn(card.title);
+  const safeIdentifier = escapeSlackMrkdwn(card.identifier);
+
+  const fullUrl = card.url.startsWith("http")
+    ? card.url
+    : `${getAppBaseUrl()}${card.url.startsWith("/") ? "" : "/"}${card.url}`;
 
   return {
     blocks: [
@@ -55,12 +123,12 @@ export function formatCardUnfurl(card: {
         type: "section",
         text: {
           type: "mrkdwn",
-          text: `*<${card.url}|${card.identifier}: ${card.title}>*`,
+          text: `*<${fullUrl}|${safeIdentifier}: ${safeTitle}>*`,
         },
         fields: [
-          { type: "mrkdwn", text: `*Status:*\n${card.status}` },
+          { type: "mrkdwn", text: `*Status:*\n${escapeSlackMrkdwn(card.status)}` },
           { type: "mrkdwn", text: `*Priority:*\n${priority}` },
-          { type: "mrkdwn", text: `*Assignee:*\n${owner}` },
+          { type: "mrkdwn", text: `*Assignee:*\n${escapeSlackMrkdwn(owner)}` },
           { type: "mrkdwn", text: `*Points:*\n${points}` },
         ],
       },
@@ -79,24 +147,28 @@ export function formatEventNotification(
     fromValue?: string | null;
   }
 ) {
-  const actor = payload.actorName || "A team member";
+  const actor = escapeSlackMrkdwn(payload.actorName || "A team member");
+  const safeProject = escapeSlackMrkdwn(projectName);
+  const safeId = escapeSlackMrkdwn(payload.cardIdentifier || "");
+  const safeTitle = escapeSlackMrkdwn(payload.cardTitle || "");
+  const safeTo = escapeSlackMrkdwn(payload.toValue || "");
   let message = "";
 
   switch (event) {
     case "card_created":
-      message = `*${actor}* created card *${payload.cardIdentifier || ""}* in *${projectName}*: "${payload.toValue || payload.cardTitle || ""}"`;
+      message = `*${actor}* created card *${safeId}* in *${safeProject}*: "${safeTo || safeTitle}"`;
       break;
     case "moved":
-      message = `*${actor}* moved *${payload.cardIdentifier || "card"}* to *${payload.toValue || "a new column"}*`;
+      message = `*${actor}* moved *${safeId || "card"}* to *${safeTo || "a new column"}*`;
       break;
     case "comment_added":
-      message = `*${actor}* commented on *${payload.cardIdentifier || "card"}*`;
+      message = `*${actor}* commented on *${safeId || "card"}*`;
       break;
     case "priority_changed":
-      message = `*${actor}* changed priority of *${payload.cardIdentifier || "card"}* to *${payload.toValue || "NONE"}*`;
+      message = `*${actor}* changed priority of *${safeId || "card"}* to *${safeTo || "NONE"}*`;
       break;
     default:
-      message = `*${actor}* triggered event \`${event}\` on *${payload.cardIdentifier || projectName}*`;
+      message = `*${actor}* triggered event \`${event}\` on *${safeId || safeProject}*`;
   }
 
   return {
@@ -127,14 +199,99 @@ export async function handleSlackSlashCommand(params: {
       response_type: "ephemeral",
       text: "Open Project Manager Slack Commands:\n" +
         "• `/opm help` - Show this help message\n" +
+        "• `/opm link <tokenOrEmail>` - Link your Slack account to Open Project Manager\n" +
+        "• `/opm whoami` - Check your linked Open Project Manager account\n" +
+        "• `/opm unlink` - Unlink your Slack account\n" +
         "• `/opm new <title>` - Create a card in your default/first project\n" +
         "• `/opm create <KEY> <title>` - Create a card in a specific project key\n" +
-        "• `/opm get <KEY-123>` - Look up a card by its identifier\n",
+        "• `/opm get <KEY-123>` - Look up a card by its identifier (ephemeral)\n",
     };
   }
 
   const parts = text.split(/\s+/);
   const subCommand = parts[0]?.toLowerCase();
+
+  if (subCommand === "link") {
+    const tokenOrEmail = parts[1];
+    if (!tokenOrEmail) {
+      return {
+        response_type: "ephemeral",
+        text: "Usage: `/opm link <api-token>` (create an API token in your OPM User Profile) or `/opm link <email>`.",
+      };
+    }
+
+    if (!params.user_id) {
+      return { response_type: "ephemeral", text: "Missing Slack user ID." };
+    }
+
+    let targetUser: any = await db.apiToken.findFirst({
+      where: { id: tokenOrEmail },
+      include: { user: true },
+    }).then((t) => t?.user);
+
+    if (!targetUser) {
+      targetUser = await db.user.findUnique({
+        where: { email: tokenOrEmail.toLowerCase().trim() },
+      });
+    }
+
+    if (!targetUser) {
+      return {
+        response_type: "ephemeral",
+        text: `No matching user or valid token found for "${tokenOrEmail}".`,
+      };
+    }
+
+    await linkSlackUser(params.user_id, targetUser.id);
+    return {
+      response_type: "ephemeral",
+      text: `Successfully linked your Slack account to Open Project Manager as *${escapeSlackMrkdwn(targetUser.name)}* (${targetUser.email}).`,
+    };
+  }
+
+  if (subCommand === "whoami") {
+    if (!params.user_id) {
+      return { response_type: "ephemeral", text: "Missing Slack user ID." };
+    }
+    const opmUser = await getLinkedOpmUser(params.user_id);
+    if (!opmUser) {
+      return {
+        response_type: "ephemeral",
+        text: "Your Slack account is not linked to Open Project Manager. Link it with `/opm link <api-token>`.",
+      };
+    }
+    return {
+      response_type: "ephemeral",
+      text: `You are linked as *${escapeSlackMrkdwn(opmUser.name)}* (${opmUser.email}) in Open Project Manager.`,
+    };
+  }
+
+  if (subCommand === "unlink") {
+    if (!params.user_id) {
+      return { response_type: "ephemeral", text: "Missing Slack user ID." };
+    }
+    await unlinkSlackUser(params.user_id);
+    return {
+      response_type: "ephemeral",
+      text: "Successfully unlinked your Slack account from Open Project Manager.",
+    };
+  }
+
+  // All subsequent actions require a linked OPM user
+  if (!params.user_id) {
+    return {
+      response_type: "ephemeral",
+      text: "Missing Slack user ID.",
+    };
+  }
+
+  const opmUser = await getLinkedOpmUser(params.user_id);
+  if (!opmUser) {
+    return {
+      response_type: "ephemeral",
+      text: "Your Slack account is not linked to Open Project Manager. Please link your account first by running `/opm link <api-token>`.",
+    };
+  }
 
   if (subCommand === "get" && parts[1]) {
     const identifier = parts[1].toUpperCase();
@@ -148,10 +305,17 @@ export async function handleSlackSlashCommand(params: {
       };
     }
 
+    // Scoped to projects accessible to the user
     const card = await db.card.findFirst({
       where: {
         number,
-        project: { key: projectKey },
+        project: {
+          key: projectKey,
+          OR: [
+            { userId: opmUser.id },
+            { members: { some: { userId: opmUser.id } } },
+          ],
+        },
       },
       include: {
         project: true,
@@ -162,7 +326,15 @@ export async function handleSlackSlashCommand(params: {
     if (!card) {
       return {
         response_type: "ephemeral",
-        text: `Card ${identifier} was not found.`,
+        text: `Card ${identifier} was not found or you do not have permission to view it.`,
+      };
+    }
+
+    const canView = await verifyProjectAccess(card.projectId, opmUser.id, "VIEWER");
+    if (!canView) {
+      return {
+        response_type: "ephemeral",
+        text: `Card ${identifier} was not found or you do not have permission to view it.`,
       };
     }
 
@@ -176,9 +348,10 @@ export async function handleSlackSlashCommand(params: {
       url: `/projects/${card.projectId}`,
     });
 
+    // Returned ephemerally to prevent leaking private card data into the channel
     return {
-      response_type: "in_channel",
-      text: `${identifier}: ${card.title}`,
+      response_type: "ephemeral",
+      text: `${identifier}: ${escapeSlackMrkdwn(card.title)}`,
       blocks: unfurl.blocks,
     };
   }
@@ -201,23 +374,48 @@ export async function handleSlackSlashCommand(params: {
       };
     }
 
-    // Find the project
-    const project = projectKey
-      ? await db.project.findFirst({
-          where: { key: projectKey },
-          include: { columns: { orderBy: { order: "asc" } }, user: true },
-        })
-      : await db.project.findFirst({
-          orderBy: { createdAt: "asc" },
-          include: { columns: { orderBy: { order: "asc" } }, user: true },
-        });
+    // Find the project scoped to projects accessible by the linked user
+    let project: any = null;
+    if (projectKey) {
+      const candidates = await db.project.findMany({
+        where: {
+          key: projectKey,
+          OR: [
+            { userId: opmUser.id },
+            { members: { some: { userId: opmUser.id } } },
+          ],
+        },
+        include: { columns: { orderBy: { order: "asc" } }, user: true },
+      });
+      project = candidates.find((p) => p.userId === opmUser.id) || candidates[0] || null;
+    } else {
+      project = await db.project.findFirst({
+        where: {
+          OR: [
+            { userId: opmUser.id },
+            { members: { some: { userId: opmUser.id } } },
+          ],
+        },
+        orderBy: { createdAt: "asc" },
+        include: { columns: { orderBy: { order: "asc" } }, user: true },
+      });
+    }
 
     if (!project) {
       return {
         response_type: "ephemeral",
         text: projectKey
-          ? `Project with key "${projectKey}" not found.`
-          : "No projects exist yet. Please create a project in Open Project Manager first.",
+          ? `Project with key "${projectKey}" not found or you do not have permission to access it.`
+          : "You do not have access to any projects in Open Project Manager.",
+      };
+    }
+
+    // Role check: must have at least MEMBER access
+    const canCreate = await verifyProjectAccess(project.id, opmUser.id, "MEMBER");
+    if (!canCreate) {
+      return {
+        response_type: "ephemeral",
+        text: `You do not have permission to create cards in project "${project.name}".`,
       };
     }
 
@@ -229,9 +427,9 @@ export async function handleSlackSlashCommand(params: {
     }
 
     const targetColumn =
-      project.columns.find((c) => c.group === "BACKLOG") ||
-      project.columns.find((c) => c.group === "UNSTARTED") ||
-      project.columns.find((c) => !c.isDone) ||
+      project.columns.find((c: any) => c.group === "BACKLOG") ||
+      project.columns.find((c: any) => c.group === "UNSTARTED") ||
+      project.columns.find((c: any) => !c.isDone) ||
       project.columns[0];
 
     const lastCard = await db.card.findFirst({
@@ -241,7 +439,7 @@ export async function handleSlackSlashCommand(params: {
     });
     const order = (lastCard?.order ?? 0) + 10000;
 
-    const actor = params.user_name ? `Slack: @${params.user_name}` : "Slack Integration";
+    const actor = opmUser.name || opmUser.email;
 
     const created = await withCardNumberRetry(project.id, 1, async (cardNumber) => {
       return db.$transaction(async (tx) => {
@@ -259,7 +457,7 @@ export async function handleSlackSlashCommand(params: {
         const activity: ActivityEntry[] = [
           {
             cardId: card.id,
-            actorUserId: project.userId,
+            actorUserId: opmUser.id,
             type: "card_created",
             toValue: title.trim(),
           },
@@ -273,15 +471,17 @@ export async function handleSlackSlashCommand(params: {
     notifyActivity(project.id, created.activity);
 
     const identifier = `${project.key}-${created.card.number}`;
+    const safeTitle = escapeSlackMrkdwn(title.trim());
+    const safeProjectName = escapeSlackMrkdwn(project.name);
     return {
       response_type: "in_channel",
-      text: `Created card *${identifier}* in *${project.name}*: "${title.trim()}"`,
+      text: `Created card *${identifier}* in *${safeProjectName}*: "${safeTitle}"`,
       blocks: [
         {
           type: "section",
           text: {
             type: "mrkdwn",
-            text: `Created card *${identifier}* in *${project.name}* (${targetColumn.name})\n*${title.trim()}*`,
+            text: `Created card *${identifier}* in *${safeProjectName}* (${escapeSlackMrkdwn(targetColumn.name)})\n*${safeTitle}*`,
           },
         },
       ],

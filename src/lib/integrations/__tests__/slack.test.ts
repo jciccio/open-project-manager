@@ -7,6 +7,8 @@ import {
   formatCardUnfurl,
   formatEventNotification,
   handleSlackSlashCommand,
+  linkSlackUser,
+  escapeSlackMrkdwn,
 } from "../slack";
 
 describe("Slack Integration", () => {
@@ -30,6 +32,8 @@ describe("Slack Integration", () => {
         order: 1,
       },
     });
+
+    await linkSlackUser("U_TEST_USER", userId);
   });
 
   afterEach(async () => {
@@ -128,10 +132,41 @@ describe("Slack Integration", () => {
       expect(res.text).toContain("/opm new <title>");
     });
 
+    it("requires Slack account to be linked before running actions", async () => {
+      const res = await handleSlackSlashCommand({
+        command: "/opm",
+        text: "new Unlinked Card",
+        user_id: "U_UNLINKED",
+      });
+
+      expect(res.response_type).toBe("ephemeral");
+      expect(res.text).toContain("Your Slack account is not linked to Open Project Manager");
+    });
+
+    it("links a Slack user via /opm link <email>", async () => {
+      const user = await db.user.findUnique({ where: { id: userId } });
+      const res = await handleSlackSlashCommand({
+        command: "/opm",
+        text: `link ${user!.email}`,
+        user_id: "U_NEW_LINK",
+      });
+
+      expect(res.response_type).toBe("ephemeral");
+      expect(res.text).toContain("Successfully linked your Slack account");
+
+      const who = await handleSlackSlashCommand({
+        command: "/opm",
+        text: "whoami",
+        user_id: "U_NEW_LINK",
+      });
+      expect(who.text).toContain(user!.email);
+    });
+
     it("creates a card via /opm new <title>", async () => {
       const res = await handleSlackSlashCommand({
         command: "/opm",
         text: "new Implement Slack Notifications",
+        user_id: "U_TEST_USER",
         user_name: "victor",
       });
 
@@ -143,13 +178,15 @@ describe("Slack Integration", () => {
         where: { title: "Implement Slack Notifications" },
       });
       expect(card?.title).toBe("Implement Slack Notifications");
-      expect(card?.owner).toBe("Slack: @victor");
+      const user = await db.user.findUnique({ where: { id: userId } });
+      expect(card?.owner).toBe(user?.name);
     });
 
     it("creates a card via /opm create <KEY> <title>", async () => {
       const res = await handleSlackSlashCommand({
         command: "/opm",
         text: `create ${projectKey} Dedicated Key Card`,
+        user_id: "U_TEST_USER",
         user_name: "jose",
       });
 
@@ -162,27 +199,104 @@ describe("Slack Integration", () => {
       expect(card).toBeDefined();
     });
 
-    it("looks up a card via /opm get <KEY-1>", async () => {
+    it("looks up a card ephemerally via /opm get <KEY-1>", async () => {
       // First create a card
       await handleSlackSlashCommand({
         command: "/opm",
         text: `create ${projectKey} Card To Look Up`,
+        user_id: "U_TEST_USER",
       });
 
       const res = await handleSlackSlashCommand({
         command: "/opm",
         text: `get ${projectKey}-1`,
+        user_id: "U_TEST_USER",
+      });
+
+      expect(res.response_type).toBe("ephemeral");
+      expect(res.text).toContain("Card To Look Up");
+      expect(res.blocks).toBeDefined();
+    });
+
+    it("escapes Slack mrkdwn control characters in card titles", async () => {
+      const maliciousTitle = "<!channel> <https://evil.com|click here> & fun";
+      const res = await handleSlackSlashCommand({
+        command: "/opm",
+        text: `new ${maliciousTitle}`,
+        user_id: "U_TEST_USER",
+      });
+
+      expect(res.text).not.toContain("<!channel>");
+      expect(res.text).toContain("&lt;!channel&gt;");
+      expect(res.text).toContain("&amp; fun");
+    });
+
+    it("rejects card creation when user only has VIEWER role", async () => {
+      const viewerRes = await createTestUser(`slack-viewer-${Date.now()}`);
+      await db.projectMember.create({
+        data: {
+          projectId,
+          userId: viewerRes.user.id,
+          role: "VIEWER",
+        },
+      });
+      await linkSlackUser("U_VIEWER", viewerRes.user.id);
+
+      const res = await handleSlackSlashCommand({
+        command: "/opm",
+        text: `create ${projectKey} Viewer Attempt`,
+        user_id: "U_VIEWER",
+      });
+
+      expect(res.response_type).toBe("ephemeral");
+      expect(res.text).toContain("do not have permission to create cards");
+      await cleanupTestUser(viewerRes.user.id);
+    });
+
+    it("disambiguates identical project keys across different owners", async () => {
+      const ownerB = await createTestUser(`slack-owner-b-${Date.now()}`);
+      const projectB = await db.project.create({
+        data: {
+          userId: ownerB.user.id,
+          name: "Project B Same Key",
+          key: projectKey, // Same key as Project A
+          color: "#3b82f6",
+        },
+      });
+      await db.column.create({
+        data: {
+          projectId: projectB.id,
+          name: "Backlog",
+          group: "BACKLOG",
+          order: 1,
+        },
+      });
+      await linkSlackUser("U_OWNER_B", ownerB.user.id);
+
+      // Owner B creates card with projectKey
+      const res = await handleSlackSlashCommand({
+        command: "/opm",
+        text: `create ${projectKey} Card for Owner B`,
+        user_id: "U_OWNER_B",
       });
 
       expect(res.response_type).toBe("in_channel");
-      expect(res.text).toContain("Card To Look Up");
-      expect(res.blocks).toBeDefined();
+      expect(res.text).toContain("Project B Same Key");
+
+      const card = await db.card.findFirst({
+        where: { title: "Card for Owner B" },
+      });
+      expect(card?.projectId).toBe(projectB.id);
+      expect(card?.projectId).not.toBe(projectId);
+
+      await cleanupTestUser(ownerB.user.id);
     });
 
     it("returns ephemeral error when looking up non-existent card", async () => {
       const res = await handleSlackSlashCommand({
         command: "/opm",
         text: `get ${projectKey}-999`,
+        user_id: "U_TEST_USER",
       });
 
       expect(res.response_type).toBe("ephemeral");
