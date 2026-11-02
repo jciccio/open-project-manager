@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
   const assignedUserId = searchParams.get("assignedUserId") || searchParams.get("assignedTo");
   const query = searchParams.get("query");
   const limitParam = searchParams.get("limit");
-  const cursor = searchParams.get("cursor");
+  const cursor = searchParams.get("cursor") || searchParams.get("after");
   const isArchivedParam = searchParams.get("isArchived");
   const isOverdueParam = searchParams.get("isOverdue");
   const dueBefore = searchParams.get("dueBefore");
@@ -48,10 +48,6 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  const after = cursor ? decodeCardCursor(cursor) : null;
-  if (cursor && !after) {
-    return NextResponse.json({ error: "Invalid cursor" }, { status: 400 });
-  }
   if (isArchivedParam !== null && isArchivedParam !== "true" && isArchivedParam !== "false") {
     return NextResponse.json({ error: "isArchived must be true or false" }, { status: 400 });
   }
@@ -122,6 +118,15 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: sortRes.error }, { status: 400 });
     }
 
+    if (cursor && sortRes.sort.field !== "order") {
+      return NextResponse.json({ error: "Cursor pagination is only supported with orderBy=order" }, { status: 400 });
+    }
+
+    const after = cursor ? decodeCardCursor(cursor) : null;
+    if (cursor && !after) {
+      return NextResponse.json({ error: "Invalid cursor" }, { status: 400 });
+    }
+
     const queryOptions: any = {
       ...cardPageQuery(filterRes.where, after, limit, sortRes.sort),
       include: {
@@ -134,7 +139,23 @@ export async function GET(request: NextRequest) {
       },
     };
 
-    const { cards, nextCursor } = cardPage(await db.card.findMany(queryOptions), limit);
+    const rows = await db.card.findMany(queryOptions);
+    if (sortRes.sort.field === "priority") {
+      const PRIORITY_RANK: Record<string, number> = {
+        NONE: 0,
+        LOW: 1,
+        MEDIUM: 2,
+        HIGH: 3,
+        URGENT: 4,
+      };
+      rows.sort((a: any, b: any) => {
+        const ra = PRIORITY_RANK[a.priority ?? "NONE"] ?? 0;
+        const rb = PRIORITY_RANK[b.priority ?? "NONE"] ?? 0;
+        return sortRes.sort.direction === "asc" ? ra - rb : rb - ra;
+      });
+    }
+
+    const { cards, nextCursor } = cardPage(rows, limit, sortRes.sort.field);
 
     return NextResponse.json({ success: true, data: cards, nextCursor });
   } catch (err) {

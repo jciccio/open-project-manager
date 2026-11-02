@@ -1076,11 +1076,17 @@ export async function executeMcpTool(
         }
       }
 
-      const after = args.cursor ? decodeCardCursor(String(args.cursor)) : null;
-      if (args.cursor && !after) throw new Error("Invalid cursor");
+      const cursorVal = args.cursor ?? args.after;
 
       const sortRes = parseCardOrderBy(args.orderBy, args.orderDirection);
       if (!sortRes.success) throw new Error(sortRes.error);
+
+      if (cursorVal && sortRes.sort.field !== "order") {
+        throw new Error("Cursor pagination is only supported with orderBy=order");
+      }
+
+      const after = cursorVal ? decodeCardCursor(String(cursorVal)) : null;
+      if (cursorVal && !after) throw new Error("Invalid cursor");
 
       const queryOptions: any = {
         ...cardPageQuery(filterRes.where, after, limit, sortRes.sort),
@@ -1095,7 +1101,23 @@ export async function executeMcpTool(
         },
       };
 
-      const { cards, nextCursor } = cardPage(await db.card.findMany(queryOptions), limit);
+      const rows = await db.card.findMany(queryOptions);
+      if (sortRes.sort.field === "priority") {
+        const PRIORITY_RANK: Record<string, number> = {
+          NONE: 0,
+          LOW: 1,
+          MEDIUM: 2,
+          HIGH: 3,
+          URGENT: 4,
+        };
+        rows.sort((a: any, b: any) => {
+          const ra = PRIORITY_RANK[a.priority ?? "NONE"] ?? 0;
+          const rb = PRIORITY_RANK[b.priority ?? "NONE"] ?? 0;
+          return sortRes.sort.direction === "asc" ? ra - rb : rb - ra;
+        });
+      }
+
+      const { cards, nextCursor } = cardPage(rows, limit, sortRes.sort.field);
       return { success: true, cards, nextCursor };
     }
 

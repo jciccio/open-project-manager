@@ -5,6 +5,7 @@ import { NextRequest } from "next/server";
 import { createTestUser, createTestProject, createTestColumn, cleanupTestUser } from "@/test/helpers";
 import { getProjectById } from "@/lib/services/projects";
 import { createScopedLabel } from "@/lib/scopedLabels";
+import { db } from "@/lib/db";
 
 describe("REST API: Rich Card Filters & Counts (#135)", () => {
   let userId: string;
@@ -27,6 +28,10 @@ describe("REST API: Rich Card Filters & Counts (#135)", () => {
     colTodoId = colTodo.id;
     const colDone = await createTestColumn(projectId, "Done", 1);
     colDoneId = colDone.id;
+    await db.column.update({
+      where: { id: colDoneId },
+      data: { isDone: true, group: "COMPLETED" },
+    });
 
     const bugLabel = await createScopedLabel({
       name: "Bug",
@@ -122,10 +127,17 @@ describe("REST API: Rich Card Filters & Counts (#135)", () => {
       title: "Upcoming Item",
       dueDate: "2026-12-31T00:00:00Z",
     });
+    const completedPastCard = await postCard({
+      projectId,
+      columnId: colDoneId,
+      title: "Completed Item with past due date",
+      dueDate: "2026-01-01T00:00:00Z",
+    });
 
     const resBefore = await authGet(`http://localhost/api/v1/cards?projectId=${projectId}&dueBefore=2026-06-01`);
     const dataBefore = await resBefore.json();
-    expect(dataBefore.data.map((c: any) => c.id)).toEqual([pastCard.id]);
+    expect(dataBefore.data.map((c: any) => c.id)).toContain(pastCard.id);
+    expect(dataBefore.data.map((c: any) => c.id)).toContain(completedPastCard.id);
 
     const resAfter = await authGet(`http://localhost/api/v1/cards?projectId=${projectId}&dueAfter=2026-06-01`);
     const dataAfter = await resAfter.json();
@@ -135,6 +147,7 @@ describe("REST API: Rich Card Filters & Counts (#135)", () => {
     const dataOverdue = await resOverdue.json();
     expect(dataOverdue.data.map((c: any) => c.id)).toContain(pastCard.id);
     expect(dataOverdue.data.map((c: any) => c.id)).not.toContain(futureCard.id);
+    expect(dataOverdue.data.map((c: any) => c.id)).not.toContain(completedPastCard.id);
   });
 
   it("filters cards by hasParent", async () => {
@@ -184,6 +197,43 @@ describe("REST API: Rich Card Filters & Counts (#135)", () => {
     const dataDesc = await resDesc.json();
     expect(dataDesc.data[0].title).toBe("Second by Date");
     expect(dataDesc.data[1].title).toBe("First by Date");
+
+    // Test priority sorting by severity
+    await postCard({ projectId, columnId: colTodoId, title: "Card None", priority: "NONE" });
+    await postCard({ projectId, columnId: colTodoId, title: "Card Low", priority: "LOW" });
+    await postCard({ projectId, columnId: colTodoId, title: "Card High", priority: "HIGH" });
+    await postCard({ projectId, columnId: colTodoId, title: "Card Urgent", priority: "URGENT" });
+
+    const resPrioDesc = await authGet(`http://localhost/api/v1/cards?projectId=${projectId}&orderBy=priority&orderDirection=desc`);
+    const dataPrioDesc = await resPrioDesc.json();
+    const priosDesc = dataPrioDesc.data.map((c: any) => c.priority);
+    expect(priosDesc.indexOf("URGENT")).toBeLessThan(priosDesc.indexOf("HIGH"));
+    expect(priosDesc.indexOf("HIGH")).toBeLessThan(priosDesc.indexOf("LOW"));
+    expect(priosDesc.indexOf("LOW")).toBeLessThan(priosDesc.indexOf("NONE"));
+
+    const resPrioAsc = await authGet(`http://localhost/api/v1/cards?projectId=${projectId}&orderBy=priority&orderDirection=asc`);
+    const dataPrioAsc = await resPrioAsc.json();
+    const priosAsc = dataPrioAsc.data.map((c: any) => c.priority);
+    expect(priosAsc.indexOf("NONE")).toBeLessThan(priosAsc.indexOf("LOW"));
+    expect(priosAsc.indexOf("LOW")).toBeLessThan(priosAsc.indexOf("HIGH"));
+    expect(priosAsc.indexOf("HIGH")).toBeLessThan(priosAsc.indexOf("URGENT"));
+  });
+
+  it("rejects cursor pagination when orderBy is not 'order'", async () => {
+    const res = await authGet(`http://localhost/api/v1/cards?projectId=${projectId}&orderBy=priority&after=somecursor`);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("Cursor pagination is only supported with orderBy=order");
+  });
+
+  it("omits nextCursor when sorting by non-order fields even if more rows exist", async () => {
+    await postCard({ projectId, columnId: colTodoId, title: "Card 1" });
+    await postCard({ projectId, columnId: colTodoId, title: "Card 2" });
+
+    const res = await authGet(`http://localhost/api/v1/cards?projectId=${projectId}&orderBy=priority&limit=1`);
+    const body = await res.json();
+    expect(body.data.length).toBe(1);
+    expect(body.nextCursor).toBeNull();
   });
 
   it("counts cards via GET /api/v1/cards?count=true and GET /api/v1/cards/count", async () => {

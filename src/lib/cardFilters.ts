@@ -129,14 +129,23 @@ export function buildCardWhere(
   }
 
   if (input.isOverdue === true) {
-    dueDateCondition.lt = new Date();
-    conditions.push({ completedAt: null });
+    const now = new Date();
+    const startOfUtcToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    dueDateCondition.lt = startOfUtcToday;
+    conditions.push({
+      completedAt: null,
+      column: { isDone: false, group: { not: "CANCELLED" } },
+    });
   } else if (input.isOverdue === false) {
+    const now = new Date();
+    const startOfUtcToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
     conditions.push({
       OR: [
         { dueDate: null },
-        { dueDate: { gte: new Date() } },
+        { dueDate: { gte: startOfUtcToday } },
         { completedAt: { not: null } },
+        { column: { isDone: true } },
+        { column: { group: "CANCELLED" } },
       ],
     });
   }

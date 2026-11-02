@@ -20,7 +20,8 @@ export function cardPageQuery(
   limit: number,
   sort?: { field: string; direction: "asc" | "desc" }
 ) {
-  const orderByClause = sort
+  const isPrioritySort = sort?.field === "priority";
+  const orderByClause = sort && !isPrioritySort
     ? [{ [sort.field]: sort.direction }, { id: "asc" as const }]
     : [{ order: "asc" as const }, { id: "asc" as const }];
 
@@ -38,8 +39,15 @@ export function cardPageQuery(
   };
 }
 
-export function cardPage<T extends CardPosition>(rows: T[], limit: number) {
+export function cardPage<T extends CardPosition>(
+  rows: T[],
+  limit: number,
+  sortField?: string
+) {
   const cards = rows.slice(0, limit);
-  const nextCursor = rows.length > limit ? encodeCardCursor(cards[cards.length - 1]) : null;
+  const nextCursor =
+    rows.length > limit && (!sortField || sortField === "order")
+      ? encodeCardCursor(cards[cards.length - 1])
+      : null;
   return { cards, nextCursor };
 }

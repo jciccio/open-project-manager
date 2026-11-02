@@ -131,6 +131,19 @@ describe("MCP Rich Card Filters & Counts (#135)", () => {
     expect(overdueList.cards.map((c: any) => c.id)).toContain(pastCard.card!.id);
     expect(overdueList.cards.map((c: any) => c.id)).not.toContain(futureCard.card!.id);
     expect(overdueList.cards.map((c: any) => c.id)).not.toContain(noDueCard.card!.id);
+
+    // Done cards should not be considered overdue even if dueDate < today
+    const donePastCard = await executeMcpTool(
+      "create_card",
+      { projectId, columnId: colDoneId, title: "Done Past Item", dueDate: "2026-01-01T00:00:00Z" },
+      { userId }
+    );
+    const overdueAfterDone = await executeMcpTool(
+      "list_cards",
+      { projectId, isOverdue: true },
+      { userId }
+    );
+    expect(overdueAfterDone.cards.map((c: any) => c.id)).not.toContain(donePastCard.card!.id);
   });
 
   it("filters cards by hasParent (root cards vs subtasks)", async () => {
@@ -210,6 +223,41 @@ describe("MCP Rich Card Filters & Counts (#135)", () => {
     );
     expect(byDueDateDesc.cards[0].title).toBe("Task A");
     expect(byDueDateDesc.cards[1].title).toBe("Task B");
+
+    // Priority sorting by severity
+    const byPriorityDesc = await executeMcpTool(
+      "list_cards",
+      { projectId, orderBy: "priority", orderDirection: "desc" },
+      { userId }
+    );
+    expect(byPriorityDesc.cards[0].title).toBe("Task B"); // URGENT
+    expect(byPriorityDesc.cards[1].title).toBe("Task A"); // LOW
+
+    const byPriorityAsc = await executeMcpTool(
+      "list_cards",
+      { projectId, orderBy: "priority", orderDirection: "asc" },
+      { userId }
+    );
+    expect(byPriorityAsc.cards[0].title).toBe("Task A"); // LOW
+    expect(byPriorityAsc.cards[1].title).toBe("Task B"); // URGENT
+
+    // Cursor pagination rejected when orderBy is not order
+    await expect(
+      executeMcpTool(
+        "list_cards",
+        { projectId, orderBy: "priority", after: "somecursor" },
+        { userId }
+      )
+    ).rejects.toThrow("Cursor pagination is only supported with orderBy=order");
+
+    // Next cursor omitted when sorting by non-order fields
+    const limited = await executeMcpTool(
+      "list_cards",
+      { projectId, orderBy: "priority", limit: 1 },
+      { userId }
+    );
+    expect(limited.cards.length).toBe(1);
+    expect(limited.nextCursor).toBeNull();
   });
 
   it("counts cards via count_cards MCP tool and list_cards count: true", async () => {
