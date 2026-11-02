@@ -9,12 +9,10 @@ export async function listComments(cardId: string) {
   return commentsService.listComments(cardId, session.userId);
 }
 
-export async function addComment(cardId: string, authorOrContent: string, maybeContent?: string) {
+export async function addComment(cardId: string, content: string) {
   const session = await getSession();
   if (!session) return { success: false as const, error: "Unauthorized" };
-  const content = maybeContent !== undefined ? maybeContent : authorOrContent;
-  const author = session.name || session.email || session.userId || "Team Member";
-  return commentsService.addComment(cardId, author, content, session.userId);
+  return commentsService.addComment(cardId, content, session.userId);
 }
 
 export async function deleteComment(commentId: string) {

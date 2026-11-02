@@ -71,8 +71,7 @@ describe("Comment and attachment attribution", () => {
   });
 
   it("prevents spoofing comment author when authenticated session is active", async () => {
-    // Even if client attempts to pass a spoofed author name
-    const res = await addComment(cardId, "Spoofed Author", "Malicious message");
+    const res = await addComment(cardId, "Malicious message");
     expect(res.success).toBe(true);
     expect(res.data?.author).toBe(userName);
     expect(res.data?.authorUserId).toBe(userId);
@@ -99,21 +98,20 @@ describe("Comment and attachment attribution", () => {
     expect((mcpRes as any).comment.authorUserId).toBe(userId);
   });
 
-  it("uploadAttachment attributes uploadedBy to authenticated session user", async () => {
+  it("uploadAttachment attributes uploadedBy to authenticated session user ID", async () => {
     const res = await uploadAttachment({
       cardId,
       filename: "test-report.pdf",
       contentBuffer: Buffer.from("dummy pdf content"),
       mimeType: "application/pdf",
-      uploadedBy: "Spoofed User",
     });
 
     expect(res.success).toBe(true);
     expect(res.data).toBeDefined();
-    expect(res.data?.uploadedBy).toBe(userName);
+    expect(res.data?.uploadedBy).toBe(userId);
 
     const listRes = await listAttachments(cardId);
     expect(listRes.success).toBe(true);
-    expect(listRes.data?.find((a) => a.id === res.data!.id)?.uploadedBy).toBe(userName);
+    expect(listRes.data?.find((a) => a.id === res.data!.id)?.uploadedBy).toBe(userId);
   });
 });

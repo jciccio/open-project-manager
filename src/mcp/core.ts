@@ -672,7 +672,6 @@ export const MCP_TOOLS = [
         filename: { type: "string", description: "Original filename" },
         contentBase64: { type: "string", description: "Base64-encoded file contents" },
         mimeType: { type: "string", description: "Optional MIME type (e.g. image/png, text/plain)" },
-        uploadedBy: { type: "string", description: "Optional uploader identifier" },
         userId: { type: "string", description: "Optional user ID scope" },
       },
       required: ["cardId", "filename", "contentBase64"],
@@ -1348,32 +1347,24 @@ export async function executeMcpTool(
     }
 
     case "add_comment": {
-      const parentCard = await db.card.findUnique({ where: { id: args.cardId } });
-      if (!parentCard || !(await verifyProjectAccess(parentCard.projectId, userId, "MEMBER"))) throw new Error(`Card with ID ${args.cardId} not found.`);
-      const mcpUser = await db.user.findUnique({ where: { id: userId }, select: { name: true, email: true } });
-      const author = mcpUser?.name || mcpUser?.email || "Team Member";
-      const comment = await db.comment.create({
-        data: {
-          cardId: args.cardId,
-          author,
-          authorUserId: userId,
-          content: args.content.trim(),
-        },
-        include: {
-          authorUser: { select: { id: true, name: true, email: true } },
-        },
-      });
-      return { success: true, comment };
+      if (!args.content || typeof args.content !== "string" || !args.content.trim()) {
+        throw new Error("Comment content cannot be empty.");
+      }
+      const { addComment } = await import("@/lib/services/comments");
+      const res = await addComment(args.cardId, args.content, userId);
+      if (!res.success) {
+        throw new Error(res.error || `Card with ID ${args.cardId} not found.`);
+      }
+      return { success: true, comment: res.data };
     }
 
     case "list_comments": {
-      const parentCard = await db.card.findUnique({ where: { id: args.cardId } });
-      if (!parentCard || !(await verifyProjectAccess(parentCard.projectId, userId, "VIEWER"))) throw new Error(`Card with ID ${args.cardId} not found.`);
-      const comments = await db.comment.findMany({
-        where: { cardId: args.cardId },
-        orderBy: { createdAt: "desc" },
-      });
-      return { success: true, comments };
+      const { listComments } = await import("@/lib/services/comments");
+      const res = await listComments(args.cardId, userId);
+      if (!res.success) {
+        throw new Error(res.error || `Card with ID ${args.cardId} not found.`);
+      }
+      return { success: true, comments: res.data };
     }
 
     case "list_card_activity": {
@@ -1559,14 +1550,13 @@ export async function executeMcpTool(
     case "add_attachment": {
       const buffer = Buffer.from(args.contentBase64, "base64");
       const { uploadAttachment } = await import("@/lib/services/attachments");
-      const mcpUser = await db.user.findUnique({ where: { id: userId }, select: { name: true, email: true } });
       const res = await uploadAttachment(
         {
           cardId: args.cardId,
           filename: args.filename,
           contentBuffer: buffer,
           mimeType: args.mimeType,
-          uploadedBy: mcpUser?.name || mcpUser?.email || userId,
+          uploadedBy: userId,
         },
         userId
       );

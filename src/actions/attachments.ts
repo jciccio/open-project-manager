@@ -8,7 +8,6 @@ export async function uploadAttachment(data: {
   filename: string;
   contentBuffer: Buffer;
   mimeType?: string;
-  uploadedBy?: string;
 }) {
   const session = await getSession();
   if (!session) {
@@ -17,7 +16,7 @@ export async function uploadAttachment(data: {
   return attachmentsService.uploadAttachment(
     {
       ...data,
-      uploadedBy: session.name || session.email || session.userId,
+      uploadedBy: session.userId,
     },
     session.userId
   );
