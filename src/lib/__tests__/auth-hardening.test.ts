@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { NextRequest } from "next/server";
 import { SignJWT } from "jose";
 import bcrypt from "bcryptjs";
-import { middleware } from "@/middleware";
+import { proxy } from "@/proxy";
 import { JWT_SECRET } from "@/lib/env";
 import { db } from "@/lib/db";
 import { passwordMatches } from "@/lib/passwords";
@@ -11,21 +11,21 @@ import { createApiToken } from "@/actions/auth";
 import { createSession, destroySession } from "@/lib/auth";
 import { createTestUser, cleanupTestUser } from "@/test/helpers";
 
-describe("middleware public paths", () => {
+describe("proxy public paths", () => {
   it("treats only exact public paths and their sub-paths as public", async () => {
-    const lookalikePage = await middleware(new NextRequest("http://localhost/loginanything"));
+    const lookalikePage = await proxy(new NextRequest("http://localhost/loginanything"));
     expect(lookalikePage.headers.get("location")).toBe("http://localhost/login?returnTo=%2Floginanything");
 
-    const rootPage = await middleware(new NextRequest("http://localhost/"));
+    const rootPage = await proxy(new NextRequest("http://localhost/"));
     expect(rootPage.headers.get("location")).toBe("http://localhost/login");
 
-    const projectPage = await middleware(new NextRequest("http://localhost/projects/proj-123?tab=activity"));
+    const projectPage = await proxy(new NextRequest("http://localhost/projects/proj-123?tab=activity"));
     expect(projectPage.headers.get("location")).toBe("http://localhost/login?returnTo=%2Fprojects%2Fproj-123%3Ftab%3Dactivity");
 
-    const lookalikeApi = await middleware(new NextRequest("http://localhost/api/v1/auth/login-debug"));
+    const lookalikeApi = await proxy(new NextRequest("http://localhost/api/v1/auth/login-debug"));
     expect(lookalikeApi.status).toBe(401);
 
-    const login = await middleware(new NextRequest("http://localhost/login"));
+    const login = await proxy(new NextRequest("http://localhost/login"));
     expect(login.headers.get("location")).toBeNull();
   });
 
@@ -36,7 +36,7 @@ describe("middleware public paths", () => {
       .setExpirationTime("1h")
       .sign(JWT_SECRET);
 
-    const res = await middleware(
+    const res = await proxy(
       new NextRequest("http://localhost/api/v1/projects", { headers: { authorization: `Bearer ${hs512}` } })
     );
     expect(res.status).toBe(401);
