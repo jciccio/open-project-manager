@@ -70,13 +70,15 @@ describe("Inbound Email", () => {
       expect(extractProjectKeyFromRecipient("task+BAR@example.com")).toBe("BAR");
       expect(extractProjectKeyFromRecipient("BAZ@inbound.domain.com")).toBe("BAZ");
       expect(extractProjectKeyFromRecipient("Team Board <opm+ALPHA@domain.com>")).toBe("ALPHA");
+      expect(extractProjectKeyFromRecipient("alice@x.com, opm+BETA@y.com")).toBe("BETA");
       expect(extractProjectKeyFromRecipient("invalid")).toBe("INVALID");
       expect(extractProjectKeyFromRecipient("")).toBeNull();
     });
 
-    it("extracts clean email address from sender string", () => {
+    it("extracts clean email address from sender string and prevents display-name angle-bracket spoofing", () => {
       expect(extractSenderEmail("user@example.com")).toBe("user@example.com");
       expect(extractSenderEmail("Alice Smith <ALICE@EXAMPLE.COM>")).toBe("alice@example.com");
+      expect(extractSenderEmail('"<owner@corp.com>" <attacker@evil.com>')).toBe("attacker@evil.com");
       expect(extractSenderEmail("")).toBeNull();
     });
   });
@@ -226,6 +228,79 @@ describe("Inbound Email", () => {
       expect(resultB.card?.projectId).not.toBe(projectId);
 
       await cleanupTestUser(ownerBRes.user.id);
+    });
+
+    it("strips script, style, head and title elements from HTML emails", async () => {
+      const owner = await db.user.findUnique({ where: { id: ownerId } });
+
+      const result = await processInboundEmail({
+        to: `opm+${projectKey}@inbound.local`,
+        from: owner!.email,
+        subject: "HTML with styling and scripts",
+        html: `<html><head><title>Ignore title</title><style>body { color: red; }</style><script>alert('bad');</script></head><body><p>Real content here</p></body></html>`,
+      });
+
+      expect(result.success).toBe(true);
+      const card = await db.card.findUnique({ where: { id: result.card!.id } });
+      expect(card?.description).toContain("Real content here");
+      expect(card?.description).not.toContain("Ignore title");
+      expect(card?.description).not.toContain("color: red");
+      expect(card?.description).not.toContain("alert");
+    });
+
+    it("allocates next card number starting from maxCard + 1", async () => {
+      const owner = await db.user.findUnique({ where: { id: ownerId } });
+
+      // Create card with number 10
+      await db.card.create({
+        data: {
+          projectId,
+          columnId: (await db.column.findFirst({ where: { projectId } }))!.id,
+          title: "Pre-existing card 10",
+          number: 10,
+          order: 1000,
+        },
+      });
+
+      const result = await processInboundEmail({
+        to: `opm+${projectKey}@inbound.local`,
+        from: owner!.email,
+        subject: "New sequential card",
+        text: "Should be number 11",
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.card?.number).toBe(11);
+      expect(result.card?.identifier).toBe(`${projectKey}-11`);
+    });
+
+    it("rejects when multiple accessible projects match key to prevent ambiguous routing", async () => {
+      // A different owner creates a project with the same key, and memberId is a member of both
+      const secondProject = await db.project.create({
+        data: {
+          userId: strangerId,
+          name: "Conflicting Key Project",
+          key: projectKey,
+          color: "#e11d48",
+        },
+      });
+      await db.projectMember.create({
+        data: {
+          projectId: secondProject.id,
+          userId: memberId,
+          role: "MEMBER",
+        },
+      });
+
+      const member = await db.user.findUnique({ where: { id: memberId } });
+      const result = await processInboundEmail({
+        to: `opm+${projectKey}@inbound.local`,
+        from: member!.email,
+        subject: "Ambiguous card destination",
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("multiple candidate projects found");
     });
   });
 });

@@ -3,13 +3,14 @@ import crypto from "crypto";
 import { z } from "zod";
 import { processInboundEmail } from "@/lib/inboundEmail";
 import { getApiSession } from "@/lib/auth";
+import { MAX_TITLE_LENGTH, MAX_DESCRIPTION_LENGTH } from "@/lib/validation/cards";
 
 const inboundSchema = z.object({
-  to: z.string().min(1),
-  from: z.string().min(1),
-  subject: z.string().min(1),
-  text: z.string().optional(),
-  html: z.string().optional(),
+  to: z.string().min(1).max(2000),
+  from: z.string().min(1).max(2000),
+  subject: z.string().trim().min(1, "Email subject is required").max(MAX_TITLE_LENGTH),
+  text: z.string().max(MAX_DESCRIPTION_LENGTH).optional(),
+  html: z.string().max(MAX_DESCRIPTION_LENGTH * 4).optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -67,10 +68,18 @@ export async function POST(request: NextRequest) {
     };
   }
 
-  const result = await processInboundEmail(payloadData);
-  if (!result.success) {
-    return NextResponse.json({ error: result.error }, { status: 422 });
-  }
+  try {
+    const result = await processInboundEmail(payloadData);
+    if (!result.success) {
+      return NextResponse.json({ success: false, error: result.error, accepted: false }, { status: 200 });
+    }
 
-  return NextResponse.json({ success: true, data: result.card }, { status: 201 });
+    return NextResponse.json({ success: true, accepted: true, data: result.card }, { status: 201 });
+  } catch (error) {
+    console.error("Error processing inbound email:", error);
+    return NextResponse.json(
+      { error: "Failed to process inbound email", details: error instanceof Error ? error.message : String(error) },
+      { status: 500 }
+    );
+  }
 }

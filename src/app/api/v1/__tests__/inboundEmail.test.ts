@@ -131,8 +131,9 @@ describe("POST /api/v1/inbound-email", () => {
     });
 
     const res = await POST(req);
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(200);
     const body = await res.json();
+    expect(body.accepted).toBe(false);
     expect(body.error).toContain("Inbound email rejected");
 
     await cleanupTestUser(attackerRes.user.id);

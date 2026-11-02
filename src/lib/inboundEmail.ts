@@ -4,6 +4,7 @@ import { withCardNumberRetry } from "@/lib/cardNumbering";
 import { createActivities, notifyActivity, type ActivityEntry } from "@/lib/services/activity";
 import { safeRevalidatePath } from "@/lib/revalidate";
 import { verifyProjectAccess } from "@/lib/permissions";
+import { MAX_DESCRIPTION_LENGTH } from "@/lib/validation/cards";
 
 export interface InboundEmailPayload {
   to: string;
@@ -27,38 +28,60 @@ export interface InboundEmailResult {
 }
 
 /**
- * Extracts a project key from a recipient address.
+ * Extracts a project key from a recipient address or list of addresses.
  * Examples:
  *   "opm+BACKLOG@opm.local" -> "BACKLOG"
  *   "task+PROJ@example.com" -> "PROJ"
  *   "PROJ@inbound.opm.local" -> "PROJ"
  *   "Project Board <opm+TEST@domain.com>" -> "TEST"
+ *   "alice@x.com, opm+KEY@y.com" -> "KEY"
  */
 export function extractProjectKeyFromRecipient(recipient: string): string | null {
   if (!recipient || typeof recipient !== "string") return null;
 
-  const angleMatch = recipient.match(/<([^>]+)>/);
-  const rawEmail = angleMatch ? angleMatch[1] : recipient;
-  const localPart = rawEmail.split("@")[0]?.trim();
-  if (!localPart) return null;
+  const addresses = recipient.split(",").map((a) => a.trim()).filter(Boolean);
+  if (addresses.length === 0) return null;
 
-  const plusIndex = localPart.indexOf("+");
-  if (plusIndex !== -1) {
-    const key = localPart.slice(plusIndex + 1).trim();
-    return key ? key.toUpperCase() : null;
+  // First check if any address has a plus-addressed project key (e.g. opm+KEY@domain)
+  for (const addr of addresses) {
+    const angleMatch = addr.match(/<([^>]+)>/);
+    const rawEmail = angleMatch ? angleMatch[1] : addr;
+    const localPart = rawEmail.split("@")[0]?.trim();
+    if (!localPart) continue;
+
+    const plusIndex = localPart.indexOf("+");
+    if (plusIndex !== -1) {
+      const key = localPart.slice(plusIndex + 1).trim();
+      if (key) return key.toUpperCase();
+    }
   }
 
-  return localPart.toUpperCase();
+  // Fallback to the first address's localPart if direct address (KEY@inbound.domain)
+  const firstAddr = addresses[0];
+  const angleMatch = firstAddr.match(/<([^>]+)>/);
+  const rawEmail = angleMatch ? angleMatch[1] : firstAddr;
+  const localPart = rawEmail.split("@")[0]?.trim();
+  if (localPart && /^[A-Za-z0-9_-]+$/.test(localPart)) {
+    return localPart.toUpperCase();
+  }
+
+  return null;
 }
 
 /**
- * Extracts clean email address from sender string: "Alice <alice@example.com>" -> "alice@example.com".
+ * Extracts clean email address from sender RFC 5322 string.
+ * Uses the actual address enclosed in the trailing angle brackets to prevent display-name injection
+ * (e.g. `"<owner@corp.com>" <attacker@evil.com>` -> `"attacker@evil.com"`).
  */
 export function extractSenderEmail(sender: string): string | null {
   if (!sender || typeof sender !== "string") return null;
-  const match = sender.match(/<([^>]+)>/);
-  const email = (match ? match[1] : sender).trim().toLowerCase();
-  return email || null;
+
+  const angleMatches = [...sender.matchAll(/<([^>]+)>/g)];
+  const rawEmail = angleMatches.length > 0 ? angleMatches[angleMatches.length - 1][1] : sender;
+  const email = rawEmail.trim().toLowerCase();
+
+  const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+  return emailRegex.test(email) ? email : null;
 }
 
 export async function processInboundEmail(
@@ -100,43 +123,40 @@ export async function processInboundEmail(
     };
   }
 
-  // Look up candidate projects matching key or id that the sender is associated with
+  // Look up candidate projects matching key where sender is owner or active member
   const candidateProjects = await db.project.findMany({
     where: {
+      key: projectKey,
+      isArchived: false,
       OR: [
-        { id: projectKey },
-        { key: projectKey },
-      ],
-      AND: [
-        {
-          OR: [
-            { userId: senderUser.id },
-            { members: { some: { userId: senderUser.id } } },
-          ],
-        },
+        { userId: senderUser.id },
+        { members: { some: { userId: senderUser.id, role: { in: ["OWNER", "MEMBER"] } } } },
       ],
     },
     include: {
       columns: {
         orderBy: { order: "asc" },
       },
-      members: {
-        include: { user: true },
-      },
-      user: true,
     },
   });
 
   if (candidateProjects.length === 0) {
-    console.warn(`[inbound-email] No project with key/id "${projectKey}" found accessible by sender "${senderEmail}"`);
+    console.warn(`[inbound-email] No project with key "${projectKey}" found accessible by sender "${senderEmail}"`);
     return {
       success: false,
       error: "Inbound email rejected: project not found or sender unauthorized",
     };
   }
 
-  // Disambiguate if multiple: prefer owned project
-  const project = candidateProjects.find((p) => p.userId === senderUser.id) || candidateProjects[0];
+  if (candidateProjects.length > 1) {
+    console.warn(`[inbound-email] Ambiguous routing: multiple active projects match key "${projectKey}" for sender "${senderEmail}"`);
+    return {
+      success: false,
+      error: `Inbound email rejected: multiple candidate projects found with key "${projectKey}"`,
+    };
+  }
+
+  const project = candidateProjects[0];
 
   // Verify access: sender must have at least MEMBER access (rejects VIEWERs)
   const hasMemberAccess = await verifyProjectAccess(project.id, senderUser.id, "MEMBER");
@@ -170,6 +190,10 @@ export async function processInboundEmail(
     description = htmlToMarkdown(payload.html).trim() || null;
   }
 
+  if (description && description.length > MAX_DESCRIPTION_LENGTH) {
+    description = description.slice(0, MAX_DESCRIPTION_LENGTH);
+  }
+
   // Order for new card
   const lastCard = await db.card.findFirst({
     where: { columnId: backlogCol.id },
@@ -178,9 +202,17 @@ export async function processInboundEmail(
   });
   const order = (lastCard?.order ?? 0) + 10000;
 
-  // Create card with number
+  // Determine starting card number based on current maximum in project
+  const maxCard = await db.card.findFirst({
+    where: { projectId: project.id },
+    orderBy: { number: "desc" },
+    select: { number: true },
+  });
+  const startingNumber = (maxCard?.number ?? 0) + 1;
+
+  // Create card with sequence number
   const title = payload.subject.trim();
-  const createdCard = await withCardNumberRetry(project.id, 1, async (cardNumber) => {
+  const createdCard = await withCardNumberRetry(project.id, startingNumber, async (cardNumber) => {
     return db.$transaction(async (tx) => {
       const card = await tx.card.create({
         data: {

@@ -291,6 +291,24 @@ curl -X GET http://localhost:3000/api/v1/cards/CARD_ID/attachments \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
 ```
 
+### 9. Inbound Email Webhook (Card Creation)
+Create cards automatically from inbound email services (e.g. SendGrid Inbound Parse, Mailgun, Postmark, AWS SES):
+```bash
+curl -X POST http://localhost:3000/api/v1/inbound-email \
+  -H "X-Inbound-Token: YOUR_INBOUND_EMAIL_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "to": "opm+PROJ@inbound.example.com",
+    "from": "user@example.com",
+    "subject": "Task Title",
+    "text": "Detailed task description"
+  }'
+```
+
+- **Authentication**: Set `INBOUND_EMAIL_TOKEN` on the server and pass it via `X-Inbound-Token` or `Authorization: Bearer`.
+- **Recipient Routing**: Specify the project key via plus-addressing (e.g. `opm+KEY@domain`) or direct address (`KEY@inbound.domain`).
+- **Sender Authorization**: The sender (`from`) must correspond to a registered OPM user with `OWNER` or `MEMBER` permissions on the target project. Unauthenticated or non-member emails are safely rejected.
+
 ---
 
 ## 📥 Importing an Existing Board (Vikunja)

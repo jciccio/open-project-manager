@@ -37,6 +37,7 @@ services:
       - VIKUNJA_URL=${VIKUNJA_URL:-}
       - VIKUNJA_API_TOKEN=${VIKUNJA_API_TOKEN:-}
       - VIKUNJA_IMPORT_USER_EMAIL=${VIKUNJA_IMPORT_USER_EMAIL:-}
+      - INBOUND_EMAIL_TOKEN=${INBOUND_EMAIL_TOKEN:-}
     volumes:
       - opm_data:/app/data
     healthcheck:
