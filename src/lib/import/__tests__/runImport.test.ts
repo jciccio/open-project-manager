@@ -529,4 +529,115 @@ describe("runImport", () => {
     expect(liveCard?.status).toBe("failed");
     expect(liveCard?.error).toContain('Unknown labelSourceId "non-existent-label-id"');
   });
+
+  it("validates parent hierarchy with validateParentCard and rejects 3-level chains", async () => {
+    const fixture = baseFixture();
+    fixture.cards["proj-1"] = [
+      { sourceId: "epic", columnSourceId: "col-todo", title: "Epic" },
+      { sourceId: "story", columnSourceId: "col-todo", title: "Story", parentSourceId: "epic" },
+      { sourceId: "subtask", columnSourceId: "col-todo", title: "Subtask", parentSourceId: "story" },
+    ];
+
+    const live = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
+    const parentFailures = live.records.filter((r) => r.status === "failed" && r.sourceId.endsWith(":parent"));
+    expect(parentFailures.length).toBe(1);
+    expect(parentFailures[0].error).toMatch(/Subtasks cannot be nested under another subtask|A card with subtasks cannot be made a subtask/);
+
+    const epic = await db.card.findFirst({ where: { project: { userId }, title: "Epic" } });
+    const story = await db.card.findFirst({ where: { project: { userId }, title: "Story" } });
+    const subtask = await db.card.findFirst({ where: { project: { userId }, title: "Subtask" } });
+
+    expect(epic).toBeDefined();
+    expect(story).toBeDefined();
+    expect(subtask).toBeDefined();
+
+    // 3-level chain is prevented
+    if (story?.parentId === epic?.id) {
+      expect(subtask?.parentId).toBeNull();
+    } else {
+      expect(subtask?.parentId).toBe(story?.id);
+      expect(story?.parentId).toBeNull();
+    }
+  });
+
+  it("records failure when parent or relation target is unresolved", async () => {
+    const fixture = baseFixture();
+    fixture.cards["proj-1"] = [
+      {
+        sourceId: "card-orphan",
+        columnSourceId: "col-todo",
+        title: "Card with missing parent and relation",
+        parentSourceId: "missing-parent",
+        relations: [{ targetCardSourceId: "missing-relation-target", type: "BLOCKS" }],
+      },
+    ];
+
+    const dryRun = (await runImport(makeFakeImporter(fixture), userId, { dryRun: true })) as ImportDryRunSummary;
+    expect(dryRun.records.some((r) => r.sourceId === "card-orphan:parent" && r.status === "would_fail")).toBe(true);
+    expect(dryRun.records.some((r) => r.sourceId === "card-orphan:relation:missing-relation-target" && r.status === "would_fail")).toBe(true);
+
+    const live = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
+    expect(live.records.some((r) => r.sourceId === "card-orphan:parent" && r.status === "failed")).toBe(true);
+    expect(live.records.some((r) => r.sourceId === "card-orphan:relation:missing-relation-target" && r.status === "failed")).toBe(true);
+  });
+
+  it("validates column group and enforces isDone agreement with resolveColumnGroup", async () => {
+    const fixture = baseFixture();
+    fixture.columns["proj-1"] = [
+      { sourceId: "col-bad-group", name: "Bad Group", group: "BOGUS" },
+      { sourceId: "col-conflict", name: "Conflict", group: "COMPLETED", isDone: false },
+    ];
+    fixture.cards["proj-1"] = [];
+
+    const dryRun = (await runImport(makeFakeImporter(fixture), userId, { dryRun: true })) as ImportDryRunSummary;
+    const badDry = dryRun.records.find((r) => r.sourceId === "col-bad-group");
+    const conflictDry = dryRun.records.find((r) => r.sourceId === "col-conflict");
+    expect(badDry?.status).toBe("would_fail");
+    expect(badDry?.error).toContain('Invalid column group "BOGUS"');
+    expect(conflictDry?.status).toBe("would_fail");
+    expect(conflictDry?.error).toContain("isDone must be true exactly when group is COMPLETED");
+
+    const live = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
+    const badLive = live.records.find((r) => r.sourceId === "col-bad-group");
+    const conflictLive = live.records.find((r) => r.sourceId === "col-conflict");
+    expect(badLive?.status).toBe("failed");
+    expect(conflictLive?.status).toBe("failed");
+  });
+
+  it("avoids number collision when auto-numbered card precedes explicit number: 1", async () => {
+    const fixture = baseFixture();
+    fixture.cards["proj-1"] = [
+      { sourceId: "card-auto-first", columnSourceId: "col-todo", title: "Auto First" },
+      { sourceId: "card-explicit-one", columnSourceId: "col-todo", title: "Explicit One", number: 1 },
+    ];
+
+    const live = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
+    expect(live.totals.failed).toBe(0);
+
+    const autoCard = await db.card.findFirst({ where: { project: { userId }, title: "Auto First" } });
+    const explicitCard = await db.card.findFirst({ where: { project: { userId }, title: "Explicit One" } });
+
+    expect(explicitCard?.number).toBe(1);
+    expect(autoCard?.number).toBe(2);
+  });
+
+  it("reports a per-record error when explicit card number already exists in project", async () => {
+    const fixture = baseFixture();
+    fixture.cards["proj-1"] = [
+      { sourceId: "card-initial", columnSourceId: "col-todo", title: "Initial Card", number: 1 },
+    ];
+
+    await runImport(makeFakeImporter(fixture), userId);
+
+    // Second import with a new card attempting to reuse number 1
+    const fixture2 = baseFixture();
+    fixture2.cards["proj-1"] = [
+      { sourceId: "card-duplicate-number", columnSourceId: "col-todo", title: "Colliding Card", number: 1 },
+    ];
+
+    const live2 = (await runImport(makeFakeImporter(fixture2), userId)) as ImportSummary;
+    const failedRecord = live2.records.find((r) => r.sourceId === "card-duplicate-number");
+    expect(failedRecord?.status).toBe("failed");
+    expect(failedRecord?.error).toContain("Card number 1 already exists in project");
+  });
 });
