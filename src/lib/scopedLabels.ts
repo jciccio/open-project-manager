@@ -12,6 +12,7 @@ export class LabelExistsError extends Error {
 interface ScopedLabelInput {
   name: string;
   color: string;
+  description?: string | null;
   projectId: string | null;
   userId: string | null;
 }
@@ -30,7 +31,13 @@ export async function createScopedLabel(input: ScopedLabelInput) {
         });
         if (existing) throw new LabelExistsError();
         return tx.label.create({
-          data: { name, color: input.color, projectId: input.projectId, userId: input.userId },
+          data: {
+            name,
+            color: input.color,
+            description: input.description ?? null,
+            projectId: input.projectId,
+            userId: input.userId,
+          },
         });
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }

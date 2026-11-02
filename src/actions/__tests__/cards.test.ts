@@ -70,7 +70,7 @@ describe("Cards Server Actions", () => {
       title: "  ",
     });
     expect(res.success).toBe(false);
-    expect(res.error).toBe("Card title is required");
+    expect(res.error).toBe("title: Card title is required");
   });
 
   it("updates card details", async () => {
