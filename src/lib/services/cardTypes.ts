@@ -1,6 +1,8 @@
 import { db } from "@/lib/db";
 import { safeRevalidatePath } from "@/lib/revalidate";
 import { verifyProjectAccess } from "@/lib/permissions";
+import { CardTypeCreateSchema, CardTypeUpdateSchema } from "@/lib/validation/cardTypes";
+import { parseInput } from "@/lib/validation/errors";
 
 export async function getCardTypes(projectId: string, userId: string) {
   try {
@@ -26,9 +28,9 @@ export async function createCardType(
   userId: string
 ) {
   try {
-    if (!name.trim()) {
-      return { success: false, error: "Type name is required" };
-    }
+    const parsed = parseInput(CardTypeCreateSchema, { name, icon, color });
+    if (!parsed.success) return parsed;
+    const input = parsed.data;
 
     const hasAccess = await verifyProjectAccess(projectId, userId, "ADMIN");
     if (!hasAccess) return { success: false, error: "Project not found or access denied" };
@@ -36,9 +38,9 @@ export async function createCardType(
     const cardType = await db.cardType.create({
       data: {
         projectId,
-        name: name.trim(),
-        icon: icon || "Tag",
-        color: color || "#6366f1",
+        name: input.name,
+        icon: input.icon || "Tag",
+        color: input.color || "#6366f1",
       },
     });
 
@@ -56,6 +58,9 @@ export async function updateCardType(
   userId: string
 ) {
   try {
+    const parsed = parseInput(CardTypeUpdateSchema, data);
+    if (!parsed.success) return parsed;
+
     const existing = await db.cardType.findUnique({
       where: { id },
       include: { project: true },
@@ -66,11 +71,7 @@ export async function updateCardType(
 
     const cardType = await db.cardType.update({
       where: { id },
-      data: {
-        name: data.name?.trim(),
-        icon: data.icon,
-        color: data.color,
-      },
+      data: parsed.data,
     });
 
     safeRevalidatePath(`/projects/${existing.projectId}`);
