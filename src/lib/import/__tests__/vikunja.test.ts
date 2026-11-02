@@ -431,4 +431,24 @@ describe("VikunjaImporter", () => {
     expect(callCount).toBe(3);
     expect(projects[0].name).toBe("Recovered Project");
   });
+
+  it("times out a request that never answers, retries it, then fails with a timeout error", async () => {
+    const hangingFetch = vi.fn(
+      (_url: string, init: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init.signal!.addEventListener("abort", () => reject(init.signal!.reason));
+        })
+    );
+    vi.stubGlobal("fetch", hangingFetch);
+
+    const importer = new VikunjaImporter({
+      baseUrl: BASE,
+      token: "test-token",
+      maxRetries: 2,
+      retryDelayMs: 1,
+      timeoutMs: 20,
+    });
+    await expect(collect(importer.fetchProjects())).rejects.toThrow(/^Vikunja GET \/projects.* timed out after 20ms$/);
+    expect(hangingFetch).toHaveBeenCalledTimes(3);
+  });
 });

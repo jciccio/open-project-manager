@@ -138,11 +138,13 @@ describe("multi-step writes leave no partial state", () => {
         async *fetchCards() {},
         async *fetchComments() {},
       };
-      const upsert = vi.spyOn(db.importRecord, "upsert").mockRejectedValueOnce(new Error("mapping write failed"));
+      const createMapping = vi
+        .spyOn(db.importRecord, "create")
+        .mockRejectedValueOnce(new Error("mapping write failed"));
 
       const summary = (await runImport(importer, userId)) as ImportSummary;
 
-      expect(upsert).toHaveBeenCalledTimes(1);
+      expect(createMapping).toHaveBeenCalledTimes(1);
       expect(summary.records[0].status).toBe("failed");
       expect(await db.project.count({ where: { userId, name: "Unmapped Import" } })).toBe(0);
     });

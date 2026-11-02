@@ -2,6 +2,8 @@ import { db } from "@/lib/db";
 import { safeRevalidatePath } from "@/lib/revalidate";
 import { verifyProjectAccess } from "@/lib/permissions";
 import { Prisma } from "@prisma/client";
+import { parseInput } from "@/lib/validation/errors";
+import { SavedViewCreateSchema, SavedViewUpdateSchema } from "@/lib/validation/views";
 
 // Serializable so two concurrent "make this the default" calls can't both
 // clear the old default and both set theirs.
@@ -38,16 +40,16 @@ export async function createSavedView(
   userId: string
 ) {
   try {
-    if (!data.name || !data.name.trim()) {
-      return { success: false, error: "View name is required" };
-    }
+    const parsed = parseInput(SavedViewCreateSchema, data);
+    if (!parsed.success) return parsed;
+    const input = parsed.data;
 
     const hasAccess = await verifyProjectAccess(projectId, userId, "MEMBER");
     if (!hasAccess) return { success: false, error: "Project not found or access denied" };
 
     const savedView = await db.$transaction(async (tx) => {
       // If setting as default, unset other defaults in the project
-      if (data.isDefault) {
+      if (input.isDefault) {
         await tx.savedView.updateMany({
           where: { projectId, isDefault: true },
           data: { isDefault: false },
@@ -57,9 +59,9 @@ export async function createSavedView(
       return tx.savedView.create({
         data: {
           projectId,
-          name: data.name.trim(),
-          filterJson: data.filterJson || "{}",
-          isDefault: !!data.isDefault,
+          name: input.name,
+          filterJson: input.filterJson || "{}",
+          isDefault: !!input.isDefault,
         },
       });
     }, SERIALIZABLE);
@@ -84,6 +86,10 @@ export async function updateSavedView(
   userId: string
 ) {
   try {
+    const parsed = parseInput(SavedViewUpdateSchema, data);
+    if (!parsed.success) return parsed;
+    const input = parsed.data;
+
     const existing = await db.savedView.findUnique({
       where: { id },
       include: { project: true },
@@ -93,7 +99,7 @@ export async function updateSavedView(
     }
 
     const savedView = await db.$transaction(async (tx) => {
-      if (data.isDefault) {
+      if (input.isDefault) {
         await tx.savedView.updateMany({
           where: { projectId: existing.projectId, isDefault: true, id: { not: id } },
           data: { isDefault: false },
@@ -103,9 +109,9 @@ export async function updateSavedView(
       return tx.savedView.update({
         where: { id },
         data: {
-          name: data.name !== undefined ? data.name.trim() : undefined,
-          filterJson: data.filterJson !== undefined ? data.filterJson : undefined,
-          isDefault: data.isDefault !== undefined ? data.isDefault : undefined,
+          name: input.name,
+          filterJson: input.filterJson,
+          isDefault: input.isDefault,
         },
       });
     }, SERIALIZABLE);

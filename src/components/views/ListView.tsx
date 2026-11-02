@@ -119,6 +119,7 @@ export default function ListView({
                                 key={label.id}
                                 className="inline-block rounded-md px-2 py-0.5 text-[10px] font-bold text-white"
                                 style={{ backgroundColor: label.color }}
+                                title={label.description || undefined}
                               >
                                 {label.name}
                               </span>
