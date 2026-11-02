@@ -148,7 +148,7 @@ describe("Inbound Email", () => {
       });
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain("is not a member of project");
+      expect(result.error).toContain("Inbound email rejected");
     });
 
     it("rejects an inbound email from an unknown email address", async () => {
@@ -159,7 +159,7 @@ describe("Inbound Email", () => {
       });
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain("is not a registered user");
+      expect(result.error).toContain("Inbound email rejected");
     });
 
     it("rejects when project key cannot be found", async () => {
@@ -172,7 +172,60 @@ describe("Inbound Email", () => {
       });
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain('Project with key "NONEXISTENT" not found');
+      expect(result.error).toContain("Inbound email rejected");
+    });
+
+    it("rejects an inbound email from a user who only has VIEWER access", async () => {
+      const viewerRes = await createTestUser(`inbound-viewer-${Date.now()}`);
+      await db.projectMember.create({
+        data: {
+          projectId,
+          userId: viewerRes.user.id,
+          role: "VIEWER",
+        },
+      });
+
+      const result = await processInboundEmail({
+        to: `opm+${projectKey}@inbound.local`,
+        from: viewerRes.user.email,
+        subject: "Viewer attempt to create card",
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("Inbound email rejected");
+      await cleanupTestUser(viewerRes.user.id);
+    });
+
+    it("disambiguates identical project keys across different owners", async () => {
+      const ownerBRes = await createTestUser(`inbound-owner-b-${Date.now()}`);
+      const projectB = await db.project.create({
+        data: {
+          userId: ownerBRes.user.id,
+          name: "Project B Same Key",
+          key: projectKey,
+          color: "#3b82f6",
+        },
+      });
+      await db.column.create({
+        data: {
+          projectId: projectB.id,
+          name: "Backlog",
+          group: "BACKLOG",
+          order: 1,
+        },
+      });
+
+      const resultB = await processInboundEmail({
+        to: `opm+${projectKey}@inbound.local`,
+        from: ownerBRes.user.email,
+        subject: "Card in Owner B project",
+      });
+
+      expect(resultB.success).toBe(true);
+      expect(resultB.card?.projectId).toBe(projectB.id);
+      expect(resultB.card?.projectId).not.toBe(projectId);
+
+      await cleanupTestUser(ownerBRes.user.id);
     });
   });
 });

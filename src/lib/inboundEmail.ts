@@ -3,6 +3,7 @@ import { htmlToMarkdown } from "@/lib/import/htmlToMarkdown";
 import { withCardNumberRetry } from "@/lib/cardNumbering";
 import { createActivities, notifyActivity, type ActivityEntry } from "@/lib/services/activity";
 import { safeRevalidatePath } from "@/lib/revalidate";
+import { verifyProjectAccess } from "@/lib/permissions";
 
 export interface InboundEmailPayload {
   to: string;
@@ -86,9 +87,35 @@ export async function processInboundEmail(
     };
   }
 
-  // Look up project
-  const project = await db.project.findFirst({
-    where: { key: projectKey },
+  // Look up registered sender
+  const senderUser = await db.user.findUnique({
+    where: { email: senderEmail },
+  });
+
+  if (!senderUser) {
+    console.warn(`[inbound-email] Sender "${senderEmail}" is not a registered user`);
+    return {
+      success: false,
+      error: "Inbound email rejected: project not found or sender unauthorized",
+    };
+  }
+
+  // Look up candidate projects matching key or id that the sender is associated with
+  const candidateProjects = await db.project.findMany({
+    where: {
+      OR: [
+        { id: projectKey },
+        { key: projectKey },
+      ],
+      AND: [
+        {
+          OR: [
+            { userId: senderUser.id },
+            { members: { some: { userId: senderUser.id } } },
+          ],
+        },
+      ],
+    },
     include: {
       columns: {
         orderBy: { order: "asc" },
@@ -100,32 +127,24 @@ export async function processInboundEmail(
     },
   });
 
-  if (!project) {
+  if (candidateProjects.length === 0) {
+    console.warn(`[inbound-email] No project with key/id "${projectKey}" found accessible by sender "${senderEmail}"`);
     return {
       success: false,
-      error: `Project with key "${projectKey}" not found`,
+      error: "Inbound email rejected: project not found or sender unauthorized",
     };
   }
 
-  // Check sender authorization: sender must be project owner or member
-  const senderUser = await db.user.findUnique({
-    where: { email: senderEmail },
-  });
+  // Disambiguate if multiple: prefer owned project
+  const project = candidateProjects.find((p) => p.userId === senderUser.id) || candidateProjects[0];
 
-  if (!senderUser) {
+  // Verify access: sender must have at least MEMBER access (rejects VIEWERs)
+  const hasMemberAccess = await verifyProjectAccess(project.id, senderUser.id, "MEMBER");
+  if (!hasMemberAccess) {
+    console.warn(`[inbound-email] Sender "${senderEmail}" does not have MEMBER access to project "${project.id}"`);
     return {
       success: false,
-      error: `Sender "${senderEmail}" is not a registered user. Inbound emails from non-members are rejected.`,
-    };
-  }
-
-  const isOwner = project.userId === senderUser.id;
-  const isMember = project.members.some((m) => m.userId === senderUser.id);
-
-  if (!isOwner && !isMember) {
-    return {
-      success: false,
-      error: `Sender "${senderEmail}" is not a member of project "${project.name}" (${projectKey}). Inbound email rejected.`,
+      error: "Inbound email rejected: project not found or sender unauthorized",
     };
   }
 

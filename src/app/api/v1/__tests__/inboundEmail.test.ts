@@ -111,4 +111,49 @@ describe("POST /api/v1/inbound-email", () => {
     const res = await POST(req);
     expect(res.status).toBe(400);
   });
+
+  it("prevents caller from spoofing another user when authenticating with a session token", async () => {
+    const attackerRes = await createTestUser(`inbound-attacker-${Date.now()}`);
+    const victim = await db.user.findUnique({ where: { id: userId } });
+
+    // Attacker tries to post with victim's email in 'from'
+    const req = new NextRequest("http://localhost/api/v1/inbound-email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${attackerRes.token}`,
+      },
+      body: JSON.stringify({
+        to: `opm+${projectKey}@opm.local`,
+        from: victim!.email,
+        subject: "Planted malicious card",
+      }),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(422);
+    const body = await res.json();
+    expect(body.error).toContain("Inbound email rejected");
+
+    await cleanupTestUser(attackerRes.user.id);
+  });
+
+  it("returns 401 when INBOUND_EMAIL_TOKEN is incorrect or timing-mismatched", async () => {
+    process.env.INBOUND_EMAIL_TOKEN = "correct-token-value";
+    const req = new NextRequest("http://localhost/api/v1/inbound-email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Inbound-Token": "wrong-token-value",
+      },
+      body: JSON.stringify({
+        to: `opm+${projectKey}@opm.local`,
+        from: "any@example.com",
+        subject: "Test",
+      }),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(401);
+  });
 });

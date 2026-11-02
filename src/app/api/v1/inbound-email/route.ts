@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
 import { z } from "zod";
 import { processInboundEmail } from "@/lib/inboundEmail";
 import { getApiSession } from "@/lib/auth";
@@ -18,17 +19,24 @@ export async function POST(request: NextRequest) {
   const customHeaderToken = request.headers.get("x-inbound-token");
   const tokenProvided = bearerToken || customHeaderToken;
 
-  let authorized = false;
-  if (configuredToken && tokenProvided === configuredToken) {
-    authorized = true;
-  } else {
-    const session = await getApiSession(request);
-    if (session) {
-      authorized = true;
+  let isWebhookAuthorized = false;
+  if (configuredToken && tokenProvided) {
+    const bufProvided = Buffer.from(tokenProvided);
+    const bufConfigured = Buffer.from(configuredToken);
+    if (bufProvided.length === bufConfigured.length && crypto.timingSafeEqual(bufProvided, bufConfigured)) {
+      isWebhookAuthorized = true;
     }
   }
 
-  if (!authorized) {
+  let sessionUser: { id: string; email: string } | null = null;
+  if (!isWebhookAuthorized) {
+    const session = await getApiSession(request);
+    if (session && session.email) {
+      sessionUser = { id: session.userId, email: session.email };
+    }
+  }
+
+  if (!isWebhookAuthorized && !sessionUser) {
     return NextResponse.json(
       { error: "Unauthorized: valid Bearer token or configured INBOUND_EMAIL_TOKEN required" },
       { status: 401 }
@@ -50,7 +58,16 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const result = await processInboundEmail(parsed.data);
+  let payloadData = parsed.data;
+  if (sessionUser) {
+    // If authenticated via user session, ignore client-provided `from` to prevent spoofing
+    payloadData = {
+      ...payloadData,
+      from: sessionUser.email,
+    };
+  }
+
+  const result = await processInboundEmail(payloadData);
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 422 });
   }
