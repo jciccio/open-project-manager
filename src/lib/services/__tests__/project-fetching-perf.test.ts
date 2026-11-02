@@ -69,9 +69,9 @@ describe("Project data fetching performance optimizations (Issue #105)", () => {
     expect(fetchedCard._count).toBeDefined();
     expect(fetchedCard._count.comments).toBe(2);
 
-    // comments and activities should NOT be included in bulk on the board
+    // comments should not be loaded on the board, and activities only includes narrow moved activities for analytics
     expect(fetchedCard.comments).toBeUndefined();
-    expect(fetchedCard.activities).toBeUndefined();
+    expect(fetchedCard.activities).toEqual([]);
   });
 
   it("batches multiple activity updates in updateCard atomically", async () => {

@@ -189,7 +189,7 @@ export default function CardDetailModal({
 
   const [relations, setRelations] = useState<Array<any>>([]);
   const [projectCards, setProjectCards] = useState<
-    Array<{ id: string; identifier: string; title: string }>
+    Array<{ id: string; identifier?: string; title: string }>
   >([]);
   const [selectedProjectCardId, setSelectedProjectCardId] = useState("");
   const [targetIdentifierInput, setTargetIdentifierInput] = useState("");
@@ -325,12 +325,12 @@ export default function CardDetailModal({
     }
     function loadProjectCards() {
       const allCards = (columns as any[]).flatMap((col: any) => col.cards || []);
-      const key = projectKey || (card as any).project?.key || "OPM";
+      const key = projectKey || (card as any).project?.key;
       const otherCards = allCards
         .filter((c: any) => c.id !== card.id)
         .map((c: any) => ({
           id: c.id,
-          identifier: `${key}-${c.number}`,
+          identifier: key && c.number ? `${key}-${c.number}` : undefined,
           title: c.title,
         }));
       setProjectCards(otherCards);
@@ -1110,7 +1110,7 @@ export default function CardDetailModal({
                     <option value="">-- Select card from this project --</option>
                     {projectCards.map((pc) => (
                       <option key={pc.id} value={pc.id}>
-                        [{pc.identifier}] {pc.title}
+                        {pc.identifier ? `[${pc.identifier}] ` : ""}{pc.title}
                       </option>
                     ))}
                   </select>

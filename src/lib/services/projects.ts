@@ -95,6 +95,10 @@ export async function getProjectById(id: string, userId: string) {
                   },
                 },
                 links: true,
+                activities: {
+                  where: { type: "moved" },
+                  select: { type: true, fromValue: true, toValue: true, createdAt: true },
+                },
                 assignees: {
                   include: { user: { select: { id: true, name: true, email: true } } },
                 },

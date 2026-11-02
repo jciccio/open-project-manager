@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { getApiSession } from "@/lib/auth";
 import { createCard } from "@/lib/services/cards";
 import { db } from "@/lib/db";
@@ -85,7 +86,7 @@ export async function GET(request: NextRequest) {
       where.OR = cardTextSearch(query);
     }
 
-    const queryOptions: any = {
+    const queryOptions: Prisma.CardFindManyArgs = {
       ...cardPageQuery(where, after, limit),
       include: {
         type: true,
@@ -93,8 +94,7 @@ export async function GET(request: NextRequest) {
         _count: { select: { comments: true } },
         comments: {
           take: 10,
-          orderBy: { createdAt: "desc" },
-          include: { authorUser: { select: { id: true, name: true, email: true } } },
+          orderBy: { createdAt: "asc" },
         },
         assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
         parent: { select: { id: true, number: true, title: true } },
