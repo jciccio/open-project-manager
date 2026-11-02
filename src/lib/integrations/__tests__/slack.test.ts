@@ -13,12 +13,14 @@ import {
 
 describe("Slack Integration", () => {
   let userId: string;
+  let userToken: string;
   let projectId: string;
   let projectKey: string;
 
   beforeEach(async () => {
     const userRes = await createTestUser(`slack-user-${Date.now()}`);
     userId = userRes.user.id;
+    userToken = userRes.token;
 
     const project = await createTestProject(userId, "Slack App Test Project");
     projectId = project.id;
@@ -143,11 +145,11 @@ describe("Slack Integration", () => {
       expect(res.text).toContain("Your Slack account is not linked to Open Project Manager");
     });
 
-    it("links a Slack user via /opm link <email>", async () => {
+    it("links a Slack user via /opm link <api-token>", async () => {
       const user = await db.user.findUnique({ where: { id: userId } });
       const res = await handleSlackSlashCommand({
         command: "/opm",
-        text: `link ${user!.email}`,
+        text: `link ${userToken}`,
         user_id: "U_NEW_LINK",
       });
 
@@ -160,6 +162,64 @@ describe("Slack Integration", () => {
         user_id: "U_NEW_LINK",
       });
       expect(who.text).toContain(user!.email);
+    });
+
+    it("rejects linking via bare email or invalid token", async () => {
+      const user = await db.user.findUnique({ where: { id: userId } });
+      const bareEmailRes = await handleSlackSlashCommand({
+        command: "/opm",
+        text: `link ${user!.email}`,
+        user_id: "U_ATTACKER",
+      });
+      expect(bareEmailRes.response_type).toBe("ephemeral");
+      expect(bareEmailRes.text).toContain("Invalid or expired API token");
+
+      const invalidTokenRes = await handleSlackSlashCommand({
+        command: "/opm",
+        text: "link not-a-real-jwt-token",
+        user_id: "U_ATTACKER",
+      });
+      expect(invalidTokenRes.response_type).toBe("ephemeral");
+      expect(invalidTokenRes.text).toContain("Invalid or expired API token");
+    });
+
+    it("replaces existing link on re-link avoiding duplicate mappings", async () => {
+      const user2Res = await createTestUser(`slack-user2-${Date.now()}`);
+      try {
+        await handleSlackSlashCommand({
+          command: "/opm",
+          text: `link ${user2Res.token}`,
+          user_id: "U_TEST_USER",
+        });
+
+        const count = await db.importRecord.count({
+          where: {
+            source: "slack",
+            entityType: "user",
+            sourceId: "U_TEST_USER",
+          },
+        });
+        expect(count).toBe(1);
+
+        const who = await handleSlackSlashCommand({
+          command: "/opm",
+          text: "whoami",
+          user_id: "U_TEST_USER",
+        });
+        expect(who.text).toContain(user2Res.user.email);
+      } finally {
+        await cleanupTestUser(user2Res.user.id);
+      }
+    });
+
+    it("rejects /opm create with no title", async () => {
+      const res = await handleSlackSlashCommand({
+        command: "/opm",
+        text: `create ${projectKey}`,
+        user_id: "U_TEST_USER",
+      });
+      expect(res.response_type).toBe("ephemeral");
+      expect(res.text).toContain("Usage: `/opm create <KEY> <title>`");
     });
 
     it("creates a card via /opm new <title>", async () => {

@@ -6,6 +6,7 @@ import { POST as commandsHandler } from "../commands/route";
 import { createTestUser, createTestProject, cleanupTestUser } from "@/test/helpers";
 import { db } from "@/lib/db";
 import { linkSlackUser } from "@/lib/integrations/slack";
+import { proxy } from "@/proxy";
 
 describe("Slack Routes", () => {
   let userId: string;
@@ -122,5 +123,19 @@ describe("Slack Routes", () => {
     const body = await res.json();
     expect(body.response_type).toBe("in_channel");
     expect(body.text).toContain("Created card");
+  });
+
+  it("allows Slack routes through the proxy middleware without cookie or authorization header", async () => {
+    const reqCommands = new NextRequest("http://localhost:3000/api/v1/integrations/slack/commands", {
+      method: "POST",
+    });
+    const resCommands = await proxy(reqCommands);
+    expect(resCommands.status).not.toBe(401);
+
+    const reqEvents = new NextRequest("http://localhost:3000/api/v1/integrations/slack/events", {
+      method: "POST",
+    });
+    const resEvents = await proxy(reqEvents);
+    expect(resEvents.status).not.toBe(401);
   });
 });

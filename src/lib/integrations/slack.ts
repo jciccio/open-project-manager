@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { db } from "@/lib/db";
-import { withCardNumberRetry } from "@/lib/cardNumbering";
-import { createActivities, notifyActivity, type ActivityEntry } from "@/lib/services/activity";
+import { verifyBearerToken } from "@/lib/auth";
+import { createCard } from "@/lib/services/cards";
 import { verifyProjectAccess } from "@/lib/permissions";
 
 export interface SlackUnfurlBlock {
@@ -37,24 +37,21 @@ export async function getLinkedOpmUser(slackUserId: string) {
 }
 
 export async function linkSlackUser(slackUserId: string, opmUserId: string) {
-  await db.importRecord.upsert({
+  // Clear any existing mappings for this Slack user so one Slack account holds exactly one link
+  await db.importRecord.deleteMany({
     where: {
-      userId_source_entityType_sourceId: {
-        userId: opmUserId,
-        source: "slack",
-        entityType: "user",
-        sourceId: slackUserId,
-      },
+      source: "slack",
+      entityType: "user",
+      sourceId: slackUserId,
     },
-    create: {
+  });
+
+  await db.importRecord.create({
+    data: {
       userId: opmUserId,
       source: "slack",
       entityType: "user",
       sourceId: slackUserId,
-      localId: opmUserId,
-      importRunId: "slack-link",
-    },
-    update: {
       localId: opmUserId,
       importRunId: "slack-link",
     },
@@ -199,7 +196,7 @@ export async function handleSlackSlashCommand(params: {
       response_type: "ephemeral",
       text: "Open Project Manager Slack Commands:\n" +
         "• `/opm help` - Show this help message\n" +
-        "• `/opm link <tokenOrEmail>` - Link your Slack account to Open Project Manager\n" +
+        "• `/opm link <api-token>` - Link your Slack account to Open Project Manager using an API token\n" +
         "• `/opm whoami` - Check your linked Open Project Manager account\n" +
         "• `/opm unlink` - Unlink your Slack account\n" +
         "• `/opm new <title>` - Create a card in your default/first project\n" +
@@ -212,11 +209,11 @@ export async function handleSlackSlashCommand(params: {
   const subCommand = parts[0]?.toLowerCase();
 
   if (subCommand === "link") {
-    const tokenOrEmail = parts[1];
-    if (!tokenOrEmail) {
+    const token = parts[1];
+    if (!token) {
       return {
         response_type: "ephemeral",
-        text: "Usage: `/opm link <api-token>` (create an API token in your OPM User Profile) or `/opm link <email>`.",
+        text: "Usage: `/opm link <api-token>` (create an API token in your OPM User Profile).",
       };
     }
 
@@ -224,21 +221,22 @@ export async function handleSlackSlashCommand(params: {
       return { response_type: "ephemeral", text: "Missing Slack user ID." };
     }
 
-    let targetUser: any = await db.apiToken.findFirst({
-      where: { id: tokenOrEmail },
-      include: { user: true },
-    }).then((t) => t?.user);
-
-    if (!targetUser) {
-      targetUser = await db.user.findUnique({
-        where: { email: tokenOrEmail.toLowerCase().trim() },
-      });
+    const session = await verifyBearerToken(token);
+    if (!session) {
+      return {
+        response_type: "ephemeral",
+        text: "Invalid or expired API token. Please generate a new API token in your User Profile modal in Open Project Manager.",
+      };
     }
+
+    const targetUser = await db.user.findUnique({
+      where: { id: session.userId },
+    });
 
     if (!targetUser) {
       return {
         response_type: "ephemeral",
-        text: `No matching user or valid token found for "${tokenOrEmail}".`,
+        text: "User account associated with this token could not be found.",
       };
     }
 
@@ -293,7 +291,14 @@ export async function handleSlackSlashCommand(params: {
     };
   }
 
-  if (subCommand === "get" && parts[1]) {
+  if (subCommand === "get") {
+    if (!parts[1]) {
+      return {
+        response_type: "ephemeral",
+        text: "Usage: `/opm get <KEY-123>`. Example: `/opm get ENG-5`",
+      };
+    }
+
     const identifier = parts[1].toUpperCase();
     const [projectKey, numStr] = identifier.split("-");
     const number = parseInt(numStr, 10);
@@ -306,11 +311,12 @@ export async function handleSlackSlashCommand(params: {
     }
 
     // Scoped to projects accessible to the user
-    const card = await db.card.findFirst({
+    const matchingCards = await db.card.findMany({
       where: {
         number,
         project: {
           key: projectKey,
+          isArchived: false,
           OR: [
             { userId: opmUser.id },
             { members: { some: { userId: opmUser.id } } },
@@ -323,7 +329,14 @@ export async function handleSlackSlashCommand(params: {
       },
     });
 
+    const card = matchingCards.find((c) => c.project.userId === opmUser.id) || (matchingCards.length === 1 ? matchingCards[0] : null);
     if (!card) {
+      if (matchingCards.length > 1) {
+        return {
+          response_type: "ephemeral",
+          text: `Multiple active projects match key "${projectKey}". Please contact support to disambiguate.`,
+        };
+      }
       return {
         response_type: "ephemeral",
         text: `Card ${identifier} was not found or you do not have permission to view it.`,
@@ -356,66 +369,46 @@ export async function handleSlackSlashCommand(params: {
     };
   }
 
-  if (subCommand === "create" || subCommand === "new") {
-    let projectKey: string | null = null;
-    let title: string = "";
-
-    if (subCommand === "create" && parts.length >= 3) {
-      projectKey = parts[1].toUpperCase();
-      title = parts.slice(2).join(" ");
-    } else {
-      title = parts.slice(1).join(" ");
-    }
-
-    if (!title.trim()) {
+  if (subCommand === "create") {
+    if (parts.length < 3) {
       return {
         response_type: "ephemeral",
-        text: "Please provide a title for the card. Example: `/opm new Fix login bug`",
+        text: "Usage: `/opm create <KEY> <title>`. Example: `/opm create ENG Fix navigation bar`",
       };
     }
 
-    // Find the project scoped to projects accessible by the linked user
-    let project: any = null;
-    if (projectKey) {
-      const candidates = await db.project.findMany({
-        where: {
-          key: projectKey,
-          OR: [
-            { userId: opmUser.id },
-            { members: { some: { userId: opmUser.id } } },
-          ],
-        },
-        include: { columns: { orderBy: { order: "asc" } }, user: true },
-      });
-      project = candidates.find((p) => p.userId === opmUser.id) || candidates[0] || null;
-    } else {
-      project = await db.project.findFirst({
-        where: {
-          OR: [
-            { userId: opmUser.id },
-            { members: { some: { userId: opmUser.id } } },
-          ],
-        },
-        orderBy: { createdAt: "asc" },
-        include: { columns: { orderBy: { order: "asc" } }, user: true },
-      });
+    const projectKey = parts[1].toUpperCase();
+    const title = parts.slice(2).join(" ").trim();
+    if (!title) {
+      return {
+        response_type: "ephemeral",
+        text: "Please provide a title for the card. Example: `/opm create ENG Fix navigation bar`",
+      };
     }
 
+    const candidates = await db.project.findMany({
+      where: {
+        key: projectKey,
+        isArchived: false,
+        OR: [
+          { userId: opmUser.id },
+          { members: { some: { userId: opmUser.id, role: { in: ["OWNER", "MEMBER"] } } } },
+        ],
+      },
+      include: { columns: { orderBy: { order: "asc" } } },
+    });
+
+    const project = candidates.find((p) => p.userId === opmUser.id) || (candidates.length === 1 ? candidates[0] : null);
     if (!project) {
+      if (candidates.length > 1) {
+        return {
+          response_type: "ephemeral",
+          text: `Multiple projects match key "${projectKey}". Please specify a unique project.`,
+        };
+      }
       return {
         response_type: "ephemeral",
-        text: projectKey
-          ? `Project with key "${projectKey}" not found or you do not have permission to access it.`
-          : "You do not have access to any projects in Open Project Manager.",
-      };
-    }
-
-    // Role check: must have at least MEMBER access
-    const canCreate = await verifyProjectAccess(project.id, opmUser.id, "MEMBER");
-    if (!canCreate) {
-      return {
-        response_type: "ephemeral",
-        text: `You do not have permission to create cards in project "${project.name}".`,
+        text: `Project with key "${projectKey}" not found or you do not have permission to create cards in it.`,
       };
     }
 
@@ -432,47 +425,106 @@ export async function handleSlackSlashCommand(params: {
       project.columns.find((c: any) => !c.isDone) ||
       project.columns[0];
 
-    const lastCard = await db.card.findFirst({
-      where: { columnId: targetColumn.id },
-      orderBy: { order: "desc" },
-      select: { order: true },
-    });
-    const order = (lastCard?.order ?? 0) + 10000;
+    const result = await createCard(
+      {
+        projectId: project.id,
+        columnId: targetColumn.id,
+        title,
+        owner: opmUser.name || opmUser.email,
+      },
+      opmUser.id
+    );
 
-    const actor = opmUser.name || opmUser.email;
+    if (!result.success || !result.data) {
+      return {
+        response_type: "ephemeral",
+        text: `Failed to create card: ${result.error || "Unknown error"}`,
+      };
+    }
 
-    const created = await withCardNumberRetry(project.id, 1, async (cardNumber) => {
-      return db.$transaction(async (tx) => {
-        const card = await tx.card.create({
-          data: {
-            projectId: project.id,
-            columnId: targetColumn.id,
-            title: title.trim(),
-            number: cardNumber,
-            order,
-            owner: actor,
-          },
-        });
-
-        const activity: ActivityEntry[] = [
-          {
-            cardId: card.id,
-            actorUserId: opmUser.id,
-            type: "card_created",
-            toValue: title.trim(),
-          },
-        ];
-        await createActivities(tx, activity);
-
-        return { card, activity };
-      });
-    });
-
-    notifyActivity(project.id, created.activity);
-
-    const identifier = `${project.key}-${created.card.number}`;
-    const safeTitle = escapeSlackMrkdwn(title.trim());
+    const createdCard = result.data;
+    const identifier = `${project.key}-${createdCard.number}`;
+    const safeTitle = escapeSlackMrkdwn(title);
     const safeProjectName = escapeSlackMrkdwn(project.name);
+
+    return {
+      response_type: "in_channel",
+      text: `Created card *${identifier}* in *${safeProjectName}*: "${safeTitle}"`,
+      blocks: [
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: `Created card *${identifier}* in *${safeProjectName}* (${escapeSlackMrkdwn(targetColumn.name)})\n*${safeTitle}*`,
+          },
+        },
+      ],
+    };
+  }
+
+  if (subCommand === "new") {
+    const title = parts.slice(1).join(" ").trim();
+    if (!title) {
+      return {
+        response_type: "ephemeral",
+        text: "Please provide a title for the card. Example: `/opm new Fix login bug`",
+      };
+    }
+
+    const project = await db.project.findFirst({
+      where: {
+        isArchived: false,
+        OR: [
+          { userId: opmUser.id },
+          { members: { some: { userId: opmUser.id, role: { in: ["OWNER", "MEMBER"] } } } },
+        ],
+      },
+      orderBy: { createdAt: "asc" },
+      include: { columns: { orderBy: { order: "asc" } } },
+    });
+
+    if (!project) {
+      return {
+        response_type: "ephemeral",
+        text: "You do not have access to any active writable projects in Open Project Manager.",
+      };
+    }
+
+    if (project.columns.length === 0) {
+      return {
+        response_type: "ephemeral",
+        text: `Project "${project.name}" has no columns to place the card in.`,
+      };
+    }
+
+    const targetColumn =
+      project.columns.find((c: any) => c.group === "BACKLOG") ||
+      project.columns.find((c: any) => c.group === "UNSTARTED") ||
+      project.columns.find((c: any) => !c.isDone) ||
+      project.columns[0];
+
+    const result = await createCard(
+      {
+        projectId: project.id,
+        columnId: targetColumn.id,
+        title,
+        owner: opmUser.name || opmUser.email,
+      },
+      opmUser.id
+    );
+
+    if (!result.success || !result.data) {
+      return {
+        response_type: "ephemeral",
+        text: `Failed to create card: ${result.error || "Unknown error"}`,
+      };
+    }
+
+    const createdCard = result.data;
+    const identifier = `${project.key}-${createdCard.number}`;
+    const safeTitle = escapeSlackMrkdwn(title);
+    const safeProjectName = escapeSlackMrkdwn(project.name);
+
     return {
       response_type: "in_channel",
       text: `Created card *${identifier}* in *${safeProjectName}*: "${safeTitle}"`,
