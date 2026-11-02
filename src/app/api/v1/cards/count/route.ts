@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
 import { verifyProjectAccess } from "@/lib/permissions";
-import { buildCardWhere, countCards } from "@/lib/cardFilters";
+import { buildCardWhere, countCards, validateCardGroupBy } from "@/lib/cardFilters";
 
 export async function GET(request: NextRequest) {
   const session = await getApiSession(request);
@@ -63,7 +63,7 @@ export async function GET(request: NextRequest) {
       {
         projectId,
         columnId,
-        parentId,
+        parentId: searchParams.has("parentId") ? searchParams.get("parentId") : undefined,
         hasParent: hasParentParam === "true" ? true : hasParentParam === "false" ? false : undefined,
         typeId,
         columnGroup: columnGroup ?? undefined,
@@ -83,12 +83,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: filterRes.error }, { status: 400 });
     }
 
-    try {
-      const countRes = await countCards(filterRes.where, groupBy);
-      return NextResponse.json({ success: true, ...countRes });
-    } catch (err: any) {
-      return NextResponse.json({ error: err.message }, { status: 400 });
+    const groupValidation = validateCardGroupBy(groupBy);
+    if (!groupValidation.success) {
+      return NextResponse.json({ error: groupValidation.error }, { status: 400 });
     }
+
+    const countRes = await countCards(filterRes.where, groupValidation.groupBy);
+    return NextResponse.json({ success: true, ...countRes });
   } catch (err) {
     return NextResponse.json({ error: "Failed to count cards" }, { status: 500 });
   }

@@ -87,16 +87,20 @@ describe("MCP Rich Card Filters & Counts (#135)", () => {
   });
 
   it("filters cards by dueBefore, dueAfter, and isOverdue", async () => {
+    const pastDate = new Date(Date.now() - 30 * 86400000).toISOString();
+    const futureDate = new Date(Date.now() + 30 * 86400000).toISOString();
+    const todayStr = new Date().toISOString().split("T")[0];
+
     // Card due in the past
     const pastCard = await executeMcpTool(
       "create_card",
-      { projectId, columnId: colTodoId, title: "Past Due", dueDate: "2026-01-01T00:00:00Z" },
+      { projectId, columnId: colTodoId, title: "Past Due", dueDate: pastDate },
       { userId }
     );
     // Card due in the future
     const futureCard = await executeMcpTool(
       "create_card",
-      { projectId, columnId: colTodoId, title: "Future Due", dueDate: "2026-12-31T00:00:00Z" },
+      { projectId, columnId: colTodoId, title: "Future Due", dueDate: futureDate },
       { userId }
     );
     // Card with no due date
@@ -106,18 +110,18 @@ describe("MCP Rich Card Filters & Counts (#135)", () => {
       { userId }
     );
 
-    // dueBefore 2026-06-01
+    // dueBefore today
     const beforeList = await executeMcpTool(
       "list_cards",
-      { projectId, dueBefore: "2026-06-01" },
+      { projectId, dueBefore: todayStr },
       { userId }
     );
     expect(beforeList.cards.map((c: any) => c.id)).toEqual([pastCard.card!.id]);
 
-    // dueAfter 2026-06-01
+    // dueAfter today
     const afterList = await executeMcpTool(
       "list_cards",
-      { projectId, dueAfter: "2026-06-01" },
+      { projectId, dueAfter: todayStr },
       { userId }
     );
     expect(afterList.cards.map((c: any) => c.id)).toEqual([futureCard.card!.id]);

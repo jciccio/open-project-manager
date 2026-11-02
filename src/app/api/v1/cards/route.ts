@@ -4,7 +4,7 @@ import { createCard } from "@/lib/services/cards";
 import { db } from "@/lib/db";
 import { cardPage, cardPageQuery, decodeCardCursor } from "@/lib/cardPagination";
 import { verifyProjectAccess } from "@/lib/permissions";
-import { buildCardWhere, parseCardOrderBy, countCards } from "@/lib/cardFilters";
+import { buildCardWhere, parseCardOrderBy, countCards, validateCardGroupBy, PRIORITY_RANK } from "@/lib/cardFilters";
 
 const DEFAULT_LIST_CARDS_LIMIT = 100;
 
@@ -84,7 +84,7 @@ export async function GET(request: NextRequest) {
       {
         projectId,
         columnId,
-        parentId,
+        parentId: searchParams.has("parentId") ? searchParams.get("parentId") : undefined,
         hasParent: hasParentParam === "true" ? true : hasParentParam === "false" ? false : undefined,
         typeId,
         columnGroup: columnGroup ?? undefined,
@@ -105,12 +105,12 @@ export async function GET(request: NextRequest) {
     }
 
     if (countParam === "true") {
-      try {
-        const countRes = await countCards(filterRes.where, groupBy);
-        return NextResponse.json({ success: true, ...countRes });
-      } catch (err: any) {
-        return NextResponse.json({ error: err.message }, { status: 400 });
+      const groupValidation = validateCardGroupBy(groupBy);
+      if (!groupValidation.success) {
+        return NextResponse.json({ error: groupValidation.error }, { status: 400 });
       }
+      const countRes = await countCards(filterRes.where, groupValidation.groupBy);
+      return NextResponse.json({ success: true, ...countRes });
     }
 
     const sortRes = parseCardOrderBy(orderBy, orderDirection);
@@ -141,13 +141,6 @@ export async function GET(request: NextRequest) {
 
     const rows = await db.card.findMany(queryOptions);
     if (sortRes.sort.field === "priority") {
-      const PRIORITY_RANK: Record<string, number> = {
-        NONE: 0,
-        LOW: 1,
-        MEDIUM: 2,
-        HIGH: 3,
-        URGENT: 4,
-      };
       rows.sort((a: any, b: any) => {
         const ra = PRIORITY_RANK[a.priority ?? "NONE"] ?? 0;
         const rb = PRIORITY_RANK[b.priority ?? "NONE"] ?? 0;

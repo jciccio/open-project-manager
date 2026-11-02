@@ -5,6 +5,18 @@ import { parseColumnGroupFilter } from "@/lib/columnGroups";
 export const CARD_SORT_FIELDS = ["order", "createdAt", "updatedAt", "dueDate", "priority"] as const;
 export type CardSortField = (typeof CARD_SORT_FIELDS)[number];
 
+export const PRIORITY_RANK: Record<string, number> = {
+  NONE: 0,
+  LOW: 1,
+  MEDIUM: 2,
+  HIGH: 3,
+  URGENT: 4,
+};
+
+export function startOfUtcToday(date = new Date()): Date {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+}
+
 export interface CardFilterInput {
   projectId?: string | null;
   columnId?: string | null;
@@ -66,10 +78,11 @@ export function buildCardWhere(
     conditions.push({ OR: cardTextSearch(String(input.query)) });
   }
 
-  if (input.parentId !== undefined && input.parentId !== null) {
-    const pid = input.parentId === "null" || input.parentId === "" ? null : input.parentId;
+  if (input.parentId !== undefined) {
+    const pid = input.parentId === "null" || input.parentId === "" || input.parentId === null ? null : input.parentId;
     conditions.push({ parentId: pid });
-  } else if (typeof input.hasParent === "boolean") {
+  }
+  if (typeof input.hasParent === "boolean") {
     if (input.hasParent) {
       conditions.push({ parentId: { not: null } });
     } else {
@@ -81,12 +94,16 @@ export function buildCardWhere(
     conditions.push({ typeId: input.typeId });
   }
 
-  const groupInput = input.stateGroup !== undefined && input.stateGroup !== null && input.stateGroup !== ""
-    ? input.stateGroup
-    : input.columnGroup;
+  if (input.columnGroup !== undefined && input.columnGroup !== null) {
+    const groupFilter = parseColumnGroupFilter(input.columnGroup);
+    if (!groupFilter.success) {
+      return { success: false, error: groupFilter.error };
+    }
+    conditions.push({ column: { group: { in: groupFilter.groups } } });
+  }
 
-  if (groupInput !== undefined && groupInput !== null && groupInput !== "") {
-    const groupFilter = parseColumnGroupFilter(groupInput);
+  if (input.stateGroup !== undefined && input.stateGroup !== null) {
+    const groupFilter = parseColumnGroupFilter(input.stateGroup);
     if (!groupFilter.success) {
       return { success: false, error: groupFilter.error };
     }
@@ -113,7 +130,12 @@ export function buildCardWhere(
   // Due date & overdue filtering
   const dueDateCondition: any = {};
   if (input.dueBefore) {
-    const d = new Date(input.dueBefore);
+    let d: Date;
+    if (typeof input.dueBefore === "string" && /^\d{4}-\d{2}-\d{2}$/.test(input.dueBefore.trim())) {
+      d = new Date(`${input.dueBefore.trim()}T23:59:59.999Z`);
+    } else {
+      d = new Date(input.dueBefore);
+    }
     if (isNaN(d.getTime())) {
       return { success: false, error: "Invalid dueBefore date" };
     }
@@ -121,7 +143,12 @@ export function buildCardWhere(
   }
 
   if (input.dueAfter) {
-    const d = new Date(input.dueAfter);
+    let d: Date;
+    if (typeof input.dueAfter === "string" && /^\d{4}-\d{2}-\d{2}$/.test(input.dueAfter.trim())) {
+      d = new Date(`${input.dueAfter.trim()}T00:00:00.000Z`);
+    } else {
+      d = new Date(input.dueAfter);
+    }
     if (isNaN(d.getTime())) {
       return { success: false, error: "Invalid dueAfter date" };
     }
@@ -129,20 +156,18 @@ export function buildCardWhere(
   }
 
   if (input.isOverdue === true) {
-    const now = new Date();
-    const startOfUtcToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-    dueDateCondition.lt = startOfUtcToday;
+    const today = startOfUtcToday();
+    dueDateCondition.lt = today;
     conditions.push({
       completedAt: null,
       column: { isDone: false, group: { not: "CANCELLED" } },
     });
   } else if (input.isOverdue === false) {
-    const now = new Date();
-    const startOfUtcToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const today = startOfUtcToday();
     conditions.push({
       OR: [
         { dueDate: null },
-        { dueDate: { gte: startOfUtcToday } },
+        { dueDate: { gte: today } },
         { completedAt: { not: null } },
         { column: { isDone: true } },
         { column: { group: "CANCELLED" } },
@@ -219,6 +244,17 @@ export function parseCardOrderBy(
 
 export type CardGroupBy = "column" | "priority" | "label";
 
+export function validateCardGroupBy(
+  groupBy?: string | null
+): { success: true; groupBy?: CardGroupBy } | { success: false; error: string } {
+  if (!groupBy || !groupBy.trim()) return { success: true };
+  const normalized = groupBy.trim().toLowerCase();
+  if (normalized === "column" || normalized === "columnid") return { success: true, groupBy: "column" };
+  if (normalized === "priority") return { success: true, groupBy: "priority" };
+  if (normalized === "label" || normalized === "labelid") return { success: true, groupBy: "label" };
+  return { success: false, error: `Invalid groupBy '${groupBy}'. Expected one of column, priority, label.` };
+}
+
 export interface CountCardsResult {
   count: number;
   groups?: Array<{ columnId?: string; priority?: string; labelId?: string; count: number }>;
@@ -226,7 +262,7 @@ export interface CountCardsResult {
 
 export async function countCards(
   where: object,
-  groupBy?: CardGroupBy | string | null
+  groupBy?: CardGroupBy | null
 ): Promise<CountCardsResult> {
   const total = await db.card.count({ where });
 
@@ -234,8 +270,7 @@ export async function countCards(
     return { count: total };
   }
 
-  const normalizedGroup = groupBy.trim().toLowerCase();
-  if (normalizedGroup === "column" || normalizedGroup === "columnid") {
+  if (groupBy === "column") {
     const rows = await db.card.groupBy({
       by: ["columnId"],
       where,
@@ -247,7 +282,7 @@ export async function countCards(
     };
   }
 
-  if (normalizedGroup === "priority") {
+  if (groupBy === "priority") {
     const rows = await db.card.groupBy({
       by: ["priority"],
       where,
@@ -259,7 +294,7 @@ export async function countCards(
     };
   }
 
-  if (normalizedGroup === "label" || normalizedGroup === "labelid") {
+  if (groupBy === "label") {
     const rows = await db.cardLabel.groupBy({
       by: ["labelId"],
       where: { card: where },
@@ -271,5 +306,5 @@ export async function countCards(
     };
   }
 
-  throw new Error(`Invalid groupBy: '${groupBy}'. Expected one of column, priority, label.`);
+  return { count: total };
 }

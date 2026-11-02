@@ -115,31 +115,35 @@ describe("REST API: Rich Card Filters & Counts (#135)", () => {
   });
 
   it("filters cards by dueBefore, dueAfter, and isOverdue", async () => {
+    const pastDate = new Date(Date.now() - 30 * 86400000).toISOString();
+    const futureDate = new Date(Date.now() + 30 * 86400000).toISOString();
+    const todayStr = new Date().toISOString().split("T")[0];
+
     const pastCard = await postCard({
       projectId,
       columnId: colTodoId,
       title: "Overdue Item",
-      dueDate: "2026-01-01T00:00:00Z",
+      dueDate: pastDate,
     });
     const futureCard = await postCard({
       projectId,
       columnId: colTodoId,
       title: "Upcoming Item",
-      dueDate: "2026-12-31T00:00:00Z",
+      dueDate: futureDate,
     });
     const completedPastCard = await postCard({
       projectId,
       columnId: colDoneId,
       title: "Completed Item with past due date",
-      dueDate: "2026-01-01T00:00:00Z",
+      dueDate: pastDate,
     });
 
-    const resBefore = await authGet(`http://localhost/api/v1/cards?projectId=${projectId}&dueBefore=2026-06-01`);
+    const resBefore = await authGet(`http://localhost/api/v1/cards?projectId=${projectId}&dueBefore=${todayStr}`);
     const dataBefore = await resBefore.json();
     expect(dataBefore.data.map((c: any) => c.id)).toContain(pastCard.id);
     expect(dataBefore.data.map((c: any) => c.id)).toContain(completedPastCard.id);
 
-    const resAfter = await authGet(`http://localhost/api/v1/cards?projectId=${projectId}&dueAfter=2026-06-01`);
+    const resAfter = await authGet(`http://localhost/api/v1/cards?projectId=${projectId}&dueAfter=${todayStr}`);
     const dataAfter = await resAfter.json();
     expect(dataAfter.data.map((c: any) => c.id)).toEqual([futureCard.id]);
 

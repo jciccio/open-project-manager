@@ -20,22 +20,34 @@ export function cardPageQuery(
   limit: number,
   sort?: { field: string; direction: "asc" | "desc" }
 ) {
-  const isPrioritySort = sort?.field === "priority";
-  const orderByClause = sort && !isPrioritySort
-    ? [{ [sort.field]: sort.direction }, { id: "asc" as const }]
-    : [{ order: "asc" as const }, { id: "asc" as const }];
+  const direction = sort?.direction ?? "asc";
+  const field = sort?.field ?? "order";
+
+  let orderByClause: any[];
+  if (field === "dueDate") {
+    orderByClause = [{ dueDate: { sort: direction, nulls: "last" as const } }, { id: "asc" as const }];
+  } else if (field === "priority") {
+    orderByClause = [{ id: "asc" as const }];
+  } else if (field === "order") {
+    orderByClause = [{ order: direction }, { id: direction }];
+  } else {
+    orderByClause = [{ [field]: direction }, { id: "asc" as const }];
+  }
+
+  const afterCondition = after
+    ? direction === "desc"
+      ? { OR: [{ order: { lt: after.order } }, { order: after.order, id: { lt: after.id } }] }
+      : { OR: [{ order: { gt: after.order } }, { order: after.order, id: { gt: after.id } }] }
+    : undefined;
+
+  const finalWhere = afterCondition
+    ? { AND: [where, afterCondition] }
+    : where;
 
   return {
-    where: after
-      ? {
-          AND: [
-            where,
-            { OR: [{ order: { gt: after.order } }, { order: after.order, id: { gt: after.id } }] },
-          ],
-        }
-      : where,
+    where: finalWhere,
     orderBy: orderByClause,
-    take: limit + 1,
+    ...(field === "priority" ? {} : { take: limit + 1 }),
   };
 }
 

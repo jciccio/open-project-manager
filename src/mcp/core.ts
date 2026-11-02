@@ -34,7 +34,7 @@ import { SavedViewCreateSchema, SavedViewUpdateSchema } from "@/lib/validation/v
 import { createCard, updateCard, validateReferencedIds } from "@/lib/services/cards";
 import type { z } from "zod";
 import { cardTextSearch } from "@/lib/cardSearch";
-import { buildCardWhere, parseCardOrderBy, countCards } from "@/lib/cardFilters";
+import { buildCardWhere, parseCardOrderBy, countCards, validateCardGroupBy, PRIORITY_RANK } from "@/lib/cardFilters";
 
 const DEFAULT_LIST_CARDS_LIMIT = 100;
 
@@ -1099,9 +1099,11 @@ export async function executeMcpTool(
     }
 
     case "count_cards": {
+      const groupValidation = validateCardGroupBy(args.groupBy);
+      if (!groupValidation.success) throw new Error(groupValidation.error);
       const filterRes = buildCardWhere(args, { project: { OR: accessibleProjectsFilter(userId) } });
       if (!filterRes.success) throw new Error(filterRes.error);
-      const res = await countCards(filterRes.where, args.groupBy);
+      const res = await countCards(filterRes.where, groupValidation.groupBy);
       return { success: true, count: res.count, ...(res.groups ? { groups: res.groups } : {}) };
     }
 
@@ -1110,7 +1112,9 @@ export async function executeMcpTool(
       if (!filterRes.success) throw new Error(filterRes.error);
 
       if (args.count === true) {
-        const countRes = await countCards(filterRes.where, args.groupBy);
+        const groupValidation = validateCardGroupBy(args.groupBy);
+        if (!groupValidation.success) throw new Error(groupValidation.error);
+        const countRes = await countCards(filterRes.where, groupValidation.groupBy);
         return { success: true, count: countRes.count, ...(countRes.groups ? { groups: countRes.groups } : {}) };
       }
 
@@ -1151,13 +1155,6 @@ export async function executeMcpTool(
 
       const rows = await db.card.findMany(queryOptions);
       if (sortRes.sort.field === "priority") {
-        const PRIORITY_RANK: Record<string, number> = {
-          NONE: 0,
-          LOW: 1,
-          MEDIUM: 2,
-          HIGH: 3,
-          URGENT: 4,
-        };
         rows.sort((a: any, b: any) => {
           const ra = PRIORITY_RANK[a.priority ?? "NONE"] ?? 0;
           const rb = PRIORITY_RANK[b.priority ?? "NONE"] ?? 0;
