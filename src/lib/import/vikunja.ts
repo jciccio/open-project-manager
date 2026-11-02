@@ -21,6 +21,8 @@ export interface VikunjaImporterConfig {
   maxRetries?: number;
   /** Initial retry backoff delay in ms (default: 100). */
   retryDelayMs?: number;
+  /** Per-request timeout in ms, covering the response body (default: 30000). A timeout is retried. */
+  timeoutMs?: number;
 }
 
 const PER_PAGE = 50;
@@ -151,6 +153,7 @@ export class VikunjaImporter implements Importer {
   private readonly projectIds?: number[];
   private readonly maxRetries: number;
   private readonly retryDelayMs: number;
+  private readonly timeoutMs: number;
 
   /** Per-project kanban layout, resolved once and shared by fetchColumns/fetchCards. */
   private layouts = new Map<number, BucketLayout>();
@@ -161,6 +164,7 @@ export class VikunjaImporter implements Importer {
     this.projectIds = config.projectIds?.length ? config.projectIds : undefined;
     this.maxRetries = config.maxRetries ?? 3;
     this.retryDelayMs = config.retryDelayMs ?? 100;
+    this.timeoutMs = config.timeoutMs ?? 30_000;
 
     const hostOrHash =
       config.instanceId ??
@@ -181,6 +185,7 @@ export class VikunjaImporter implements Importer {
       try {
         const res = await fetch(`${this.baseUrl}${path}`, {
           headers: { Authorization: `Bearer ${this.token}`, Accept: "application/json" },
+          signal: AbortSignal.timeout(this.timeoutMs),
         });
 
         if (res.status === 429 || (res.status >= 500 && res.status <= 599)) {
@@ -207,6 +212,9 @@ export class VikunjaImporter implements Importer {
           const delay = this.retryDelayMs * Math.pow(2, attempt - 1);
           await new Promise((resolve) => setTimeout(resolve, delay));
           continue;
+        }
+        if (err instanceof Error && err.name === "TimeoutError") {
+          throw new Error(`Vikunja GET ${path} timed out after ${this.timeoutMs}ms`);
         }
         throw err;
       }

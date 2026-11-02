@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { safeRevalidatePath } from "@/lib/revalidate";
 import { verifyProjectAccess } from "@/lib/permissions";
+import { parseLabelDetails, type LabelDetailsInput } from "@/lib/validation/labels";
 import { createScopedLabel, LabelExistsError } from "@/lib/scopedLabels";
 
 export async function getLabels(projectId: string | undefined, userId: string) {
@@ -25,10 +26,21 @@ export async function getLabels(projectId: string | undefined, userId: string) {
   }
 }
 
-export async function createLabel(name: string, color: string | undefined, projectId: string | undefined, userId: string) {
+export async function createLabel(
+  name: string,
+  color: string | undefined,
+  projectId: string | undefined,
+  userId: string,
+  description?: string | null
+) {
   try {
     if (!name.trim()) {
       return { success: false, error: "Label name is required" };
+    }
+
+    const details = parseLabelDetails({ color: color || undefined, description });
+    if (!details.success) {
+      return { success: false, error: details.error };
     }
 
     if (projectId) {
@@ -40,7 +52,8 @@ export async function createLabel(name: string, color: string | undefined, proje
       projectId: projectId || null,
       userId: projectId ? null : userId,
       name,
-      color: color || "#3b82f6",
+      color: details.data.color || "#3b82f6",
+      description: details.data.description ?? null,
     });
 
     safeRevalidatePath("/");
@@ -53,23 +66,46 @@ export async function createLabel(name: string, color: string | undefined, proje
   }
 }
 
-export async function deleteLabel(id: string, userId: string) {
-  try {
-    const label = await db.label.findUnique({
-      where: { id },
-      include: { project: true },
-    });
+async function findManageableLabel(id: string, userId: string) {
+  const label = await db.label.findUnique({ where: { id } });
+  if (!label) return null;
 
+  // Project-scoped label: ADMIN on project may change or delete it.
+  // Personal label: only its own creator may.
+  const isAuthorized = label.projectId
+    ? await verifyProjectAccess(label.projectId, userId, "ADMIN")
+    : label.userId === userId;
+  return isAuthorized ? label : null;
+}
+
+export async function updateLabel(id: string, input: LabelDetailsInput, userId: string) {
+  try {
+    const label = await findManageableLabel(id, userId);
     if (!label) return { success: false, error: "Unauthorized" };
 
-    // Project-scoped label: ADMIN on project may delete it.
-    // Personal label: only its own creator may delete it.
-    const isAuthorized = label.projectId
-      ? await verifyProjectAccess(label.projectId, userId, "ADMIN")
-      : label.userId === userId;
-    if (!isAuthorized) {
-      return { success: false, error: "Unauthorized" };
+    const details = parseLabelDetails(input);
+    if (!details.success) {
+      return { success: false, error: details.error };
     }
+
+    const updated = await db.label.update({
+      where: { id },
+      data: { color: details.data.color, description: details.data.description },
+    });
+
+    safeRevalidatePath("/");
+    if (label.projectId) safeRevalidatePath(`/projects/${label.projectId}`);
+    return { success: true, data: updated };
+  } catch (error) {
+    console.error(`Error updating label ${id}:`, error);
+    return { success: false, error: "Failed to update label" };
+  }
+}
+
+export async function deleteLabel(id: string, userId: string) {
+  try {
+    const label = await findManageableLabel(id, userId);
+    if (!label) return { success: false, error: "Unauthorized" };
 
     await db.label.delete({
       where: { id },

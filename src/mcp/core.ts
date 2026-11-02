@@ -3,10 +3,15 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
   ListResourcesRequestSchema,
+  ListResourceTemplatesRequestSchema,
   ReadResourceRequestSchema,
   ListPromptsRequestSchema,
   GetPromptRequestSchema,
+  ErrorCode,
+  McpError,
 } from "@modelcontextprotocol/sdk/types.js";
+import { isPublicError, publicErrorMessage } from "@/mcp/errors";
+import { MCP_RESOURCES, MCP_RESOURCE_TEMPLATES } from "@/mcp/resourceCatalog";
 import { assertHexColor } from "@/lib/colors";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -22,6 +27,12 @@ import { verifyProjectAccess } from "@/lib/permissions";
 import { deriveCompletedAt } from "@/lib/cardCompletion";
 import { DEFAULT_PROJECT_COLUMNS, isClosedColumn, parseColumnGroupFilter } from "@/lib/columnGroups";
 import { parseColumnCreate, parseColumnUpdate } from "@/lib/validation/columns";
+import { CardCreateSchema, CardReorderSchema, CardUpdateSchema } from "@/lib/validation/cards";
+import { CardTypeCreateSchema, CardTypeUpdateSchema } from "@/lib/validation/cardTypes";
+import { parseInput } from "@/lib/validation/errors";
+import { SavedViewCreateSchema, SavedViewUpdateSchema } from "@/lib/validation/views";
+import { validateReferencedIds } from "@/lib/services/cards";
+import type { z } from "zod";
 import { cardTextSearch } from "@/lib/cardSearch";
 
 const DEFAULT_LIST_CARDS_LIMIT = 100;
@@ -31,6 +42,21 @@ function requireUserId(providedUserId?: string): string {
   throw new Error(
     "userId is required — MCP tool calls must include an authenticated userId."
   );
+}
+
+// `id` addresses the record and `userId` is the identity an unpinned stdio client
+// sends; neither belongs in the strict input schemas.
+function parseToolInput<T>(schema: z.ZodType<T>, args: Record<string, any>, envelopeKeys: string[] = []): T {
+  const input = Object.fromEntries(
+    Object.entries(args).filter(([key]) => !["id", "userId", ...envelopeKeys].includes(key))
+  );
+  const parsed = parseInput(schema, input);
+  if (!parsed.success) throw new Error(parsed.error);
+  return parsed.data;
+}
+
+function filterJsonArg(value: unknown) {
+  return value !== null && typeof value === "object" ? JSON.stringify(value) : value;
 }
 
 function emptyToNull(value: unknown) {
@@ -543,10 +569,28 @@ export const MCP_TOOLS = [
       properties: {
         name: { type: "string", description: "Label name" },
         color: { type: "string", description: "Color hex code (default: #3b82f6)" },
+        description: { type: "string", description: "Optional description of what the label means or how to use it" },
         projectId: { type: "string", description: "Optional project ID scope" },
         userId: { type: "string", description: "Optional user ID scope" },
       },
       required: ["name"],
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
+  },
+  {
+    name: "update_label",
+    description: "Update a label's color or description.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Label ID" },
+        color: { type: "string", description: "New color hex code" },
+        description: { type: "string", description: "New description, or empty string to clear" },
+      },
+      required: ["id"],
     },
     annotations: {
       readOnlyHint: false,
@@ -768,6 +812,10 @@ export const MCP_TOOLS = [
 
 function accessibleProjectsFilter(userId: string) {
   return [{ userId }, { members: { some: { userId } } }];
+}
+
+export function isKnownMcpTool(name: unknown): name is string {
+  return typeof name === "string" && MCP_TOOLS.some((tool) => tool.name === name);
 }
 
 export async function executeMcpTool(
@@ -1087,46 +1135,54 @@ export async function executeMcpTool(
     }
 
     case "create_card": {
-      const ownerProject = await db.project.findUnique({ where: { id: args.projectId } });
-      if (!ownerProject || !(await verifyProjectAccess(ownerProject.id, userId, "MEMBER"))) throw new Error(`Project with ID ${args.projectId} not found.`);
+      const input = parseToolInput(CardCreateSchema, args);
+      const ownerProject = await db.project.findUnique({ where: { id: input.projectId } });
+      if (!ownerProject || !(await verifyProjectAccess(ownerProject.id, userId, "MEMBER"))) throw new Error(`Project with ID ${input.projectId} not found.`);
+
+      const referenceError = await validateReferencedIds(input.projectId, userId, {
+        columnId: input.columnId,
+        typeId: input.typeId,
+        assigneeIds: input.assigneeIds,
+      });
+      if (referenceError) throw new Error(referenceError);
 
       const ORDER_GAP = 10000;
       let order = ORDER_GAP;
       const lastCard = await db.card.findFirst({
-        where: { columnId: args.columnId },
+        where: { columnId: input.columnId },
         orderBy: { order: "desc" },
       });
       if (lastCard) order = lastCard.order + ORDER_GAP;
 
-      const targetCol = await db.column.findUnique({ where: { id: args.columnId } });
+      const targetCol = await db.column.findUnique({ where: { id: input.columnId } });
       const completedAt = deriveCompletedAt(targetCol?.isDone, null);
 
-      if (args.parentId) {
-        const parentError = await validateParentCard(args.projectId, args.parentId);
+      if (input.parentId) {
+        const parentError = await validateParentCard(input.projectId, input.parentId);
         if (parentError) throw new Error(parentError);
       }
 
-      const firstAttemptNumber = await nextCardNumber(args.projectId);
-      const card = await withCardNumberRetry(args.projectId, firstAttemptNumber, (number) =>
+      const firstAttemptNumber = await nextCardNumber(input.projectId);
+      const card = await withCardNumberRetry(input.projectId, firstAttemptNumber, (number) =>
         db.card.create({
           data: {
-            projectId: args.projectId,
-            columnId: args.columnId,
-            title: args.title.trim(),
-            description: args.description || null,
+            projectId: input.projectId,
+            columnId: input.columnId,
+            title: input.title,
+            description: input.description || null,
             number,
-            priority: args.priority || "NONE",
-            points: typeof args.points === "number" ? args.points : null,
-            owner: args.owner || null,
-            dueDate: args.dueDate ? new Date(args.dueDate) : null,
+            priority: input.priority || "NONE",
+            points: input.points ?? null,
+            owner: input.owner || null,
+            dueDate: input.dueDate ? new Date(input.dueDate) : null,
             completedAt,
             order,
-            parentId: args.parentId || null,
-            typeId: args.typeId || null,
+            parentId: input.parentId || null,
+            typeId: input.typeId || null,
             assignees:
-              args.assigneeIds && args.assigneeIds.length > 0
+              input.assigneeIds && input.assigneeIds.length > 0
                 ? {
-                    create: args.assigneeIds.map((assigneeId: string) => ({ userId: assigneeId })),
+                    create: input.assigneeIds.map((assigneeId) => ({ userId: assigneeId })),
                   }
                 : undefined,
           },
@@ -1142,44 +1198,47 @@ export async function executeMcpTool(
     }
 
     case "update_card": {
+      const input = parseToolInput(CardUpdateSchema, args);
       const existingCard = await db.card.findUnique({ where: { id: args.id } });
       if (!existingCard || !(await verifyProjectAccess(existingCard.projectId, userId, "MEMBER"))) throw new Error(`Card with ID ${args.id} not found.`);
 
+      const referenceError = await validateReferencedIds(existingCard.projectId, userId, {
+        columnId: input.columnId,
+        typeId: input.typeId,
+        assigneeIds: input.assigneeIds,
+      });
+      if (referenceError) throw new Error(referenceError);
+
       const data: any = {};
-      if (args.title !== undefined) data.title = args.title.trim();
-      if (args.description !== undefined) data.description = args.description;
-      if (args.priority !== undefined) data.priority = args.priority;
-      if (args.points !== undefined) data.points = args.points;
-      if (args.owner !== undefined) data.owner = args.owner;
-      if (args.columnId !== undefined) {
-        data.columnId = args.columnId;
-        const [existingCard, targetCol] = await Promise.all([
-          db.card.findUnique({ where: { id: args.id }, select: { completedAt: true } }),
-          db.column.findUnique({ where: { id: args.columnId } }),
-        ]);
-        data.completedAt = deriveCompletedAt(targetCol?.isDone, existingCard?.completedAt);
+      if (input.title !== undefined) data.title = input.title;
+      if (input.description !== undefined) data.description = input.description;
+      if (input.priority !== undefined) data.priority = input.priority;
+      if (input.points !== undefined) data.points = input.points;
+      if (input.owner !== undefined) data.owner = input.owner;
+      if (input.columnId !== undefined) {
+        data.columnId = input.columnId;
+        const targetCol = await db.column.findUnique({ where: { id: input.columnId } });
+        data.completedAt = deriveCompletedAt(targetCol?.isDone, existingCard.completedAt);
       }
-      if (args.dueDate !== undefined) {
-        data.dueDate = args.dueDate ? new Date(args.dueDate) : null;
+      if (input.dueDate !== undefined) {
+        data.dueDate = input.dueDate ? new Date(input.dueDate) : null;
       }
-      if (args.parentId !== undefined) {
-        if (args.parentId) {
-          const cardToNest = await db.card.findUnique({ where: { id: args.id }, select: { projectId: true } });
-          if (!cardToNest) throw new Error(`Card with ID ${args.id} not found.`);
-          const parentError = await validateParentCard(cardToNest.projectId, args.parentId, args.id);
+      if (input.parentId !== undefined) {
+        if (input.parentId) {
+          const parentError = await validateParentCard(existingCard.projectId, input.parentId, args.id);
           if (parentError) throw new Error(parentError);
         }
-        data.parentId = args.parentId || null;
+        data.parentId = input.parentId || null;
       }
-      if (args.typeId !== undefined) {
-        data.typeId = args.typeId || null;
+      if (input.typeId !== undefined) {
+        data.typeId = input.typeId || null;
       }
 
-      if (args.assigneeIds !== undefined) {
+      if (input.assigneeIds !== undefined) {
         await db.cardAssignee.deleteMany({ where: { cardId: args.id } });
-        if (args.assigneeIds.length > 0) {
+        if (input.assigneeIds.length > 0) {
           data.assignees = {
-            create: args.assigneeIds.map((assigneeId: string) => ({ userId: assigneeId })),
+            create: input.assigneeIds.map((assigneeId) => ({ userId: assigneeId })),
           };
         }
       }
@@ -1218,10 +1277,7 @@ export async function executeMcpTool(
     }
 
     case "reorder_cards": {
-      const items: { id: string; order: number; columnId?: string }[] = args.items || [];
-      if (!Array.isArray(items) || items.length === 0) {
-        return { success: false, error: "items array is required" };
-      }
+      const { items } = parseToolInput(CardReorderSchema, args);
 
       const cardIds = items.map((item) => item.id);
       const existingCards = await db.card.findMany({
@@ -1430,13 +1486,30 @@ export async function executeMcpTool(
       if (args.projectId && !(await verifyProjectAccess(args.projectId, userId, "MEMBER"))) {
         throw new Error(`Project with ID ${args.projectId} not found.`);
       }
+      const { parseLabelDetails } = await import("@/lib/validation/labels");
+      const details = parseLabelDetails({ color: args.color || undefined, description: args.description });
+      if (!details.success) throw new Error(details.error);
       const label = await createScopedLabel({
         name: args.name,
-        color: args.color || "#3b82f6",
+        color: details.data.color || "#3b82f6",
+        description: details.data.description ?? null,
         projectId: args.projectId || null,
         userId: args.projectId ? null : userId,
       });
       return { success: true, label };
+    }
+
+    case "update_label": {
+      const { updateLabel } = await import("@/lib/services/labels");
+      const res = await updateLabel(
+        args.id,
+        { color: args.color, description: args.description },
+        userId
+      );
+      if (!res.success) {
+        throw new Error(res.error || "Failed to update label");
+      }
+      return { success: true, label: res.data };
     }
 
     case "list_card_types": {
@@ -1450,31 +1523,28 @@ export async function executeMcpTool(
     }
 
     case "create_card_type": {
+      const input = parseToolInput(CardTypeCreateSchema, args, ["projectId"]);
       const typesProject = await db.project.findUnique({ where: { id: args.projectId } });
       if (!typesProject || !(await verifyProjectAccess(typesProject.id, userId, "ADMIN"))) throw new Error(`Project with ID ${args.projectId} not found.`);
       const cardType = await db.cardType.create({
         data: {
           projectId: args.projectId,
-          name: args.name.trim(),
-          icon: args.icon || "Tag",
-          color: args.color || "#6366f1",
+          name: input.name,
+          icon: input.icon || "Tag",
+          color: input.color || "#6366f1",
         },
       });
       return { success: true, cardType };
     }
 
     case "update_card_type": {
+      const input = parseToolInput(CardTypeUpdateSchema, args);
       const existingType = await db.cardType.findUnique({ where: { id: args.id } });
       if (!existingType || !(await verifyProjectAccess(existingType.projectId, userId, "ADMIN"))) throw new Error(`Card type with ID ${args.id} not found.`);
 
-      const data: any = {};
-      if (args.name !== undefined) data.name = args.name.trim();
-      if (args.icon !== undefined) data.icon = args.icon;
-      if (args.color !== undefined) data.color = args.color;
-
       const cardType = await db.cardType.update({
         where: { id: args.id },
-        data,
+        data: input,
       });
       return { success: true, cardType };
     }
@@ -1562,12 +1632,11 @@ export async function executeMcpTool(
       const viewsProject = await db.project.findUnique({ where: { id: args.projectId } });
       if (!viewsProject || !(await verifyProjectAccess(viewsProject.id, userId, "MEMBER"))) throw new Error(`Project with ID ${args.projectId} not found.`);
 
-      const filterJson =
-        typeof args.filterJson === "object" ? JSON.stringify(args.filterJson) : args.filterJson;
+      const input = parseToolInput(SavedViewCreateSchema, { ...args, filterJson: filterJsonArg(args.filterJson) });
 
       const savedView = await db.$transaction(
         async (tx) => {
-          if (args.isDefault) {
+          if (input.isDefault) {
             await tx.savedView.updateMany({
               where: { projectId: args.projectId, isDefault: true },
               data: { isDefault: false },
@@ -1577,9 +1646,9 @@ export async function executeMcpTool(
           return tx.savedView.create({
             data: {
               projectId: args.projectId,
-              name: args.name.trim(),
-              filterJson: filterJson || "{}",
-              isDefault: !!args.isDefault,
+              name: input.name,
+              filterJson: input.filterJson || "{}",
+              isDefault: !!input.isDefault,
             },
           });
         },
@@ -1592,17 +1661,11 @@ export async function executeMcpTool(
       const existing = await db.savedView.findUnique({ where: { id: args.id } });
       if (!existing || !(await verifyProjectAccess(existing.projectId, userId, "MEMBER"))) throw new Error(`Saved view with ID ${args.id} not found.`);
 
-      const data: any = {};
-      if (args.name !== undefined) data.name = args.name.trim();
-      if (args.filterJson !== undefined) {
-        data.filterJson =
-          typeof args.filterJson === "object" ? JSON.stringify(args.filterJson) : args.filterJson;
-      }
-      if (args.isDefault !== undefined) data.isDefault = args.isDefault;
+      const data = parseToolInput(SavedViewUpdateSchema, { ...args, filterJson: filterJsonArg(args.filterJson) });
 
       const savedView = await db.$transaction(
         async (tx) => {
-          if (args.isDefault) {
+          if (data.isDefault) {
             const existing = await tx.savedView.findUnique({ where: { id: args.id } });
             if (existing) {
               await tx.savedView.updateMany({
@@ -1709,6 +1772,9 @@ export function createMcpServer(options: { userId?: string } = {}): Server {
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
+    if (!isKnownMcpTool(name)) {
+      throw new McpError(ErrorCode.InvalidParams, `Unknown tool: ${name}`);
+    }
     try {
       const ctx = { userId: actingUserId(args?.userId) };
       const result = await executeMcpTool(name, args || {}, ctx);
@@ -1720,13 +1786,13 @@ export function createMcpServer(options: { userId?: string } = {}): Server {
           },
         ],
       };
-    } catch (error: any) {
+    } catch (error) {
       return {
         isError: true,
         content: [
           {
             type: "text",
-            text: `Error executing tool '${name}': ${error.message || String(error)}`,
+            text: `Error executing tool '${name}': ${publicErrorMessage(error, `tool ${name}`)}`,
           },
         ],
       };
@@ -1735,23 +1801,22 @@ export function createMcpServer(options: { userId?: string } = {}): Server {
 
   // Resources Handlers
   server.setRequestHandler(ListResourcesRequestSchema, async () => {
-    return {
-      resources: [
-        {
-          uri: "opm://projects",
-          name: "All Workspace Projects",
-          mimeType: "application/json",
-          description: "List of active projects in Open Project Manager",
-        },
-      ],
-    };
+    return { resources: MCP_RESOURCES };
+  });
+
+  server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
+    return { resourceTemplates: MCP_RESOURCE_TEMPLATES };
   });
 
   server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     const { uri } = request.params;
     const userId = actingUserId((request.params as { userId?: unknown }).userId);
 
-    const resource = await readMcpResource(uri, userId);
+    const resource = await readMcpResource(uri, userId).catch((error) => {
+      throw isPublicError(error)
+        ? new McpError(ErrorCode.InvalidParams, error.message)
+        : new McpError(ErrorCode.InternalError, publicErrorMessage(error, `resource ${uri}`));
+    });
     return {
       contents: [
         {

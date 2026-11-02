@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { safeRevalidatePath } from "@/lib/revalidate";
-import { recordActivity } from "@/lib/services/activity";
+import { createActivities, notifyActivity, type ActivityEntry } from "@/lib/services/activity";
 import { verifyProjectAccess } from "@/lib/permissions";
 
 export async function listComments(cardId: string, userId: string) {
@@ -31,7 +31,7 @@ export async function listComments(cardId: string, userId: string) {
   }
 }
 
-export async function addComment(cardId: string, author: string, content: string, userId: string) {
+export async function addComment(cardId: string, content: string, userId: string) {
   try {
     if (!content.trim()) {
       return { success: false, error: "Comment content cannot be empty" };
@@ -46,27 +46,35 @@ export async function addComment(cardId: string, author: string, content: string
       return { success: false, error: "Unauthorized" };
     }
 
-    const comment = await db.comment.create({
-      data: {
-        cardId,
-        author: author.trim() || "Team Member",
-        authorUserId: userId,
-        content: content.trim(),
-      },
-      include: {
-        authorUser: {
-          select: { id: true, name: true, email: true },
+    const user = await db.user.findUnique({
+      where: { id: userId },
+      select: { name: true, email: true },
+    });
+    const author = user?.name?.trim() || user?.email?.trim() || "Team Member";
+
+    const activityEntries: ActivityEntry[] = [
+      { cardId, actorUserId: userId, type: "comment_added", toValue: content.trim().slice(0, 100) },
+    ];
+
+    const comment = await db.$transaction(async (tx) => {
+      const created = await tx.comment.create({
+        data: {
+          cardId,
+          author,
+          authorUserId: userId,
+          content: content.trim(),
         },
-      },
+        include: {
+          authorUser: {
+            select: { id: true, name: true, email: true },
+          },
+        },
+      });
+      await createActivities(tx, activityEntries);
+      return created;
     });
 
-    await recordActivity({
-      cardId,
-      projectId: card.projectId,
-      actorUserId: userId,
-      type: "comment_added",
-      toValue: content.trim().slice(0, 100),
-    });
+    notifyActivity(card.projectId, activityEntries);
 
     safeRevalidatePath(`/projects/${card.projectId}`);
     return { success: true, data: comment };

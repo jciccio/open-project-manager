@@ -3,17 +3,19 @@
  *
  * Runs on the machine that owns the database (no OPM API token needed) — the
  * server-side counterpart to `POST /api/v1/import`. Same adapter, same
- * ImportRecord idempotency, so re-running is safe.
+ * ImportRecord idempotency and the same one-import-per-user lock, so
+ * re-running is safe.
  *
  *   VIKUNJA_URL=http://localhost:3456/api/v1 \
  *   VIKUNJA_API_TOKEN=… \
  *   npx tsx scripts/import-vikunja.ts --user jose@example.com --project 2 --dry-run
  */
 import { db } from "../src/lib/db";
-import { runImport } from "../src/lib/import/runImport";
+import { ImportInProgressError, runImportJob } from "../src/lib/import/jobs";
 import { VikunjaImporter } from "../src/lib/import/vikunja";
 import type { ImportSummary, ImportDryRunSummary } from "../src/lib/import/types";
 import { parseImportVikunjaArgs, type ImportVikunjaArgs } from "./import-vikunja-args";
+import { resolveImportUserId } from "./resolve-import-user";
 
 function parseArgs(argv: string[]): ImportVikunjaArgs {
   try {
@@ -22,26 +24,6 @@ function parseArgs(argv: string[]): ImportVikunjaArgs {
     console.error(err instanceof Error ? err.message : String(err));
     process.exit(2);
   }
-}
-
-async function resolveUserId(identifier?: string): Promise<string> {
-  if (identifier) {
-    const user = await db.user.findFirst({
-      where: { OR: [{ id: identifier }, { email: identifier }] },
-      select: { id: true, email: true },
-    });
-    if (!user) throw new Error(`No user matches "${identifier}" (pass an email or a user id)`);
-    console.log(`Importing as ${user.email}`);
-    return user.id;
-  }
-
-  const users = await db.user.findMany({ select: { id: true, email: true }, take: 2 });
-  if (users.length === 0) throw new Error("This instance has no users — create one in the web UI first");
-  if (users.length > 1) {
-    throw new Error("More than one user on this instance — say which one owns the import with --user <email>");
-  }
-  console.log(`Importing as ${users[0].email}`);
-  return users[0].id;
 }
 
 async function main() {
@@ -53,7 +35,7 @@ async function main() {
     throw new Error("Set VIKUNJA_URL and VIKUNJA_API_TOKEN (see README: Importing an Existing Board)");
   }
 
-  const userId = await resolveUserId(args.user);
+  const userId = await resolveImportUserId(args.user);
   const importer = new VikunjaImporter({ baseUrl, token, projectIds: args.projectIds });
 
   console.log(
@@ -61,7 +43,16 @@ async function main() {
       (args.projectIds.length ? ` (projects ${args.projectIds.join(", ")})` : " (all visible projects)")
   );
 
-  const summary = await runImport(importer, userId, { dryRun: args.dryRun });
+  let summary: ImportSummary | ImportDryRunSummary;
+  try {
+    ({ summary } = await runImportJob(importer, userId, { dryRun: args.dryRun }));
+  } catch (err) {
+    if (err instanceof ImportInProgressError) {
+      console.error(`${err.message} Wait for it to finish (GET /api/v1/import/<jobId>), then run this again.`);
+      process.exit(1);
+    }
+    throw err;
+  }
 
   if (summary.mode === "dry-run") {
     const dryRun = summary as ImportDryRunSummary;
