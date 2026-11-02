@@ -44,10 +44,6 @@ export function LanguageProvider({
   const [locale, setLocaleState] = useState<SupportedLocale>(initialLocale ?? DEFAULT_LOCALE);
 
   useEffect(() => {
-    document.documentElement.lang = locale;
-  }, [locale]);
-
-  useEffect(() => {
     if (localeFromCookie) return;
     // No cookie reached the server: it guessed from Accept-Language (or had no
     // request at all). A choice saved before the cookie existed lives only in
@@ -98,9 +94,7 @@ export function LanguageProvider({
 
     let result = current;
     if (params) {
-      Object.entries(params).forEach(([paramKey, val]) => {
-        result = result.replace(new RegExp(`{\\s*${paramKey}\\s*}`, "g"), String(val));
-      });
+      result = result.replace(/{\s*(\w+)\s*}/g, (m, k) => (k in params ? String(params[k]) : m));
     }
 
     return result;

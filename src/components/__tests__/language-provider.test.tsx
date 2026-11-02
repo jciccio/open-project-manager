@@ -83,4 +83,27 @@ describe("LanguageProvider", () => {
     });
     await waitFor(() => expect(document.documentElement.lang).toBe("es"));
   });
+
+  it("handles dollar signs and parameter names in interpolation without corruption", () => {
+    function InterpolationTest() {
+      const { t } = useTranslation();
+      return (
+        <div>
+          <span data-testid="ampersand">{t("cardModal.events.title_changed", { title: "Budget $& plan" })}</span>
+          <span data-testid="dollars">{t("cardModal.events.title_changed", { title: "Save $$$" })}</span>
+          <span data-testid="nested-tokens">{t("cardModal.events.moved", { from: "{to}", to: "Done" })}</span>
+        </div>
+      );
+    }
+
+    render(
+      <LanguageProvider initialLocale="en" localeFromCookie>
+        <InterpolationTest />
+      </LanguageProvider>
+    );
+
+    expect(screen.getByTestId("ampersand").textContent).toBe('Title changed to "Budget $& plan"');
+    expect(screen.getByTestId("dollars").textContent).toBe('Title changed to "Save $$$"');
+    expect(screen.getByTestId("nested-tokens").textContent).toBe('Moved from "{to}" to "Done"');
+  });
 });

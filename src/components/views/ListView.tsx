@@ -5,6 +5,7 @@ import { Zap, Calendar, User, MessageSquare } from "lucide-react";
 import { moveCard } from "@/actions/cards";
 import { useTranslation } from "../LanguageProvider";
 import { formatDueDate } from "@/lib/formatDate";
+import { priorityLabel } from "@/lib/priority";
 import ErrorBanner from "../ErrorBanner";
 
 interface Props {
@@ -157,7 +158,7 @@ export default function ListView({
                         <span
                           className={`inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider border ${priorityStyle.bg} ${priorityStyle.text} ${priorityStyle.border}`}
                         >
-                          {t(`cardModal.priority${(card.priority || "NONE").charAt(0) + (card.priority || "NONE").slice(1).toLowerCase()}`)}
+                          {priorityLabel(t, card.priority)}
                         </span>
 
                         {/* Points */}

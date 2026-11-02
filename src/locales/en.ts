@@ -63,7 +63,7 @@ export const en = {
   dashboard: {
     tagline: "Private Workspace",
     welcome: "Welcome back",
-    defaultUser: "Team Member",
+    defaultUser: "User",
     subheading: "Organize your work with isolated Kanban boards, points, assignees, priorities, labels, and SQLite persistence.",
     projects: "Projects",
     cards: "Cards",

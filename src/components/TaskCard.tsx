@@ -4,6 +4,7 @@ import { MessageSquare, Calendar, Zap, ShieldAlert, CheckSquare, CornerDownRight
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { useTranslation } from "./LanguageProvider";
 import { formatDueDate } from "@/lib/formatDate";
+import { priorityLabel } from "@/lib/priority";
 import { CardTypeIcon } from "./cardTypeIcons";
 import { isClosedColumn } from "@/lib/columnGroups";
 
@@ -177,7 +178,7 @@ export default function TaskCard({ card, onClick }: Props) {
           <span
             className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider border ${priorityStyle.bg} ${priorityStyle.text} ${priorityStyle.border}`}
           >
-            {t(`cardModal.priority${(card.priority || "NONE").charAt(0) + (card.priority || "NONE").slice(1).toLowerCase()}`)}
+            {priorityLabel(t, card.priority)}
           </span>
 
           {/* Blocked Indicator Badge */}
@@ -223,7 +224,7 @@ export default function TaskCard({ card, onClick }: Props) {
           {card.owner && (
             <div
               className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-600/30 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-500/30 font-bold text-[10px]"
-              title={`${t("cardModal.events.assigned")} ${card.owner}`}
+              title={t("cardModal.events.assigned", { user: card.owner })}
             >
               {card.owner.charAt(0).toUpperCase()}
             </div>

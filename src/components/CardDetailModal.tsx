@@ -43,6 +43,7 @@ import { safeHref } from "@/lib/validation/safeUrl";
 const LEGACY_OWNER = "__legacy_owner__";
 import { useTranslation } from "./LanguageProvider";
 import { formatDate, formatDueDate } from "@/lib/formatDate";
+import { priorityLabel } from "@/lib/priority";
 import MarkdownEditor from "./MarkdownEditor";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import CardTypeManagerModal from "./CardTypeManagerModal";
@@ -515,7 +516,7 @@ export default function CardDetailModal({
     setIsSubmittingComment(true);
     const res = await addComment(
       card.id,
-      commentAuthor.trim() || t("cardModal.defaultAuthor"),
+      commentAuthor.trim(),
       commentContent.trim()
     );
     setIsSubmittingComment(false);
@@ -1495,17 +1496,6 @@ export default function CardDetailModal({
                   </p>
                 ) : activities && activities.length > 0 ? (
                   activities.map((act) => {
-                    const formatPriority = (p?: string | null) => {
-                      switch (p) {
-                        case "NONE": return t("cardModal.priorityNone");
-                        case "LOW": return t("cardModal.priorityLow");
-                        case "MEDIUM": return t("cardModal.priorityMedium");
-                        case "HIGH": return t("cardModal.priorityHigh");
-                        case "URGENT": return t("cardModal.priorityUrgent");
-                        default: return p || t("cardModal.priorityNone");
-                      }
-                    };
-
                     return (
                       <div
                         key={act.id}
@@ -1547,8 +1537,8 @@ export default function CardDetailModal({
                                 : t("cardModal.events.movedTo", { to: act.toValue || "" }))}
                             {act.type === "priority_changed" &&
                               t("cardModal.events.priority_changed", {
-                                from: formatPriority(act.fromValue),
-                                to: formatPriority(act.toValue),
+                                from: priorityLabel(t, act.fromValue),
+                                to: priorityLabel(t, act.toValue),
                               })}
                             {act.type === "title_changed" &&
                               t("cardModal.events.title_changed", { title: act.toValue || "" })}
@@ -1559,7 +1549,13 @@ export default function CardDetailModal({
                                 : t("cardModal.events.points_cleared"))}
                             {act.type === "due_date_changed" &&
                               (act.toValue
-                                ? t("cardModal.events.due_date_changed", { date: act.toValue })
+                                ? t("cardModal.events.due_date_changed", {
+                                    date: formatDueDate(act.toValue, locale, {
+                                      month: "short",
+                                      day: "numeric",
+                                      year: "numeric",
+                                    }),
+                                  })
                                 : t("cardModal.events.due_date_removed"))}
                             {act.type === "type_changed" &&
                               (act.toValue
