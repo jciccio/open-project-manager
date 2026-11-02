@@ -111,11 +111,12 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
     setTokenLoading(true);
     setTokenError("");
     try {
-      const expiresInDays = tokenExpiration === "never" ? null : Number(tokenExpiration);
+      const expiresInDays = tokenExpiration === "never" ? "never" : Number(tokenExpiration);
       const res = await createApiToken(newTokenName.trim(), expiresInDays);
       if (res.success && res.token) {
         setApiToken(res.token.secret);
         setNewTokenName("");
+        setTokenExpiration("365");
         setShowToken(false);
         const listRes = await listApiTokens();
         if (listRes.success && listRes.tokens) setTokens(listRes.tokens);
@@ -401,7 +402,7 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
                 <option value="60">{t("profileModal.expiration60Days")}</option>
                 <option value="90">{t("profileModal.expiration90Days")}</option>
                 <option value="365">{t("profileModal.expiration1Year")}</option>
-                <option value="never">{t("profileModal.expirationNever")}</option>
+                <option value="never">{t("profileModal.neverExpires")}</option>
               </select>
               <button
                 type="button"
@@ -481,14 +482,16 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
                         <p className="text-[10px] text-slate-500 dark:text-slate-400">
                           {t("profileModal.createdLabel")} {formatDate(token.createdAt, locale)}
                           {" · "}
-                          {t("profileModal.expiresLabel")}{" "}
                           {token.expiresAt ? (
                             new Date(token.expiresAt).getTime() < Date.now() ? (
                               <span className="text-red-500 font-semibold">
                                 {t("profileModal.expired")} ({formatDate(token.expiresAt, locale)})
                               </span>
                             ) : (
-                              formatDate(token.expiresAt, locale)
+                              <>
+                                {t("profileModal.expiresLabel")}{" "}
+                                {formatDate(token.expiresAt, locale)}
+                              </>
                             )
                           ) : (
                             t("profileModal.neverExpires")

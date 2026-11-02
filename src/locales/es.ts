@@ -44,7 +44,6 @@ export const es: TranslationKeys = {
     expiration60Days: "60 días",
     expiration90Days: "90 días",
     expiration1Year: "1 año",
-    expirationNever: "Nunca expira",
     telemetryTitle: "Telemetría Anónima y Diagnóstico",
     telemetrySub: "Comparte diagnósticos anónimos de despliegue (versión, motor de BD, recuentos agregados) para ayudar a mejorar Open Project Manager. Jamás se recopilan datos personales o de tareas.",
     telemetryStatusLabel: "Enviar Latido Anónimo",

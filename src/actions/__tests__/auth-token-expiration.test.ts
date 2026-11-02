@@ -41,6 +41,7 @@ describe("API Token Expiration", () => {
     expect(payload.exp).toBeDefined();
     expect(payload.exp).toBe(Math.floor(expiresTime / 1000));
 
+    await destroySession();
     const session = await getApiSession(bearer(res.token!.secret));
     expect(session?.userId).toBe(userId);
   });
@@ -54,6 +55,10 @@ describe("API Token Expiration", () => {
     expect(tokenRecord?.expiresAt).not.toBeNull();
     const expectedTime = before + 90 * 24 * 60 * 60 * 1000;
     expect(Math.abs(tokenRecord!.expiresAt!.getTime() - expectedTime)).toBeLessThan(5000);
+
+    await destroySession();
+    const session = await getApiSession(bearer(res.token!.secret));
+    expect(session?.userId).toBe(userId);
   });
 
   it("creates a token that never expires when expiresInDays is 'never'", async () => {
@@ -66,6 +71,7 @@ describe("API Token Expiration", () => {
     const payload = decodeJwt(res.token!.secret);
     expect(payload.exp).toBeUndefined();
 
+    await destroySession();
     const session = await getApiSession(bearer(res.token!.secret));
     expect(session?.userId).toBe(userId);
   });
@@ -86,10 +92,14 @@ describe("API Token Expiration", () => {
     const payload = decodeJwt(res.token!.secret);
     expect(payload.exp).toBeDefined();
     expect(payload.exp).toBe(Math.floor(expiresTime / 1000));
+
+    await destroySession();
+    const session = await getApiSession(bearer(res.token!.secret));
+    expect(session?.userId).toBe(userId);
   });
 
   it("rejects invalid expiresInDays options", async () => {
-    for (const invalid of [0, -5, "abc", 45, 1000]) {
+    for (const invalid of [0, -5, "abc", 45, 1000, ""]) {
       const res = await createApiToken("Invalid Option", invalid as any);
       expect(res.success).toBe(false);
       expect(res.error).toBe("Invalid token expiration option.");

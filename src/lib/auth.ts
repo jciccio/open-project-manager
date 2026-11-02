@@ -7,7 +7,7 @@ import { API_TOKEN_AUDIENCE, SESSION_AUDIENCE, TOKEN_ISSUER, hasAllowedClaims } 
 
 const SESSION_COOKIE_NAME = "opm_session";
 export const SESSION_DURATION = 7 * 24 * 60 * 60; // 7 days in seconds
-const API_TOKEN_DURATION = 365 * 24 * 60 * 60; // 1 year in seconds
+export const API_TOKEN_DURATION = 365 * 24 * 60 * 60; // 1 year in seconds
 
 export interface UserSession {
   userId: string;
@@ -70,13 +70,12 @@ export async function signToken(sessionData: UserSession, durationSeconds = 30 *
 }
 
 // API tokens are JWTs carrying a `jti` that maps to an ApiToken row: the
-// signature (unforgeable without JWT_SECRET) proves authenticity, and the DB
-// row is revocation metadata only — deleting the row invalidates the token
-// even though the JWT itself remains cryptographically valid until expiry.
+// signature proves authenticity, while the DB row tracks metadata, last-used
+// timestamp, and active revocation.
 export async function signApiToken(
   sessionData: UserSession,
   tokenId: string,
-  expiresAt?: Date | null
+  expiresAt: Date | null = null
 ) {
   const jwt = new SignJWT({ ...toClaims(sessionData), jti: tokenId, type: "api_token" })
     .setProtectedHeader({ alg: "HS256" })
@@ -86,8 +85,6 @@ export async function signApiToken(
 
   if (expiresAt) {
     jwt.setExpirationTime(Math.floor(expiresAt.getTime() / 1000));
-  } else if (expiresAt === undefined) {
-    jwt.setExpirationTime(`${API_TOKEN_DURATION}s`);
   }
 
   return await jwt.sign(JWT_SECRET);

@@ -42,7 +42,6 @@ export const en = {
     expiration60Days: "60 days",
     expiration90Days: "90 days",
     expiration1Year: "1 year",
-    expirationNever: "Never expires",
     telemetryTitle: "Anonymous Telemetry & Diagnostics",
     telemetrySub: "Shares anonymous deployment diagnostics (version, DB type, aggregate counts) to help improve Open Project Manager. Zero personal or task data is ever collected.",
     telemetryStatusLabel: "Send Anonymous Heartbeat",

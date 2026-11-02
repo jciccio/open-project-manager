@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
-import { createSession, destroySession, getSession, signApiToken } from "@/lib/auth";
+import { API_TOKEN_DURATION, createSession, destroySession, getSession, signApiToken } from "@/lib/auth";
 import bcrypt from "bcryptjs";
 import { getClientIp } from "@/lib/clientIp";
 import { checkLoginRateLimit, recordLoginFailure, recordLoginSuccess } from "@/lib/loginRateLimit";
@@ -279,11 +279,11 @@ export async function createApiToken(
     let expiresAt: Date | null = null;
     if (expiresInDays === "never") {
       expiresAt = null;
-    } else if (expiresInDays === undefined || expiresInDays === null || expiresInDays === "") {
-      expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+    } else if (expiresInDays === undefined || expiresInDays === null) {
+      expiresAt = new Date(Date.now() + API_TOKEN_DURATION * 1000);
     } else {
       const days = typeof expiresInDays === "number" ? expiresInDays : Number(expiresInDays);
-      if (!ALLOWED_EXPIRATION_DAYS.includes(days as any) || isNaN(days)) {
+      if (!ALLOWED_EXPIRATION_DAYS.includes(days as (typeof ALLOWED_EXPIRATION_DAYS)[number])) {
         return { success: false, error: "Invalid token expiration option." };
       }
       expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);

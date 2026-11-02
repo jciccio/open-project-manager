@@ -71,6 +71,39 @@ describe("UserProfileModal API Token expiration", () => {
     });
   });
 
+  it("passes 'never' to createApiToken when 'Never expires' is selected and resets dropdown", async () => {
+    vi.mocked(listApiTokens).mockResolvedValue({ success: true, tokens: [] });
+    vi.mocked(createApiToken).mockResolvedValue({
+      success: true,
+      token: {
+        id: "tok-never",
+        name: "My Never Token",
+        createdAt: new Date(),
+        expiresAt: null,
+        secret: "secret-jwt-never",
+      },
+    });
+
+    renderModal();
+
+    const input = await screen.findByPlaceholderText("Token name (e.g. Claude Desktop)");
+    const select = screen.getByLabelText("Expiration") as HTMLSelectElement;
+
+    fireEvent.change(select, { target: { value: "never" } });
+    expect(select.value).toBe("never");
+
+    fireEvent.change(input, { target: { value: "My Never Token" } });
+    const generateBtn = screen.getByRole("button", { name: /generate/i });
+    fireEvent.click(generateBtn);
+
+    await waitFor(() => {
+      expect(createApiToken).toHaveBeenCalledWith("My Never Token", "never");
+    });
+
+    // Verify tokenExpiration reset back to 365
+    expect(select.value).toBe("365");
+  });
+
   it("displays expiration status in active tokens list", async () => {
     const futureDate = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000);
     const pastDate = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000);
