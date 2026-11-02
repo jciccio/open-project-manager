@@ -147,7 +147,7 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
           </div>
           <button
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t("cardModal.close")}
             className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-colors"
           >
             <X className="h-5 w-5" />

@@ -152,11 +152,29 @@ export default function CardDetailModal({
     return "";
   });
   const [title, setTitle] = useState(card.title);
-  const modalRef = useModalA11y(onClose);
-  const backdropProps = useBackdropClose(onClose);
   const [description, setDescription] = useState(card.description || "");
   const [columnId, setColumnId] = useState(card.columnId);
   const [priority, setPriority] = useState(card.priority);
+  const [commentContent, setCommentContent] = useState("");
+
+  const isDirty =
+    title !== card.title ||
+    description !== (card.description || "") ||
+    columnId !== card.columnId ||
+    priority !== card.priority ||
+    commentContent.trim() !== "";
+
+  const handleGuardedClose = () => {
+    if (isDirty) {
+      if (!confirm(t("cardModal.confirmDiscard"))) {
+        return;
+      }
+    }
+    onClose();
+  };
+
+  const modalRef = useModalA11y(handleGuardedClose);
+  const backdropProps = useBackdropClose(handleGuardedClose);
   const [points, setPoints] = useState<string>(
     card.points !== null && card.points !== undefined ? String(card.points) : ""
   );
@@ -197,7 +215,6 @@ export default function CardDetailModal({
   const [isAddingRelation, setIsAddingRelation] = useState(false);
 
   const [commentAuthor, setCommentAuthor] = useState("");
-  const [commentContent, setCommentContent] = useState("");
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
 
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
@@ -667,24 +684,24 @@ export default function CardDetailModal({
             <button
               onClick={handleArchive}
               disabled={archiving}
-              aria-label="Archive task card"
+              aria-label={t("cardModal.archiveCard")}
               className="rounded-lg p-2 text-slate-500 hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-400 transition-colors"
-              title="Archive task card"
+              title={t("cardModal.archiveCard")}
             >
               <Archive className="h-4 w-4" />
             </button>
             <button
               onClick={handleDelete}
               disabled={deleting}
-              aria-label="Delete task card"
+              aria-label={t("cardModal.deleteCard")}
               className="rounded-lg p-2 text-slate-500 hover:bg-red-500/10 hover:text-red-500 transition-colors"
-              title="Delete task card"
+              title={t("cardModal.deleteCard")}
             >
               <Trash2 className="h-4 w-4" />
             </button>
             <button
-              onClick={onClose}
-              aria-label="Close"
+              onClick={handleGuardedClose}
+              aria-label={t("cardModal.close")}
               className="rounded-lg p-2 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-colors"
             >
               <X className="h-5 w-5" />

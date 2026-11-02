@@ -100,7 +100,7 @@ export default function LabelManagerModal({ onClose }: Props) {
           </div>
           <button
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t("cardModal.close")}
             className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-colors"
           >
             <X className="h-5 w-5" />
@@ -158,7 +158,7 @@ export default function LabelManagerModal({ onClose }: Props) {
                   <button
                     onClick={() => handleDelete(lbl.id)}
                     disabled={deletingId === lbl.id}
-                    aria-label={`Delete label ${lbl.name}`}
+                    aria-label={t("cardModal.deleteLabelNamed", { name: lbl.name })}
                     className="p-1 text-slate-400 hover:text-red-500 transition-colors disabled:opacity-50"
                   >
                     <Trash2 className="h-3.5 w-3.5" />

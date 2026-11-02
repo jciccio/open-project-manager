@@ -1,4 +1,7 @@
 export const en = {
+  common: {
+    close: "Close",
+  },
   header: {
     title: "Open Project Manager",
     badge: "SQLite",
@@ -27,6 +30,8 @@ export const en = {
     copyHeader: "Copy Bearer Header",
     copied: "Copied!",
     tokenSecurityNotice: "Keep your API token secret. Anyone with this token can access your projects and tasks.",
+    confirmDismissToken: "An API token is currently displayed. Closing now will permanently hide the secret. Are you sure?",
+    close: "Close",
     activeTokens: "Active Tokens",
     noTokensYet: "No API tokens yet.",
     revoke: "Revoke",
@@ -170,12 +175,19 @@ export const en = {
   },
   calendar: {
     today: "Today",
+    prevMonth: "Previous month",
+    nextMonth: "Next month",
     unscheduledTasks: "Unscheduled Tasks",
     unscheduledSub: "Tasks without a due date set:",
     allHasDueDate: "All tasks have due dates assigned.",
   },
   cardModal: {
     title: "Task Details",
+    confirmDiscard: "Discard unsaved changes?",
+    archiveCard: "Archive task card",
+    deleteCard: "Delete task card",
+    deleteLabelNamed: "Delete label {name}",
+    close: "Close",
     cardTitlePlaceholder: "Card Title...",
     column: "Column",
     type: "Type",

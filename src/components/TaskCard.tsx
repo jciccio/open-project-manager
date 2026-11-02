@@ -3,6 +3,7 @@
 import { MessageSquare, Calendar, Zap, ShieldAlert, CheckSquare, CornerDownRight } from "lucide-react";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { useTranslation } from "./LanguageProvider";
+import { handleRowKeyDown } from "./useModalA11y";
 import { formatDueDate } from "@/lib/formatDate";
 import { CardTypeIcon } from "./cardTypeIcons";
 import { isClosedColumn } from "@/lib/columnGroups";
@@ -89,12 +90,7 @@ export default function TaskCard({ card, onClick }: Props) {
       role="button"
       tabIndex={0}
       onClick={onClick}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onClick();
-        }
-      }}
+      onKeyDown={(e) => handleRowKeyDown(e, onClick)}
       className="group cursor-pointer rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 shadow-xs hover:border-indigo-500/50 dark:hover:border-indigo-500/40 hover:shadow-md hover:shadow-indigo-500/10 transition-all select-none focus:outline-none focus:ring-2 focus:ring-indigo-500"
     >
       {/* Identifier & Label Chips */}

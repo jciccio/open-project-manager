@@ -109,6 +109,37 @@ describe("Accessibility (Issue #113)", () => {
       fireEvent.keyDown(cardElement, { key: " " });
       expect(onClick).toHaveBeenCalledTimes(2);
     });
+
+    it("does not trigger row onClick when Enter or Space is pressed on a descendant element", () => {
+      const onClick = vi.fn();
+      const mockCard: any = {
+        id: "c-descendant",
+        title: "Task with Link",
+        description: "Check [this link](https://example.com) for details",
+        identifier: "PROJ-2",
+        order: 0,
+        columnId: "col-1",
+        projectId: "p-1",
+        labels: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      const { container } = render(
+        <LanguageProvider>
+          <TaskCard card={mockCard} onClick={onClick} />
+        </LanguageProvider>
+      );
+
+      const link = container.querySelector("a");
+      if (link) {
+        fireEvent.keyDown(link, { key: "Enter" });
+        expect(onClick).not.toHaveBeenCalled();
+
+        fireEvent.keyDown(link, { key: " " });
+        expect(onClick).not.toHaveBeenCalled();
+      }
+    });
   });
 
   describe("Form Input Accessibility Labels", () => {

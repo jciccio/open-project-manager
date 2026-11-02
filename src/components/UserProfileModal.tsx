@@ -35,8 +35,9 @@ interface ApiTokenSummary {
 }
 
 export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props) {
-  const modalRef = useModalA11y(onClose);
-  const backdropProps = useBackdropClose(onClose);
+  const { t, locale } = useTranslation();
+  const router = useRouter();
+
   const [name, setName] = useState(user.name);
   const [email, setEmail] = useState(user.email);
   const [currentPassword, setCurrentPassword] = useState("");
@@ -49,6 +50,18 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
   const [showToken, setShowToken] = useState(false);
   const [copiedToken, setCopiedToken] = useState(false);
   const [copiedHeader, setCopiedHeader] = useState(false);
+
+  const handleGuardedClose = () => {
+    if (apiToken) {
+      if (!confirm(t("profileModal.confirmDismissToken"))) {
+        return;
+      }
+    }
+    onClose();
+  };
+
+  const modalRef = useModalA11y(handleGuardedClose);
+  const backdropProps = useBackdropClose(handleGuardedClose);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -71,9 +84,6 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
     localPasswordAllowed: boolean;
     linkingDisablesPassword: boolean;
   } | null>(null);
-
-  const { t, locale } = useTranslation();
-  const router = useRouter();
 
   const ssoLinkMessageKey = ssoLinkResult
     ? SSO_LINK_MESSAGES[ssoLinkResult as keyof typeof SSO_LINK_MESSAGES] ?? "ssoLinkFailed"
@@ -254,8 +264,8 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
             </h3>
           </div>
           <button
-            onClick={onClose}
-            aria-label="Close"
+            onClick={handleGuardedClose}
+            aria-label={t("profileModal.close")}
             className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
           >
             <X className="h-5 w-5" />
