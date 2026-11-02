@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import MarkdownEditor from "../MarkdownEditor";
 import DashboardClient from "../DashboardClient";
@@ -24,13 +24,34 @@ function renderWithProviders(ui: React.ReactElement) {
 }
 
 describe("Issue #131 Cleanup Verifications", () => {
-  it("MarkdownEditor allows unique id per instance and uses ref for textarea formatting", () => {
+  it("MarkdownEditor generates unique ids when omitted and isolates toolbar formatting to target instance", () => {
+    const onChange1 = vi.fn();
+    const onChange2 = vi.fn();
+
     const { container } = renderWithProviders(
-      <MarkdownEditor id="custom-editor-1" value="Hello" onChange={vi.fn()} />
+      <div>
+        <MarkdownEditor value="Editor 1" onChange={onChange1} />
+        <MarkdownEditor value="Editor 2" onChange={onChange2} />
+      </div>
     );
-    const textarea = container.querySelector("textarea");
-    expect(textarea).toBeInTheDocument();
-    expect(textarea?.getAttribute("id")).toBe("custom-editor-1");
+
+    const textareas = container.querySelectorAll("textarea");
+    expect(textareas).toHaveLength(2);
+    const id1 = textareas[0].getAttribute("id");
+    const id2 = textareas[1].getAttribute("id");
+
+    expect(id1).toBeTruthy();
+    expect(id2).toBeTruthy();
+    expect(id1).not.toBe(id2);
+
+    // Find Bold button in the second editor's container
+    const boldButtons = screen.getAllByTitle(/bold/i);
+    expect(boldButtons).toHaveLength(2);
+
+    fireEvent.click(boldButtons[1]);
+
+    expect(onChange2).toHaveBeenCalledWith("**text**Editor 2");
+    expect(onChange1).not.toHaveBeenCalled();
   });
 
   it("Header, LoginForm, and RegisterForm use Open Project Manager Logo alt text", () => {
@@ -51,11 +72,11 @@ describe("Issue #131 Cleanup Verifications", () => {
   });
 
   it("Locales do not define duplicate confirmDeleteCard key", () => {
-    expect((en as any).cardModal.deleteConfirm).toBeDefined();
-    expect((en as any).cardModal.confirmDeleteCard).toBeUndefined();
+    expect(en.cardModal.deleteConfirm).toBeDefined();
+    expect("confirmDeleteCard" in en.cardModal).toBe(false);
 
-    expect((es as any).cardModal.deleteConfirm).toBeDefined();
-    expect((es as any).cardModal.confirmDeleteCard).toBeUndefined();
+    expect(es.cardModal.deleteConfirm).toBeDefined();
+    expect("confirmDeleteCard" in es.cardModal).toBe(false);
   });
 
   it("DashboardClient renders without requiring archivedCount prop", () => {

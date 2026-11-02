@@ -323,22 +323,10 @@ export default function CardDetailModal({
       }
     }
 
-    async function loadMembers() {
-      if (members && members.length > 0) {
-        setProjectMembers(members);
-        return;
-      }
-      const mRes = await getProjectMembers(card.projectId);
-      if (mRes.success && mRes.data) {
-        setProjectMembers(mRes.data);
-      }
-    }
-
     loadLabels();
     loadCardTypes();
     loadRelations();
     loadProjectCards();
-    loadMembers();
 
     setTitle(card.title);
     setDescription(card.description || "");
@@ -360,7 +348,22 @@ export default function CardDetailModal({
     setSubtaskError("");
     // Only reset form state when opening a different card; keep in-progress edits on background refresh
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [card.id, card.projectId, members]);
+  }, [card.id]);
+
+  // Synchronize project members in a separate effect so background member updates don't reset in-progress form edits
+  useEffect(() => {
+    async function loadMembers() {
+      if (members && members.length > 0) {
+        setProjectMembers(members);
+        return;
+      }
+      const mRes = await getProjectMembers(card.projectId);
+      if (mRes.success && mRes.data) {
+        setProjectMembers(mRes.data);
+      }
+    }
+    loadMembers();
+  }, [card.projectId, members]);
 
   async function handleCreateSubtask(e: React.FormEvent) {
     e.preventDefault();
@@ -856,10 +859,11 @@ export default function CardDetailModal({
 
           {/* Description */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+            <label htmlFor="card-description-editor" className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
               {t("cardModal.description")}
             </label>
             <MarkdownEditor
+              id="card-description-editor"
               value={description}
               onChange={setDescription}
               placeholder={t("cardModal.descriptionPlaceholder")}
