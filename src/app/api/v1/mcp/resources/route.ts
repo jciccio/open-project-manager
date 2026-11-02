@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
 import { readMcpResource } from "@/mcp/core";
+import { isPublicError, publicErrorMessage } from "@/mcp/errors";
+import { MCP_RESOURCES, MCP_RESOURCE_TEMPLATES } from "@/mcp/resourceCatalog";
 
 export async function GET(request: NextRequest) {
   const session = await getApiSession(request);
@@ -14,14 +16,8 @@ export async function GET(request: NextRequest) {
   if (!uri) {
     return NextResponse.json({
       success: true,
-      resources: [
-        {
-          uri: "opm://projects",
-          name: "All Workspace Projects",
-          mimeType: "application/json",
-          description: "List of active projects in Open Project Manager",
-        },
-      ],
+      resources: MCP_RESOURCES,
+      resourceTemplates: MCP_RESOURCE_TEMPLATES,
     });
   }
 
@@ -33,10 +29,10 @@ export async function GET(request: NextRequest) {
       mimeType: resource.mimeType,
       data: resource.data,
     });
-  } catch (error: any) {
+  } catch (error) {
     return NextResponse.json(
-      { success: false, error: error.message || "Failed to read MCP resource" },
-      { status: 404 }
+      { success: false, error: publicErrorMessage(error, `resource ${uri}`) },
+      { status: isPublicError(error) ? 404 : 500 }
     );
   }
 }
