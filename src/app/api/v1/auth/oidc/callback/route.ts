@@ -1,18 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as client from "openid-client";
+import { jwtVerify } from "jose";
 import { createSession, getSession } from "@/lib/auth";
+import { JWT_SECRET } from "@/lib/env";
 import { getOidcConfig, getOidcRedirectUri, isOidcConfigured, resolveOidcUser } from "@/lib/oidc";
 
 const OIDC_COOKIE_NAMES = ["opm_oidc_verifier", "opm_oidc_state", "opm_oidc_nonce", "opm_oidc_link"] as const;
+const STATE_REGEX = /^[A-Za-z0-9_-]{1,128}$/;
 
 function redirectClearingFlow(url: URL, state?: string | null) {
   const response = NextResponse.redirect(url);
   for (const name of OIDC_COOKIE_NAMES) {
-    response.cookies.delete(name);
+    response.cookies.delete({ name, path: "/" });
   }
-  if (state) {
-    response.cookies.delete(`opm_oidc_flow_${state}`);
-    response.cookies.delete(`opm_oidc_${state}`);
+  if (state && STATE_REGEX.test(state)) {
+    response.cookies.delete({
+      name: `opm_oidc_flow_${state}`,
+      path: "/api/v1/auth/oidc/callback",
+    });
   }
   return response;
 }
@@ -34,9 +39,11 @@ export async function GET(request: NextRequest) {
   const publicOrigin = new URL(getOidcRedirectUri()).origin;
 
   const returnedState = request.nextUrl.searchParams.get("state");
-  const stateCookie = returnedState
-    ? (request.cookies.get(`opm_oidc_flow_${returnedState}`)?.value ?? request.cookies.get(`opm_oidc_${returnedState}`)?.value ?? null)
-    : null;
+  if (!returnedState || !STATE_REGEX.test(returnedState)) {
+    return redirectToLogin(publicOrigin, "oidc_session_expired", null);
+  }
+
+  const stateCookie = request.cookies.get(`opm_oidc_flow_${returnedState}`)?.value;
 
   let codeVerifier: string | undefined;
   let expectedState: string | undefined;
@@ -45,13 +52,20 @@ export async function GET(request: NextRequest) {
 
   if (stateCookie) {
     try {
-      const parsed = JSON.parse(stateCookie);
-      codeVerifier = parsed.verifier;
-      expectedState = typeof parsed.state === "string" ? parsed.state : undefined;
-      expectedNonce = parsed.nonce;
-      linkMode = Boolean(parsed.link);
+      const { payload } = await jwtVerify(stateCookie, JWT_SECRET);
+      if (
+        typeof payload.verifier === "string" &&
+        typeof payload.state === "string" &&
+        typeof payload.nonce === "string" &&
+        typeof payload.link === "number"
+      ) {
+        codeVerifier = payload.verifier;
+        expectedState = payload.state;
+        expectedNonce = payload.nonce;
+        linkMode = payload.link === 1;
+      }
     } catch {
-      // Fallback to legacy cookies on parse error
+      // Fallback to legacy cookies on parse/verify error
     }
   }
 
@@ -112,15 +126,7 @@ export async function GET(request: NextRequest) {
       tokenVersion: result.user.tokenVersion,
     });
 
-    const response = NextResponse.redirect(new URL("/", publicOrigin));
-    for (const name of OIDC_COOKIE_NAMES) {
-      response.cookies.delete(name);
-    }
-    if (returnedState) {
-      response.cookies.delete(`opm_oidc_flow_${returnedState}`);
-      response.cookies.delete(`opm_oidc_${returnedState}`);
-    }
-    return response;
+    return redirectClearingFlow(new URL("/", publicOrigin), returnedState);
   } catch (error) {
     console.error("OIDC callback error:", error);
     return redirectToLogin(publicOrigin, "oidc_failed", returnedState);

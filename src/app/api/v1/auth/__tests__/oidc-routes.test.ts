@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { NextRequest } from "next/server";
 import * as oidcClient from "openid-client";
+import { SignJWT } from "jose";
 import { db } from "@/lib/db";
 import { createSession, destroySession } from "@/lib/auth";
+import { JWT_SECRET } from "@/lib/env";
 import { cleanupTestUser } from "@/test/helpers";
 
 const idTokenClaims = vi.hoisted(() => ({ current: {} as Record<string, unknown> }));
@@ -98,13 +100,38 @@ describe("OIDC routes", () => {
     expect(res.headers.get("location")).toBe("https://opm.example.com/login?error=oidc_session_expired");
   });
 
+  it("scopes the flow cookie to the callback path", async () => {
+    const res = await oidcLogin(new NextRequest("https://opm.example.com/api/v1/auth/oidc/login"));
+    const flowCookie = res.cookies.get("opm_oidc_flow_state");
+    expect(flowCookie).toBeDefined();
+    expect(flowCookie?.path).toBe("/api/v1/auth/oidc/callback");
+  });
+
+  it("rejects malformed or injected state parameter without throwing 500", async () => {
+    // CRLF injection attempt
+    const res1 = await oidcCallback(
+      new NextRequest("https://opm.example.com/api/v1/auth/oidc/callback?code=abc&state=bad%0d%0aX:1")
+    );
+    expect(res1.headers.get("location")).toBe("https://opm.example.com/login?error=oidc_session_expired");
+
+    // Cookie attribute injection attempt
+    const res2 = await oidcCallback(
+      new NextRequest("https://opm.example.com/api/v1/auth/oidc/callback?code=abc&state=X=%7B%22verifier%22%3A%22v%22%7D%3B%20Path%3D%2F")
+    );
+    expect(res2.headers.get("location")).toBe("https://opm.example.com/login?error=oidc_session_expired");
+  });
+
   it("handles parallel OIDC logins without clobbering state/nonce cookies (#198)", async () => {
-    const flow1Data = JSON.stringify({ verifier: "verifier_1", state: "state_1", nonce: "nonce_1", link: 0 });
-    const flow2Data = JSON.stringify({ verifier: "verifier_2", state: "state_2", nonce: "nonce_2", link: 0 });
+    const token1 = await new SignJWT({ verifier: "verifier_1", state: "state_1", nonce: "nonce_1", link: 0 })
+      .setProtectedHeader({ alg: "HS256" })
+      .sign(JWT_SECRET);
+    const token2 = await new SignJWT({ verifier: "verifier_2", state: "state_2", nonce: "nonce_2", link: 0 })
+      .setProtectedHeader({ alg: "HS256" })
+      .sign(JWT_SECRET);
 
     const sharedCookies = [
-      `opm_oidc_flow_state_1=${encodeURIComponent(flow1Data)}`,
-      `opm_oidc_flow_state_2=${encodeURIComponent(flow2Data)}`,
+      `opm_oidc_flow_state_1=${token1}`,
+      `opm_oidc_flow_state_2=${token2}`,
       // Legacy cookies overwritten by flow 2
       "opm_oidc_verifier=verifier_2",
       "opm_oidc_state=state_2",
