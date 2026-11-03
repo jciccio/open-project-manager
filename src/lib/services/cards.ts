@@ -6,7 +6,7 @@ import { createActivities, notifyActivity, type ActivityEntry } from "@/lib/serv
 import { nextCardNumber, withCardNumberRetry } from "@/lib/cardNumbering";
 import { verifyProjectAccess } from "@/lib/permissions";
 import { deriveCompletedAt } from "@/lib/cardCompletion";
-import { SafeUrlSchema } from "@/lib/validation/safeUrl";
+import { INVALID_LINK_URL_ERROR, SafeUrlSchema } from "@/lib/validation/safeUrl";
 import { CardCreateSchema, CardReorderSchema, CardUpdateSchema } from "@/lib/validation/cards";
 import { parseInput } from "@/lib/validation/errors";
 
@@ -529,7 +529,7 @@ export async function addCardLink(cardId: string, url: string, title: string | u
   try {
     const parsedUrl = SafeUrlSchema.safeParse(url);
     if (!parsedUrl.success) {
-      return { success: false, error: "Link URL must be a valid http, https or mailto URL" };
+      return { success: false, error: INVALID_LINK_URL_ERROR };
     }
     url = parsedUrl.data;
 

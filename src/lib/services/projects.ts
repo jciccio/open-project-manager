@@ -6,6 +6,8 @@ import { DEFAULT_CARD_TYPES } from "@/lib/cardTypeDefaults";
 import { DEFAULT_PROJECT_COLUMNS } from "@/lib/columnGroups";
 import { triggerWebhooks } from "@/lib/webhooks";
 import { generateProjectKey } from "@/lib/projectKey";
+import { parseInput } from "@/lib/validation/errors";
+import { ProjectNameSchema } from "@/lib/validation/projects";
 import { getProjectAccess } from "@/lib/permissions";
 import { isHexColor, INVALID_COLOR_ERROR } from "@/lib/colors";
 
@@ -174,19 +176,20 @@ export async function createProject(
   userId: string
 ) {
   try {
-    if (!data.name.trim()) {
-      return { success: false, error: "Project name is required" };
+    const name = parseInput(ProjectNameSchema, data.name);
+    if (!name.success) {
+      return { success: false, error: name.error };
     }
     if (data.color !== undefined && !isHexColor(data.color)) {
       return { success: false, error: INVALID_COLOR_ERROR };
     }
 
-    const projectKey = await generateProjectKey(data.name, data.key, userId);
+    const projectKey = await generateProjectKey(name.data, data.key, userId);
 
     const project = await db.project.create({
       data: {
         userId,
-        name: data.name.trim(),
+        name: name.data,
         key: projectKey,
         description: data.description,
         color: data.color || "#6366f1",
@@ -233,6 +236,10 @@ export async function updateProject(
   userId: string
 ) {
   try {
+    const name = data.name === undefined ? undefined : parseInput(ProjectNameSchema, data.name);
+    if (name && !name.success) {
+      return { success: false, error: name.error };
+    }
     if (data.color !== undefined && !isHexColor(data.color)) {
       return { success: false, error: INVALID_COLOR_ERROR };
     }
@@ -249,7 +256,7 @@ export async function updateProject(
     const project = await db.project.update({
       where: { id },
       data: {
-        name: data.name,
+        name: name?.data,
         description: data.description,
         color: data.color,
       },

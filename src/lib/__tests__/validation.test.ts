@@ -43,7 +43,7 @@ describe("card schemas", () => {
       CardCreateSchema.safeParse({
         ...validCreate,
         priority: "HIGH",
-        points: 3.5,
+        points: 3,
         dueDate: "2026-12-01",
         description: null,
         labelIds: ["l1"],
@@ -62,8 +62,8 @@ describe("card schemas", () => {
     expect(CardCreateSchema.safeParse({ ...validCreate, title: "x".repeat(501) }).success).toBe(false);
   });
 
-  it("rejects string, NaN and infinite points", () => {
-    for (const points of ["3", Number.NaN, Number.POSITIVE_INFINITY]) {
+  it("rejects string, fractional, NaN and infinite points", () => {
+    for (const points of ["3", 3.5, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(CardCreateSchema.safeParse({ ...validCreate, points }).success).toBe(false);
     }
   });
