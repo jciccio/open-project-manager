@@ -20,9 +20,12 @@ function page(results: unknown[], nextCursor?: string) {
 function stubRoutes(routes: Record<string, () => Response>) {
   const stub = vi.fn<FetchStub>(async (url) => {
     const key = String(url).slice(API.length);
-    const route = routes[key] ?? routes[key.split("?")[0]];
-    if (!route) throw new Error(`unexpected fetch: ${key}`);
-    return route();
+    const path = key.split("?")[0];
+    const route = routes[key] ?? routes[path];
+    if (route) return route();
+    if (path.endsWith("/links/")) return respond(page([]));
+    if (path.endsWith("/relations/")) return respond({});
+    throw new Error(`unexpected fetch: ${key}`);
   });
   vi.stubGlobal("fetch", stub);
   return stub;
@@ -127,8 +130,8 @@ describe("PlaneImporter", () => {
       [`${PROJECT_PATH}/states/`]: () =>
         respond(
           page([
-            { id: "s3", name: "Cancelled", group: "cancelled", sequence: 40000.5 },
-            { id: "s2", name: "Done", group: "completed", sequence: 30000 },
+            { id: "s3", name: "Cancelled", group: "cancelled", sequence: 40000.5, color: "#9AA4BC", description: "Dropped" },
+            { id: "s2", name: "Done", group: "completed", sequence: 30000, color: "", description: "" },
             { id: "s1", name: "Backlog", group: "backlog", sequence: 15000 },
           ])
         ),
@@ -137,9 +140,17 @@ describe("PlaneImporter", () => {
     const columns = await collect(importer().instance.fetchColumns(PROJECT_SID));
 
     expect(columns).toEqual([
-      { sourceId: stateSourceId("s1"), name: "Backlog", order: 0, isDone: false },
-      { sourceId: stateSourceId("s2"), name: "Done", order: 1, isDone: true },
-      { sourceId: stateSourceId("s3"), name: "Cancelled", order: 2, isDone: false },
+      { sourceId: stateSourceId("s1"), name: "Backlog", order: 0, isDone: false, group: "BACKLOG" },
+      { sourceId: stateSourceId("s2"), name: "Done", order: 1, isDone: true, group: "COMPLETED" },
+      {
+        sourceId: stateSourceId("s3"),
+        name: "Cancelled",
+        order: 2,
+        isDone: false,
+        group: "CANCELLED",
+        color: "#9AA4BC",
+        description: "Dropped",
+      },
     ]);
   });
 
@@ -185,6 +196,9 @@ describe("PlaneImporter", () => {
               estimate_point: "ep1",
               target_date: "2026-12-01",
               completed_at: "2026-11-01T10:00:00Z",
+              created_at: "2026-10-01T09:00:00Z",
+              sequence_id: 42,
+              parent: "w9",
             },
             { id: "w2", name: "Sized L", state: "s1", priority: "none", estimate_point: "ep2" },
             { id: "w3", name: "Sized 2.5", state: "s1", estimate_point: "ep3" },
@@ -204,11 +218,102 @@ describe("PlaneImporter", () => {
       owner: "ada, Grace Hopper",
       dueDate: "2026-12-01",
       completedAt: "2026-11-01T10:00:00Z",
+      createdAt: "2026-10-01T09:00:00Z",
+      number: 42,
+      parentSourceId: workItemSourceId(PROJECT, "w9"),
       labelSourceIds: [labelSourceId("l1")],
     });
+    expect(nonNumeric.parentSourceId).toBeUndefined();
+    expect(nonNumeric.links).toBeUndefined();
+    expect(nonNumeric.relations).toBeUndefined();
     expect(nonNumeric.points).toBeUndefined();
     expect(nonNumeric.owner).toBeUndefined();
     expect(fractional.points).toBeUndefined();
+  });
+
+  describe("links and relations", () => {
+    const OTHER = "p2";
+    const cardRoutes = (relations: unknown) => ({
+      [`${WORKSPACE}/members/`]: MEMBERS,
+      [`${PROJECT_PATH}/estimates/`]: NO_ESTIMATE,
+      [`${PROJECT_PATH}/work-items/`]: () => respond(page([{ id: "w1", name: "A", state: "s1" }])),
+      [`${PROJECT_PATH}/work-items/w1/relations/`]: () => respond(relations),
+    });
+    const crossProject = { blocking: [{ project_id: OTHER, issue_id: "x1" }] };
+
+    it("maps links, using undefined for an empty title", async () => {
+      stubRoutes({
+        ...cardRoutes({}),
+        [`${PROJECT_PATH}/work-items/w1/links/`]: () =>
+          respond(page([{ url: "https://a.example", title: "Docs" }, { url: "https://b.example", title: "" }])),
+      });
+
+      const [card] = await collect(importer().instance.fetchCards(PROJECT_SID));
+
+      expect(card.links).toEqual([{ url: "https://a.example", title: "Docs" }, { url: "https://b.example" }]);
+    });
+
+    it("maps Plane's relation types and leaves out the start and finish ones", async () => {
+      const target = (issue_id: string) => [{ project_id: PROJECT, issue_id }];
+      stubRoutes(
+        cardRoutes({
+          blocking: target("a"),
+          blocked_by: target("b"),
+          relates_to: target("c"),
+          duplicate: target("d"),
+          start_after: target("e"),
+          start_before: target("f"),
+          finish_after: target("g"),
+          finish_before: target("h"),
+        })
+      );
+
+      const [card] = await collect(importer().instance.fetchCards(PROJECT_SID));
+
+      expect(card.relations).toEqual([
+        { targetCardSourceId: workItemSourceId(PROJECT, "a"), type: "BLOCKS" },
+        { targetCardSourceId: workItemSourceId(PROJECT, "b"), type: "BLOCKED_BY" },
+        { targetCardSourceId: workItemSourceId(PROJECT, "c"), type: "RELATES_TO" },
+        { targetCardSourceId: workItemSourceId(PROJECT, "d"), type: "RELATES_TO" },
+      ]);
+    });
+
+    it("leaves out a relation into a project that hasn't run yet, because that project's card reports it", async () => {
+      stubRoutes(cardRoutes(crossProject));
+
+      const [card] = await collect(importer().instance.fetchCards(PROJECT_SID));
+
+      expect(card.relations).toBeUndefined();
+    });
+
+    it("keeps a relation into a project that already ran", async () => {
+      stubRoutes({
+        ...cardRoutes(crossProject),
+        [`${WORKSPACE}/projects/${OTHER}/estimates/`]: NO_ESTIMATE,
+        [`${WORKSPACE}/projects/${OTHER}/work-items/`]: () => respond(page([])),
+      });
+      const { instance } = importer();
+
+      await collect(instance.fetchCards(projectSourceId(OTHER)));
+      const [card] = await collect(instance.fetchCards(PROJECT_SID));
+
+      expect(card.relations).toEqual([{ targetCardSourceId: workItemSourceId(OTHER, "x1"), type: "BLOCKS" }]);
+    });
+
+    it("skips and counts every cross-project relation when asked to", async () => {
+      stubRoutes({
+        ...cardRoutes(crossProject),
+        [`${WORKSPACE}/projects/${OTHER}/estimates/`]: NO_ESTIMATE,
+        [`${WORKSPACE}/projects/${OTHER}/work-items/`]: () => respond(page([])),
+      });
+      const { instance } = importer({ skipCrossProjectRelations: true });
+
+      await collect(instance.fetchCards(projectSourceId(OTHER)));
+      const [card] = await collect(instance.fetchCards(PROJECT_SID));
+
+      expect(card.relations).toBeUndefined();
+      expect(instance.crossProjectRelationsSkipped).toBe(1);
+    });
   });
 
   it("treats a 404 on estimates as a project with no estimate, without retrying", async () => {
