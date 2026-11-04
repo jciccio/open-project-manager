@@ -811,4 +811,62 @@ describe("runImport", () => {
     const childAfterReimport = await db.card.findUnique({ where: { id: childInDb!.id } });
     expect(childAfterReimport?.parentId).toBeNull();
   });
+
+  it("retries missing relations/parents on subsequent import if skipped card was previously missing them", async () => {
+    const fixture1 = baseFixture();
+    fixture1.cards["proj-1"] = [
+      {
+        sourceId: "child-card",
+        columnSourceId: "col-todo",
+        title: "Child Without Parent Yet",
+        parentSourceId: "unresolved-parent",
+      },
+    ];
+
+    const run1 = (await runImport(makeFakeImporter(fixture1), userId)) as ImportSummary;
+    expect(run1.records.find((r) => r.sourceId === "child-card")?.status).toBe("created");
+    expect(run1.records.find((r) => r.sourceId === "child-card:parent")?.status).toBe("failed");
+
+    // Second run: now parent is present
+    const fixture2 = baseFixture();
+    fixture2.cards["proj-1"] = [
+      { sourceId: "unresolved-parent", columnSourceId: "col-todo", title: "Parent Card" },
+      {
+        sourceId: "child-card",
+        columnSourceId: "col-todo",
+        title: "Child Without Parent Yet",
+        parentSourceId: "unresolved-parent",
+      },
+    ];
+
+    const run2 = (await runImport(makeFakeImporter(fixture2), userId)) as ImportSummary;
+    expect(run2.records.find((r) => r.sourceId === "child-card")?.status).toBe("skipped");
+    expect(run2.records.find((r) => r.sourceId === "child-card:parent")).toBeUndefined();
+
+    const child = await db.card.findFirst({ where: { project: { userId }, title: "Child Without Parent Yet" } });
+    const parent = await db.card.findFirst({ where: { project: { userId }, title: "Parent Card" } });
+    expect(child?.parentId).toBe(parent?.id);
+  });
+
+  it("dry run matches live run when column group is invalid causing cards to fail", async () => {
+    const fixture = baseFixture();
+    fixture.columns["proj-1"] = [
+      { sourceId: "col-invalid", name: "Invalid Group Column", group: "NOT_A_GROUP" as any },
+    ];
+    fixture.cards["proj-1"] = [
+      { sourceId: "card-1", columnSourceId: "col-invalid", title: "Card in Invalid Column" },
+    ];
+
+    const dryRun = (await runImport(makeFakeImporter(fixture), userId, { dryRun: true })) as ImportDryRunSummary;
+    const colDry = dryRun.records.find((r) => r.sourceId === "col-invalid");
+    const cardDry = dryRun.records.find((r) => r.sourceId === "card-1");
+    expect(colDry?.status).toBe("would_fail");
+    expect(cardDry?.status).toBe("would_fail");
+
+    const liveRun = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
+    const colLive = liveRun.records.find((r) => r.sourceId === "col-invalid");
+    const cardLive = liveRun.records.find((r) => r.sourceId === "card-1");
+    expect(colLive?.status).toBe("failed");
+    expect(cardLive?.status).toBe("failed");
+  });
 });

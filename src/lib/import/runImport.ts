@@ -377,7 +377,7 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
           select: { number: true },
         });
         const existingNumbers = new Set<number>(existingCards.map((c) => c.number));
-        const maxExplicit = cards.reduce((max, c) => (c.number !== undefined && c.number > max ? c.number : max), 0);
+        const maxExplicit = cards.reduce((max, c) => (typeof c.number === "number" && Number.isInteger(c.number) && c.number > max ? c.number : max), 0);
         const maxDbNumber = existingCards.reduce((max, c) => (c.number > max ? c.number : max), 0);
         let nextNumber = Math.max(maxDbNumber, maxExplicit) + 1;
 
@@ -394,21 +394,15 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
 
         try {
           for (const card of cards) {
-            const columnLocalId = columnMap.get(card.columnSourceId);
-            if (!columnLocalId) {
-              records.push({
-                entityType: "card",
-                sourceId: card.sourceId,
-                status: "failed",
-                error: unknownColumnError(card.columnSourceId),
-              });
-              continue;
-            }
-
             const { localId: cardLocalId, result: cardResult } = await createOrSkip(ctx, "card", card.sourceId, async () => {
+              const columnLocalId = columnMap.get(card.columnSourceId);
+              if (!columnLocalId) {
+                throw new Error(unknownColumnError(card.columnSourceId));
+              }
+
               if (card.links && card.links.length > 0) {
                 for (const link of card.links) {
-                  const parsed = SafeUrlSchema.safeParse(link.url);
+                  const parsed = SafeUrlSchema.safeParse(link.url ? link.url.trim() : "");
                   if (!parsed.success) {
                     throw new Error(`Invalid link URL "${link.url}": must be a valid http, https or mailto URL`);
                   }
@@ -439,16 +433,14 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
               const order = columnMaxOrder.get(columnLocalId)! + ORDER_GAP;
               columnMaxOrder.set(columnLocalId, order);
 
+              const hasExplicit = typeof card.number === "number" && Number.isInteger(card.number) && card.number > 0;
+              const explicitNum = hasExplicit ? card.number! : undefined;
+
               let finalNumber: number;
-              let description = card.description ?? null;
-              if (card.number !== undefined && !existingNumbers.has(card.number)) {
-                finalNumber = card.number;
+              if (explicitNum !== undefined && !existingNumbers.has(explicitNum)) {
+                finalNumber = explicitNum;
                 existingNumbers.add(finalNumber);
               } else {
-                if (card.number !== undefined && existingNumbers.has(card.number)) {
-                  const note = `[Original card index: ${card.number}]`;
-                  description = description ? `${description}\n\n${note}` : note;
-                }
                 finalNumber = getNextAutoNumber();
               }
 
@@ -456,7 +448,6 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
                 projectId: projectLocalId,
                 columnId: columnLocalId,
                 title: card.title,
-                description,
                 priority: card.priority || "NONE",
                 points: card.points ?? null,
                 owner: card.owner ?? null,
@@ -469,8 +460,8 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
                   card.links && card.links.length > 0
                     ? {
                         create: card.links.map((link) => ({
-                          url: link.url,
-                          title: link.title || null,
+                          url: link.url.trim(),
+                          title: link.title ? link.title.trim() : null,
                         })),
                       }
                     : undefined,
@@ -485,15 +476,21 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
                     : undefined,
               };
 
-              const created = await withCardNumberRetry(projectLocalId, finalNumber, (number) =>
-                db.card.create({
+              const created = await withCardNumberRetry(projectLocalId, finalNumber, (number) => {
+                let cardDescription = card.description ?? null;
+                if (explicitNum !== undefined && number !== explicitNum) {
+                  const note = `[Original card index: ${explicitNum}]`;
+                  cardDescription = cardDescription ? `${cardDescription}\n\n${note}` : note;
+                }
+                return db.card.create({
                   data: {
                     ...cardData,
+                    description: cardDescription,
                     number,
                     order,
                   },
-                })
-              );
+                });
+              });
               existingNumbers.add(created.number);
               nextNumber = Math.max(nextNumber, created.number + 1);
               return created.id;
@@ -502,12 +499,35 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
             if (!cardLocalId) continue;
 
             cardMap.set(card.sourceId, cardLocalId);
-            if (cardResult.status === "created") {
-              if (card.parentSourceId) {
+            if (card.parentSourceId) {
+              if (cardResult.status === "created") {
                 pendingParents.push({ cardLocalId, cardSourceId: card.sourceId, parentSourceId: card.parentSourceId });
+              } else {
+                const parentRec = await findExistingMapping(ctx.userId, ctx.source, "card", `${card.sourceId}:parent`);
+                if (!parentRec) {
+                  pendingParents.push({ cardLocalId, cardSourceId: card.sourceId, parentSourceId: card.parentSourceId });
+                }
               }
-              if (card.relations && card.relations.length > 0) {
+            }
+            if (card.relations && card.relations.length > 0) {
+              if (cardResult.status === "created") {
                 pendingRelations.push({ cardLocalId, cardSourceId: card.sourceId, relations: card.relations });
+              } else {
+                const neededRelations: ImportCardRelation[] = [];
+                for (const rel of card.relations) {
+                  const relRec = await findExistingMapping(
+                    ctx.userId,
+                    ctx.source,
+                    "card",
+                    `${card.sourceId}:relation:${rel.targetCardSourceId}`
+                  );
+                  if (!relRec) {
+                    neededRelations.push(rel);
+                  }
+                }
+                if (neededRelations.length > 0) {
+                  pendingRelations.push({ cardLocalId, cardSourceId: card.sourceId, relations: neededRelations });
+                }
               }
             }
 
@@ -580,6 +600,7 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
                 where: { id: cardLocalId },
                 data: { parentId: parentLocalId },
               });
+              await recordMapping(ctx.userId, ctx.source, "card", `${cardSourceId}:parent`, parentLocalId, ctx.importRunId);
             } catch (err) {
               records.push({
                 entityType: "card",
@@ -653,6 +674,14 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
                   },
                   update: {},
                 });
+                await recordMapping(
+                  ctx.userId,
+                  ctx.source,
+                  "card",
+                  `${cardSourceId}:relation:${rel.targetCardSourceId}`,
+                  `${norm.sourceId}:${norm.targetId}`,
+                  ctx.importRunId
+                );
               } catch (err) {
                 records.push({
                   entityType: "card",
@@ -714,7 +743,6 @@ async function classifyForDryRun(
         const columnSourceIds = new Set<string>();
         try {
           for await (const col of importer.fetchColumns(project.sourceId)) {
-            columnSourceIds.add(col.sourceId);
             if (col.group !== undefined && !(COLUMN_GROUPS as readonly string[]).includes(col.group)) {
               records.push({
                 entityType: "column",
@@ -737,6 +765,7 @@ async function classifyForDryRun(
               });
               continue;
             }
+            columnSourceIds.add(col.sourceId);
             await classify("column", col.sourceId);
           }
         } catch (err) {
@@ -798,16 +827,30 @@ async function classifyForDryRun(
           if (cards.length === 0) continue;
         }
 
-        const validCardSourceIds = new Set<string>();
-        const batchParents = new Map<string, string>();
-        for (const card of cards) {
-          if (card.parentSourceId) {
-            batchParents.set(card.sourceId, card.parentSourceId);
-          }
-        }
+        const validCardsInRun = new Set<string>();
+        const cardParentPlan = new Map<string, string>();
 
         try {
           for (const card of cards) {
+            const cardMapping = await liveMapping("card", card.sourceId);
+            if (cardMapping) {
+              records.push({ entityType: "card", sourceId: card.sourceId, status: "would_skip" });
+              validCardsInRun.add(card.sourceId);
+              try {
+                for await (const comment of importer.fetchComments(card.sourceId)) {
+                  await classify("comment", comment.sourceId);
+                }
+              } catch (err) {
+                records.push({
+                  entityType: "comment",
+                  sourceId: `${card.sourceId}:comments`,
+                  status: "would_fail",
+                  error: err instanceof Error ? err.message : String(err),
+                });
+              }
+              continue;
+            }
+
             if (!columnSourceIds.has(card.columnSourceId)) {
               records.push({
                 entityType: "card",
@@ -821,7 +864,7 @@ async function classifyForDryRun(
             if (card.links && card.links.length > 0) {
               let invalidLinkUrl: string | undefined;
               for (const link of card.links) {
-                const parsed = SafeUrlSchema.safeParse(link.url);
+                const parsed = SafeUrlSchema.safeParse(link.url ? link.url.trim() : "");
                 if (!parsed.success) {
                   invalidLinkUrl = link.url;
                   break;
@@ -860,65 +903,77 @@ async function classifyForDryRun(
               }
             }
 
-            validCardSourceIds.add(card.sourceId);
-            await classify("card", card.sourceId);
+            validCardsInRun.add(card.sourceId);
+            records.push({ entityType: "card", sourceId: card.sourceId, status: "would_create" });
+
+            try {
+              for await (const comment of importer.fetchComments(card.sourceId)) {
+                await classify("comment", comment.sourceId);
+              }
+            } catch (err) {
+              records.push({
+                entityType: "comment",
+                sourceId: `${card.sourceId}:comments`,
+                status: "would_fail",
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+          }
+
+          // Second pass: resolve parents and relations for cards that exist / would_create
+          for (const card of cards) {
+            if (!validCardsInRun.has(card.sourceId)) continue;
 
             if (card.parentSourceId) {
-              if (card.parentSourceId === card.sourceId) {
-                records.push({
-                  entityType: "card",
-                  sourceId: `${card.sourceId}:parent`,
-                  status: "would_fail",
-                  error: `Invalid parent "${card.parentSourceId}": A card cannot be its own parent`,
-                });
-              } else {
-                const parentKnown =
-                  validCardSourceIds.has(card.parentSourceId) ||
-                  cards.some((c) => c.sourceId === card.parentSourceId && columnSourceIds.has(c.columnSourceId)) ||
-                  !!(await liveMapping("card", card.parentSourceId));
-                if (!parentKnown) {
+              const alreadyLinked = await liveMapping("card", `${card.sourceId}:parent`);
+              if (!alreadyLinked) {
+                if (card.parentSourceId === card.sourceId) {
                   records.push({
                     entityType: "card",
                     sourceId: `${card.sourceId}:parent`,
                     status: "would_fail",
-                    error: `Unresolved parentSourceId "${card.parentSourceId}": no matching card found`,
-                  });
-                } else if (batchParents.has(card.parentSourceId)) {
-                  records.push({
-                    entityType: "card",
-                    sourceId: `${card.sourceId}:parent`,
-                    status: "would_fail",
-                    error: `Invalid parent "${card.parentSourceId}": Subtasks cannot be nested under another subtask`,
+                    error: `Invalid parent "${card.parentSourceId}": A card cannot be its own parent`,
                   });
                 } else {
-                  const hasChildren = Array.from(batchParents.values()).includes(card.sourceId);
-                  if (hasChildren) {
+                  const parentValid =
+                    validCardsInRun.has(card.parentSourceId) ||
+                    !!(await liveMapping("card", card.parentSourceId));
+                  if (!parentValid) {
                     records.push({
                       entityType: "card",
                       sourceId: `${card.sourceId}:parent`,
                       status: "would_fail",
-                      error: `Invalid parent "${card.parentSourceId}": A card with subtasks cannot be made a subtask`,
+                      error: `Unresolved parentSourceId "${card.parentSourceId}": no matching card found`,
+                    });
+                  } else if (cardParentPlan.has(card.parentSourceId)) {
+                    records.push({
+                      entityType: "card",
+                      sourceId: `${card.sourceId}:parent`,
+                      status: "would_fail",
+                      error: `Invalid parent "${card.parentSourceId}": Subtasks cannot be nested under another subtask`,
                     });
                   } else {
-                    const parentMapping = await liveMapping("card", card.parentSourceId);
-                    if (parentMapping && projectMapping) {
-                      const parentError = await validateParentCard(projectMapping.localId, parentMapping.localId);
-                      if (parentError) {
-                        records.push({
-                          entityType: "card",
-                          sourceId: `${card.sourceId}:parent`,
-                          status: "would_fail",
-                          error: `Invalid parent "${card.parentSourceId}": ${parentError}`,
-                        });
-                      }
+                    const hasChildren = Array.from(cardParentPlan.values()).includes(card.sourceId);
+                    if (hasChildren) {
+                      records.push({
+                        entityType: "card",
+                        sourceId: `${card.sourceId}:parent`,
+                        status: "would_fail",
+                        error: `Invalid parent "${card.parentSourceId}": A card with subtasks cannot be made a subtask`,
+                      });
+                    } else {
+                      cardParentPlan.set(card.sourceId, card.parentSourceId);
                     }
                   }
                 }
               }
             }
 
-            if (card.relations) {
+            if (card.relations && card.relations.length > 0) {
               for (const rel of card.relations) {
+                const alreadyRel = await liveMapping("card", `${card.sourceId}:relation:${rel.targetCardSourceId}`);
+                if (alreadyRel) continue;
+
                 if (rel.targetCardSourceId === card.sourceId) {
                   records.push({
                     entityType: "card",
@@ -940,11 +995,10 @@ async function classifyForDryRun(
                   continue;
                 }
 
-                const targetKnown =
-                  validCardSourceIds.has(rel.targetCardSourceId) ||
-                  cards.some((c) => c.sourceId === rel.targetCardSourceId && columnSourceIds.has(c.columnSourceId)) ||
+                const targetValid =
+                  validCardsInRun.has(rel.targetCardSourceId) ||
                   !!(await liveMapping("card", rel.targetCardSourceId));
-                if (!targetKnown) {
+                if (!targetValid) {
                   records.push({
                     entityType: "card",
                     sourceId: `${card.sourceId}:relation:${rel.targetCardSourceId}`,
@@ -953,19 +1007,6 @@ async function classifyForDryRun(
                   });
                 }
               }
-            }
-
-            try {
-              for await (const comment of importer.fetchComments(card.sourceId)) {
-                await classify("comment", comment.sourceId);
-              }
-            } catch (err) {
-              records.push({
-                entityType: "comment",
-                sourceId: `${card.sourceId}:comments`,
-                status: "would_fail",
-                error: err instanceof Error ? err.message : String(err),
-              });
             }
           }
         } catch (err) {
