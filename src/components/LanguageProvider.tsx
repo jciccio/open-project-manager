@@ -94,9 +94,7 @@ export function LanguageProvider({
 
     let result = current;
     if (params) {
-      Object.entries(params).forEach(([paramKey, val]) => {
-        result = result.replace(new RegExp(`{\\s*${paramKey}\\s*}`, "g"), String(val));
-      });
+      result = result.replace(/{\s*(\w+)\s*}/g, (m, k) => (k in params ? String(params[k]) : m));
     }
 
     return result;

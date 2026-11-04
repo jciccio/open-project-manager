@@ -74,7 +74,7 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(typeof window !== 'undefined' ? window.location.search : ''),
   redirect: vi.fn((url: string) => {
     const err = new Error(`NEXT_REDIRECT:${url}`);
-    (err as Error & { digest?: string }).digest = `NEXT_REDIRECT;${url}`;
+    Object.assign(err, { digest: `NEXT_REDIRECT;${url}` });
     throw err;
   }),
 }));

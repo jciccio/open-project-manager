@@ -24,6 +24,7 @@ model User {
   importRecords ImportRecord[]
   importJobs    ImportJob[]
   projectMembers ProjectMember[]
+  comments      Comment[]
 
   @@unique([oidcIssuer, oidcSubject])
 }
@@ -186,6 +187,7 @@ model Label {
   user      User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
   name      String
   color     String      @default("#3b82f6")
+  description String?
   cards     CardLabel[]
 
   @@unique([name, projectId, userId])
@@ -204,14 +206,17 @@ model CardLabel {
 }
 
 model Comment {
-  id        String   @id @default(cuid())
-  cardId    String
-  card      Card     @relation(fields: [cardId], references: [id], onDelete: Cascade)
-  author    String
-  content   String
-  createdAt DateTime @default(now())
+  id           String   @id @default(cuid())
+  cardId       String
+  card         Card     @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  author       String
+  authorUserId String?
+  authorUser   User?    @relation(fields: [authorUserId], references: [id], onDelete: SetNull)
+  content      String
+  createdAt    DateTime @default(now())
 
   @@index([cardId])
+  @@index([authorUserId])
 }
 
 model Activity {
