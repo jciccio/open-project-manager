@@ -1,6 +1,9 @@
 import { TranslationKeys } from "./en";
 
 export const es: TranslationKeys = {
+  common: {
+    close: "Cerrar",
+  },
   header: {
     title: "Open Project Manager",
     badge: "SQLite",
@@ -33,6 +36,8 @@ export const es: TranslationKeys = {
     copyHeader: "Copiar Encabezado Bearer",
     copied: "¡Copiado!",
     tokenSecurityNotice: "Mantén tu token de API en secreto. Cualquier persona con este token puede acceder a tus proyectos y tareas.",
+    confirmDismissToken: "Se muestra un token de API. Si cierra ahora, el secreto se ocultará permanentemente. ¿Está seguro?",
+    close: "Cerrar",
     activeTokens: "Tokens Activos",
     noTokensYet: "Aún no hay tokens de API.",
     revoke: "Revocar",
@@ -224,6 +229,8 @@ export const es: TranslationKeys = {
   },
   calendar: {
     today: "Hoy",
+    prevMonth: "Mes anterior",
+    nextMonth: "Mes siguiente",
     unscheduledTasks: "Tareas Sin Programar",
     unscheduledSub: "Tareas sin fecha de vencimiento:",
     allHasDueDate: "Todas las tareas tienen fechas de vencimiento asignadas.",
@@ -237,6 +244,11 @@ export const es: TranslationKeys = {
   },
   cardModal: {
     title: "Detalles de la Tarea",
+    confirmDiscard: "¿Descartar cambios sin guardar?",
+    archiveCard: "Archivar tarjeta de tarea",
+    deleteCard: "Eliminar tarjeta de tarea",
+    deleteLabelNamed: "Eliminar etiqueta {name}",
+    close: "Cerrar",
     cardTitlePlaceholder: "Título de la tarjeta...",
     column: "Columna",
     type: "Tipo",

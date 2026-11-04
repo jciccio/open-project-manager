@@ -104,12 +104,13 @@ export function LoginForm({ oidcEnabled, registrationOpen }: { oidcEnabled: bool
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+            <label htmlFor="login-email" className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
               {t("auth.emailLabel")}
             </label>
             <div className="relative">
               <Mail className="absolute left-3.5 top-3 h-4 w-4 text-slate-400" />
               <input
+                id="login-email"
                 type="email"
                 required
                 value={email}
@@ -121,12 +122,13 @@ export function LoginForm({ oidcEnabled, registrationOpen }: { oidcEnabled: bool
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+            <label htmlFor="login-password" className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
               {t("auth.passwordLabel")}
             </label>
             <div className="relative">
               <Key className="absolute left-3.5 top-3 h-4 w-4 text-slate-400" />
               <input
+                id="login-password"
                 type="password"
                 required
                 value={password}

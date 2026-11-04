@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Zap, Calendar, User, MessageSquare } from "lucide-react";
 import { moveCard } from "@/actions/cards";
 import { useTranslation } from "../LanguageProvider";
+import { handleRowKeyDown } from "../useModalA11y";
 import { formatDueDate } from "@/lib/formatDate";
 import { priorityLabel } from "@/lib/priority";
 import ErrorBanner from "../ErrorBanner";
@@ -87,8 +88,11 @@ export default function ListView({
                   return (
                     <div
                       key={card.id}
+                      role="button"
+                      tabIndex={0}
                       onClick={() => onCardClick(card)}
-                      className="group flex flex-col md:flex-row md:items-center justify-between p-3.5 hover:bg-slate-100/80 dark:hover:bg-slate-800/40 rounded-xl transition-all cursor-pointer gap-3"
+                      onKeyDown={(e) => handleRowKeyDown(e, () => onCardClick(card))}
+                      className="group flex flex-col md:flex-row md:items-center justify-between p-3.5 hover:bg-slate-100/80 dark:hover:bg-slate-800/40 rounded-xl transition-all cursor-pointer gap-3 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     >
                       {/* Left: Title & Labels */}
                       <div className="flex items-center gap-3 flex-1 min-w-0">

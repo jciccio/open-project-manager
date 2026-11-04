@@ -47,6 +47,7 @@ import MarkdownEditor from "./MarkdownEditor";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import CardTypeManagerModal from "./CardTypeManagerModal";
 import { CardTypeIcon } from "./cardTypeIcons";
+import { useModalA11y, useBackdropClose } from "./useModalA11y";
 
 interface Props {
   card: {
@@ -156,6 +157,7 @@ export default function CardDetailModal({
   const [description, setDescription] = useState(card.description || "");
   const [columnId, setColumnId] = useState(card.columnId);
   const [priority, setPriority] = useState(card.priority);
+  const [commentContent, setCommentContent] = useState("");
   const [points, setPoints] = useState<string>(
     card.points !== null && card.points !== undefined ? String(card.points) : ""
   );
@@ -195,11 +197,56 @@ export default function CardDetailModal({
   const [relationError, setRelationError] = useState("");
   const [isAddingRelation, setIsAddingRelation] = useState(false);
 
-  const [commentContent, setCommentContent] = useState("");
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
 
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editingCommentText, setEditingCommentText] = useState("");
+
+  const initialPoints = card.points !== null && card.points !== undefined ? String(card.points) : "";
+  const initialDueDate = card.dueDate ? new Date(card.dueDate).toISOString().split("T")[0] : "";
+  const initialType = card.typeId || card.type?.id || "";
+  const initialLabels = (card.labels ? card.labels.map((l) => l.label.id) : []).sort().join(",");
+  const currentLabels = [...selectedLabelIds].sort().join(",");
+  const initialOwner = card.owner || "";
+  const initialAssignee = (() => {
+    if (card.assignees && card.assignees.length > 0) {
+      return card.assignees[0].user?.id || (card.assignees[0] as any).userId || "";
+    }
+    return "";
+  })();
+
+  const { t, locale } = useTranslation();
+
+  const isDirty =
+    title.trim() !== card.title.trim() ||
+    description.trim() !== (card.description || "").trim() ||
+    columnId !== card.columnId ||
+    priority !== card.priority ||
+    points.trim() !== initialPoints ||
+    owner.trim() !== initialOwner.trim() ||
+    selectedAssigneeId !== initialAssignee ||
+    dueDate !== initialDueDate ||
+    typeId !== initialType ||
+    currentLabels !== initialLabels ||
+    commentContent.trim() !== "" ||
+    editingCommentId !== null;
+
+  const handleGuardedClose = () => {
+    if (editingCommentId !== null) {
+      setEditingCommentId(null);
+      setEditingCommentText("");
+      return;
+    }
+    if (isDirty) {
+      if (!confirm(t("cardModal.confirmDiscard"))) {
+        return;
+      }
+    }
+    onClose();
+  };
+
+  const modalRef = useModalA11y(handleGuardedClose);
+  const backdropProps = useBackdropClose(handleGuardedClose);
 
   const [isSaving, setIsSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -218,8 +265,6 @@ export default function CardDetailModal({
   const [comments, setComments] = useState<Props["card"]["comments"]>(card.comments || []);
   const [feedTab, setFeedTab] = useState<"comments" | "activity">("comments");
   const [isLoadingActivities, setIsLoadingActivities] = useState(false);
-
-  const { t, locale } = useTranslation();
 
   const loadActivities = useCallback(async () => {
     setIsLoadingActivities(true);
@@ -633,8 +678,21 @@ export default function CardDetailModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="w-full max-w-2xl max-h-[90vh] flex flex-col rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
+    <div
+      {...backdropProps}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200"
+    >
+      <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        tabIndex={-1}
+        aria-labelledby="card-modal-title"
+        className="w-full max-w-2xl max-h-[90vh] flex flex-col rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden focus:outline-none"
+      >
+        <h2 id="card-modal-title" className="sr-only">
+          {card.title}
+        </h2>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50">
           <div className="flex items-center gap-2">
@@ -657,6 +715,7 @@ export default function CardDetailModal({
             <button
               onClick={handleArchive}
               disabled={archiving}
+              aria-label={t("cardModal.archiveTooltip")}
               className="rounded-lg p-2 text-slate-500 hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-400 transition-colors"
               title={t("cardModal.archiveTooltip")}
             >
@@ -665,13 +724,15 @@ export default function CardDetailModal({
             <button
               onClick={handleDelete}
               disabled={deleting}
+              aria-label={t("cardModal.deleteTooltip")}
               className="rounded-lg p-2 text-slate-500 hover:bg-red-500/10 hover:text-red-500 transition-colors"
               title={t("cardModal.deleteTooltip")}
             >
               <Trash2 className="h-4 w-4" />
             </button>
             <button
-              onClick={onClose}
+              onClick={handleGuardedClose}
+              aria-label={t("cardModal.close")}
               className="rounded-lg p-2 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-colors"
             >
               <X className="h-5 w-5" />
@@ -1606,7 +1667,7 @@ export default function CardDetailModal({
         <div className="flex items-center justify-end gap-2 px-6 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50">
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleGuardedClose}
             className="rounded-lg px-4 py-2 text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-colors"
           >
             {t("kanban.cancel")}
