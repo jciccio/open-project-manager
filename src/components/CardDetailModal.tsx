@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   X,
   Trash2,
@@ -23,7 +23,6 @@ import {
   History,
   Activity as ActivityIcon,
   ArrowRight,
-  Clock,
   CheckSquare,
   CornerDownRight,
   Unlink,
@@ -220,21 +219,21 @@ export default function CardDetailModal({
 
   const { t, locale } = useTranslation();
 
-  async function loadActivities() {
+  const loadActivities = useCallback(async () => {
     setIsLoadingActivities(true);
     const res = await getCardActivity(card.id);
     if (res.success && res.data) {
       setActivities(res.data);
     }
     setIsLoadingActivities(false);
-  }
+  }, [card.id]);
 
-  async function loadRelations() {
+  const loadRelations = useCallback(async () => {
     const res = await getCardRelations(card.id);
     if (res.success && res.data) {
       setRelations(res.data);
     }
-  }
+  }, [card.id]);
 
   useEffect(() => {
     async function fetchAttachments() {
@@ -245,7 +244,7 @@ export default function CardDetailModal({
     }
     fetchAttachments();
     loadActivities();
-  }, [card.id]);
+  }, [card.id, loadActivities]);
 
   const MAX_ATTACHMENT_MB = 10;
 
@@ -324,22 +323,10 @@ export default function CardDetailModal({
       }
     }
 
-    async function loadMembers() {
-      if (members && members.length > 0) {
-        setProjectMembers(members);
-        return;
-      }
-      const mRes = await getProjectMembers(card.projectId);
-      if (mRes.success && mRes.data) {
-        setProjectMembers(mRes.data);
-      }
-    }
-
     loadLabels();
     loadCardTypes();
     loadRelations();
     loadProjectCards();
-    loadMembers();
 
     setTitle(card.title);
     setDescription(card.description || "");
@@ -359,7 +346,24 @@ export default function CardDetailModal({
     setIsAddingSubtask(false);
     setNewSubtaskTitle("");
     setSubtaskError("");
-  }, [card.id, card.projectId, members]);
+    // Only reset form state when opening a different card; keep in-progress edits on background refresh
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [card.id]);
+
+  // Synchronize project members in a separate effect so background member updates don't reset in-progress form edits
+  useEffect(() => {
+    async function loadMembers() {
+      if (members && members.length > 0) {
+        setProjectMembers(members);
+        return;
+      }
+      const mRes = await getProjectMembers(card.projectId);
+      if (mRes.success && mRes.data) {
+        setProjectMembers(mRes.data);
+      }
+    }
+    loadMembers();
+  }, [card.projectId, members]);
 
   async function handleCreateSubtask(e: React.FormEvent) {
     e.preventDefault();
@@ -855,10 +859,11 @@ export default function CardDetailModal({
 
           {/* Description */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+            <label htmlFor="card-description-editor" className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
               {t("cardModal.description")}
             </label>
             <MarkdownEditor
+              id="card-description-editor"
               value={description}
               onChange={setDescription}
               placeholder={t("cardModal.descriptionPlaceholder")}

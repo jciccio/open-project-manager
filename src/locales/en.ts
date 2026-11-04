@@ -209,7 +209,6 @@ export const en = {
     saveChanges: "Save Changes",
     saving: "Saving...",
     deleteConfirm: "Are you sure you want to delete this card?",
-    confirmDeleteCard: "Are you sure you want to delete this card?",
     events: {
       card_created: "created this card",
       moved: "moved this card",

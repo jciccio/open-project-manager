@@ -172,7 +172,7 @@ describe("CardDetailModal", () => {
     expect(ownerSelect.value).not.toBe("");
     fireEvent.change(ownerSelect, { target: { value: "" } });
 
-    const descriptionTextarea = document.getElementById("markdown-editor-textarea") as HTMLTextAreaElement;
+    const descriptionTextarea = (document.getElementById("card-description-editor") || document.querySelector("textarea")) as HTMLTextAreaElement;
     fireEvent.change(descriptionTextarea, { target: { value: "" } });
 
     const dueDateInput = document.querySelector('input[type="date"]') as HTMLInputElement;
