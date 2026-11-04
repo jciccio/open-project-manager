@@ -1,15 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { LIVE_IMPORT_UNAVAILABLE, parseImportPlaneArgs } from "../import-plane-args";
+import { parseImportPlaneArgs } from "../import-plane-args";
 
 describe("import-plane argument parsing", () => {
   it("parses workspace, user and repeated projects", () => {
     expect(
       parseImportPlaneArgs(["--workspace", "my-team", "--user", "a@example.com", "--project", "ABC", "--project", "XYZ", "--dry-run"])
-    ).toEqual({ workspace: "my-team", user: "a@example.com", projectIdentifiers: ["ABC", "XYZ"] });
+    ).toEqual({ workspace: "my-team", user: "a@example.com", projectIdentifiers: ["ABC", "XYZ"], dryRun: true });
   });
 
-  it("refuses a live import", () => {
-    expect(() => parseImportPlaneArgs(["--workspace", "my-team"])).toThrow(LIVE_IMPORT_UNAVAILABLE);
+  it("runs live unless --dry-run is passed", () => {
+    expect(parseImportPlaneArgs(["--workspace", "my-team"]).dryRun).toBe(false);
   });
 
   it("requires a workspace", () => {

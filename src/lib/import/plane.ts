@@ -7,6 +7,8 @@ import type {
   ImportCardType,
   ImportLabel,
   ImportCard,
+  ImportCardLink,
+  ImportCardRelation,
   ImportComment,
 } from "./types";
 
@@ -24,6 +26,8 @@ export interface PlaneImporterConfig {
   /** Per-request timeout in ms, covering the response body (default: 30000). A timeout is retried. */
   timeoutMs?: number;
   sleep?: (ms: number) => Promise<void>;
+  /** Leave out relations that cross projects. A dry run sets this, since it writes nothing for their targets to resolve against. */
+  skipCrossProjectRelations?: boolean;
 }
 
 // Plane's docs cap per_page at 100, although CE accepts more.
@@ -48,6 +52,8 @@ interface PlaneState {
   name: string;
   group: string;
   sequence: number;
+  color?: string;
+  description?: string;
 }
 
 interface PlaneLabel {
@@ -67,7 +73,28 @@ interface PlaneWorkItem {
   estimate_point?: string | null;
   target_date?: string | null;
   completed_at?: string | null;
+  created_at?: string;
+  sequence_id?: number;
+  parent?: string | null;
 }
+
+interface PlaneLink {
+  url: string;
+  title?: string | null;
+}
+
+interface PlaneRelationTarget {
+  project_id: string;
+  issue_id: string;
+}
+
+// Plane's start_before, start_after, finish_before and finish_after have no OPM equivalent.
+const RELATION_TYPES: Record<string, ImportCardRelation["type"]> = {
+  blocking: "BLOCKS",
+  blocked_by: "BLOCKED_BY",
+  relates_to: "RELATES_TO",
+  duplicate: "RELATES_TO",
+};
 
 interface PlaneComment {
   id: string;
@@ -148,6 +175,9 @@ export class PlaneImporter implements Importer {
   private rateLimitResetAtMs?: number;
   private members?: Promise<Map<string, string>>;
   private estimatePoints = new Map<string, Promise<Map<string, number>>>();
+  private readonly skipCrossProjectRelations: boolean;
+  private readonly projectsStarted = new Set<string>();
+  private crossProjectRelationsSkippedCount = 0;
 
   constructor(config: PlaneImporterConfig) {
     const base = config.baseUrl.replace(/\/+$/, "").replace(/\/api\/v1$/, "");
@@ -161,6 +191,7 @@ export class PlaneImporter implements Importer {
     this.retryDelayMs = config.retryDelayMs ?? 1000;
     this.timeoutMs = config.timeoutMs ?? 30_000;
     this.sleep = config.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+    this.skipCrossProjectRelations = config.skipCrossProjectRelations ?? false;
     this.name = `plane:${new URL(base).host}/${config.workspaceSlug}`;
   }
 
@@ -276,6 +307,37 @@ export class PlaneImporter implements Importer {
     return values;
   }
 
+  get crossProjectRelationsSkipped(): number {
+    return this.crossProjectRelationsSkippedCount;
+  }
+
+  private async fetchLinks(projectId: string, itemId: string): Promise<ImportCardLink[]> {
+    const links: ImportCardLink[] = [];
+    for await (const link of this.paginate<PlaneLink>(`${this.projectPath(projectId)}/work-items/${itemId}/links/`)) {
+      links.push({ url: link.url, title: link.title || undefined });
+    }
+    return links;
+  }
+
+  private async fetchRelations(projectId: string, itemId: string): Promise<ImportCardRelation[]> {
+    const grouped = await this.get<Record<string, PlaneRelationTarget[] | undefined>>(
+      `${this.projectPath(projectId)}/work-items/${itemId}/relations/`
+    );
+    const relations: ImportCardRelation[] = [];
+    for (const [planeType, type] of Object.entries(RELATION_TYPES)) {
+      for (const target of grouped[planeType] ?? []) {
+        if (target.project_id !== projectId) {
+          // Plane returns a relation from both sides, so a target in a project that
+          // hasn't run yet still gets linked when that project's card reports its side.
+          if (this.skipCrossProjectRelations) this.crossProjectRelationsSkippedCount++;
+          if (this.skipCrossProjectRelations || !this.projectsStarted.has(target.project_id)) continue;
+        }
+        relations.push({ targetCardSourceId: workItemSourceId(target.project_id, target.issue_id), type });
+      }
+    }
+    return relations;
+  }
+
   async *fetchProjects(): AsyncGenerator<ImportProject> {
     for await (const project of this.paginate<PlaneProject>(`${this.workspacePath}/projects/`)) {
       if (this.projectIdentifiers && !this.projectIdentifiers.has(project.identifier.toUpperCase())) continue;
@@ -300,6 +362,9 @@ export class PlaneImporter implements Importer {
         name: state.name,
         order: rank,
         isDone: state.group === "completed",
+        group: state.group.toUpperCase(),
+        color: state.color || undefined,
+        description: state.description || undefined,
       };
     }
   }
@@ -321,22 +386,30 @@ export class PlaneImporter implements Importer {
 
   async *fetchCards(projectSourceIdValue: string): AsyncGenerator<ImportCard> {
     const projectId = projectIdOf(projectSourceIdValue);
+    this.projectsStarted.add(projectId);
     const names = await this.memberNames();
     const points = await this.integerEstimatePoints(projectId);
 
     for await (const item of this.paginate<PlaneWorkItem>(`${this.projectPath(projectId)}/work-items/`)) {
       const assignees = (item.assignees ?? []).map((id) => names.get(id)).filter(Boolean);
+      const links = await this.fetchLinks(projectId, item.id);
+      const relations = await this.fetchRelations(projectId, item.id);
       yield {
         sourceId: workItemSourceId(projectId, item.id),
         columnSourceId: stateSourceId(item.state),
         title: item.name,
         description: htmlToMarkdown(item.description_html) || undefined,
+        number: item.sequence_id,
         priority: mapPriority(item.priority),
         points: item.estimate_point ? points.get(item.estimate_point) : undefined,
         owner: assignees.join(", ") || undefined,
         dueDate: item.target_date || undefined,
         completedAt: item.completed_at || undefined,
+        createdAt: item.created_at,
+        parentSourceId: item.parent ? workItemSourceId(projectId, item.parent) : undefined,
         labelSourceIds: (item.labels ?? []).map(labelSourceId),
+        links: links.length > 0 ? links : undefined,
+        relations: relations.length > 0 ? relations : undefined,
       };
     }
   }
