@@ -16,16 +16,14 @@ import { assertHexColor } from "@/lib/colors";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { deleteRowsAndAttachmentFiles } from "@/lib/attachmentCleanup";
-import { validateParentCard } from "@/lib/cardParent";
 import { lastColumnError } from "@/lib/columnGuards";
 import { DEFAULT_CARD_TYPES } from "@/lib/cardTypeDefaults";
-import { nextCardNumber, withCardNumberRetry } from "@/lib/cardNumbering";
-import { cardPage, cardPageQuery, decodeCardCursor } from "@/lib/cardPagination";
+import { cardPage, cardPageQuery, decodeCardCursor, fetchCardsByPriority } from "@/lib/cardPagination";
 import { generateProjectKey } from "@/lib/projectKey";
 import { createScopedLabel } from "@/lib/scopedLabels";
 import { verifyProjectAccess } from "@/lib/permissions";
 import { deriveCompletedAt } from "@/lib/cardCompletion";
-import { DEFAULT_PROJECT_COLUMNS, isClosedColumn, parseColumnGroupFilter } from "@/lib/columnGroups";
+import { DEFAULT_PROJECT_COLUMNS, isClosedColumn } from "@/lib/columnGroups";
 import { parseColumnCreate, parseColumnUpdate } from "@/lib/validation/columns";
 import { CardCreateSchema, CardReorderSchema, CardUpdateSchema } from "@/lib/validation/cards";
 import { CardTypeCreateSchema, CardTypeUpdateSchema } from "@/lib/validation/cardTypes";
@@ -33,9 +31,9 @@ import { parseInput } from "@/lib/validation/errors";
 import { ProjectNameSchema } from "@/lib/validation/projects";
 import { INVALID_LINK_URL_ERROR, SafeUrlSchema } from "@/lib/validation/safeUrl";
 import { SavedViewCreateSchema, SavedViewUpdateSchema } from "@/lib/validation/views";
-import { validateReferencedIds } from "@/lib/services/cards";
+import { createCard, updateCard } from "@/lib/services/cards";
 import type { z } from "zod";
-import { cardTextSearch } from "@/lib/cardSearch";
+import { buildCardWhere, parseCardOrderBy, countCards, validateCardGroupBy } from "@/lib/cardFilters";
 
 const DEFAULT_LIST_CARDS_LIMIT = 100;
 
@@ -250,7 +248,7 @@ export const MCP_TOOLS = [
   },
   {
     name: "list_cards",
-    description: "Query and filter task cards by project, column, priority, assignee owner, or a free-text search across title/description.",
+    description: "Query and filter task cards by project, column, priority, assignee owner, labels, due dates, parent/subtask, or a free-text search across title/description.",
     inputSchema: {
       type: "object",
       properties: {
@@ -261,15 +259,97 @@ export const MCP_TOOLS = [
         assignedTo: { type: "string", description: "Filter by assigned user ID" },
         query: { type: "string", description: "Free-text search across card title and description (case-insensitive substring match)" },
         parentId: { type: "string", description: "Filter by parent card ID" },
+        hasParent: { type: "boolean", description: "Filter cards that have a parent (true) or are root cards (false)" },
         typeId: { type: "string", description: "Filter by card type ID" },
         columnGroup: {
           type: "array",
           items: { type: "string", enum: ["BACKLOG", "UNSTARTED", "STARTED", "COMPLETED", "CANCELLED"] },
           description: "Only cards whose column is in one of these state groups",
         },
+        stateGroup: {
+          type: "array",
+          items: { type: "string", enum: ["BACKLOG", "UNSTARTED", "STARTED", "COMPLETED", "CANCELLED"] },
+          description: "Alias for columnGroup",
+        },
+        labelIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "Filter cards that have at least one of these label IDs",
+        },
+        dueBefore: { type: "string", description: "Filter cards due on or before this ISO date" },
+        dueAfter: { type: "string", description: "Filter cards due on or after this ISO date" },
+        isOverdue: { type: "boolean", description: "Filter cards that are overdue (due in the past and uncompleted)" },
+        orderBy: {
+          type: "string",
+          enum: ["created", "createdAt", "updated", "updatedAt", "due", "dueDate", "priority", "order"],
+          description: "Field to order cards by",
+        },
+        orderDirection: {
+          type: "string",
+          enum: ["asc", "desc"],
+          description: "Order direction (asc or desc)",
+        },
+        count: {
+          type: "boolean",
+          description: "If true, return card count rather than card objects",
+        },
+        groupBy: {
+          type: "string",
+          enum: ["column", "priority", "label"],
+          description: "Group counts by column, priority, or label when count is true",
+        },
         isArchived: { type: "boolean", description: "Filter by archived status (default: false)" },
         limit: { type: "number", description: "Maximum number of cards to return (1-100, default 100)" },
-        cursor: { type: "string", description: "The nextCursor value from the previous page (returns the cards after it)" },
+        cursor: {
+          type: "string",
+          description: "The nextCursor value from the previous page (returns the cards after it). Cursor pagination is only supported with orderBy='order'; other sort orders return nextCursor: null.",
+        },
+      },
+    },
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
+    },
+  },
+  {
+    name: "count_cards",
+    description: "Get a fast count of cards matching filters, optionally grouped by column, priority, or label.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string", description: "Filter by project ID" },
+        columnId: { type: "string", description: "Filter by column ID" },
+        priority: { type: "string", description: "Filter by priority (NONE, LOW, MEDIUM, HIGH, URGENT)" },
+        owner: { type: "string", description: "Filter by assignee owner name" },
+        assignedTo: { type: "string", description: "Filter by assigned user ID" },
+        query: { type: "string", description: "Free-text search across card title and description" },
+        parentId: { type: "string", description: "Filter by parent card ID" },
+        hasParent: { type: "boolean", description: "Filter cards that have a parent (true) or are root cards (false)" },
+        typeId: { type: "string", description: "Filter by card type ID" },
+        columnGroup: {
+          type: "array",
+          items: { type: "string", enum: ["BACKLOG", "UNSTARTED", "STARTED", "COMPLETED", "CANCELLED"] },
+          description: "Only cards whose column is in one of these state groups",
+        },
+        stateGroup: {
+          type: "array",
+          items: { type: "string", enum: ["BACKLOG", "UNSTARTED", "STARTED", "COMPLETED", "CANCELLED"] },
+          description: "Alias for columnGroup",
+        },
+        labelIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "Filter cards that have at least one of these label IDs",
+        },
+        dueBefore: { type: "string", description: "Filter cards due on or before this ISO date" },
+        dueAfter: { type: "string", description: "Filter cards due on or after this ISO date" },
+        isOverdue: { type: "boolean", description: "Filter cards that are overdue (due in the past and uncompleted)" },
+        isArchived: { type: "boolean", description: "Filter by archived status (default: false)" },
+        groupBy: {
+          type: "string",
+          enum: ["column", "priority", "label"],
+          description: "Group counts by column, priority, or label",
+        },
       },
     },
     annotations: {
@@ -324,6 +404,7 @@ export const MCP_TOOLS = [
         dueDate: { type: "string", description: "ISO date string for deadline (e.g. 2026-09-01)" },
         parentId: { type: "string", description: "Optional parent card ID" },
         assigneeIds: { type: "array", items: { type: "string" }, description: "Optional list of assigned user IDs" },
+        labelIds: { type: "array", items: { type: "string" }, description: "Optional list of label IDs" },
         typeId: { type: "string", description: "Optional card type ID" },
       },
       required: ["projectId", "columnId", "title"],
@@ -335,7 +416,7 @@ export const MCP_TOOLS = [
   },
   {
     name: "update_card",
-    description: "Update task card fields (title, description, priority, story points, owner, due date, columnId, parentId, assigneeIds, typeId).",
+    description: "Update task card fields (title, description, priority, story points, owner, due date, columnId, parentId, assigneeIds, labelIds, typeId).",
     inputSchema: {
       type: "object",
       properties: {
@@ -349,6 +430,7 @@ export const MCP_TOOLS = [
         columnId: { type: "string", description: "Move to a different column ID" },
         parentId: { type: "string", description: "Updated parent card ID or empty string to detach" },
         assigneeIds: { type: "array", items: { type: "string" }, description: "Optional list of assigned user IDs" },
+        labelIds: { type: "array", items: { type: "string" }, description: "Optional list of label IDs to replace existing labels" },
         typeId: { type: "string", description: "Updated card type ID or empty string to clear" },
       },
       required: ["id"],
@@ -829,7 +911,7 @@ export async function executeMcpTool(
   name: string,
   args: Record<string, any> = {},
   ctx: { userId: string }
-) {
+): Promise<any> {
   const userId = ctx.userId;
   switch (name) {
     case "list_projects": {
@@ -1022,28 +1104,24 @@ export async function executeMcpTool(
       return { success: true, deletedId: args.id };
     }
 
-    case "list_cards": {
-      const where: any = {
-        isArchived: typeof args.isArchived === "boolean" ? args.isArchived : false,
-        project: { OR: accessibleProjectsFilter(userId) },
-      };
-      if (args.projectId) where.projectId = args.projectId;
-      if (args.columnId) where.columnId = args.columnId;
-      if (args.priority) where.priority = args.priority;
-      if (args.owner) where.owner = { contains: args.owner };
-      if (args.assignedTo) where.assignees = { some: { userId: args.assignedTo } };
-      if (args.query) {
-        where.OR = cardTextSearch(String(args.query));
-      }
+    case "count_cards": {
+      const groupValidation = validateCardGroupBy(args.groupBy);
+      if (!groupValidation.success) throw new Error(groupValidation.error);
+      const filterRes = buildCardWhere(args, { project: { OR: accessibleProjectsFilter(userId) } });
+      if (!filterRes.success) throw new Error(filterRes.error);
+      const res = await countCards(filterRes.where, groupValidation.groupBy);
+      return { success: true, count: res.count, ...(res.groups ? { groups: res.groups } : {}) };
+    }
 
-      if (args.parentId !== undefined) {
-        where.parentId = args.parentId || null;
-      }
-      if (args.typeId) where.typeId = args.typeId;
-      if (args.columnGroup !== undefined) {
-        const groupFilter = parseColumnGroupFilter(args.columnGroup);
-        if (!groupFilter.success) throw new Error(groupFilter.error);
-        where.column = { group: { in: groupFilter.groups } };
+    case "list_cards": {
+      const filterRes = buildCardWhere(args, { project: { OR: accessibleProjectsFilter(userId) } });
+      if (!filterRes.success) throw new Error(filterRes.error);
+
+      if (args.count === true) {
+        const groupValidation = validateCardGroupBy(args.groupBy);
+        if (!groupValidation.success) throw new Error(groupValidation.error);
+        const countRes = await countCards(filterRes.where, groupValidation.groupBy);
+        return { success: true, count: countRes.count, ...(countRes.groups ? { groups: countRes.groups } : {}) };
       }
 
       let limit: number = DEFAULT_LIST_CARDS_LIMIT;
@@ -1056,23 +1134,45 @@ export async function executeMcpTool(
         }
       }
 
-      const after = args.cursor ? decodeCardCursor(String(args.cursor)) : null;
-      if (args.cursor && !after) throw new Error("Invalid cursor");
+      const cursorVal = args.cursor ?? args.after;
 
-      const queryOptions: any = {
-        ...cardPageQuery(where, after, limit),
-        include: {
-          column: { select: { name: true, group: true } },
-          type: true,
-          labels: { include: { label: true } },
-          assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
-          parent: { select: { id: true, number: true, title: true } },
-          children: { select: { id: true, number: true, title: true, completedAt: true } },
-          _count: { select: { comments: true } },
-        },
+      const sortRes = parseCardOrderBy(args.orderBy, args.orderDirection);
+      if (!sortRes.success) throw new Error(sortRes.error);
+
+      if (cursorVal && sortRes.sort.field !== "order") {
+        throw new Error("Cursor pagination is only supported with orderBy=order");
+      }
+
+      const after = cursorVal ? decodeCardCursor(String(cursorVal)) : null;
+      if (cursorVal && !after) throw new Error("Invalid cursor");
+
+      const includeOptions = {
+        column: { select: { name: true, group: true } },
+        type: true,
+        labels: { include: { label: true } },
+        assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
+        parent: { select: { id: true, number: true, title: true } },
+        children: { select: { id: true, number: true, title: true, completedAt: true } },
+        _count: { select: { comments: true } },
       };
 
-      const { cards, nextCursor } = cardPage(await db.card.findMany(queryOptions), limit);
+      if (sortRes.sort.field === "priority") {
+        const { cards, nextCursor } = await fetchCardsByPriority(
+          filterRes.where,
+          limit,
+          sortRes.sort.direction,
+          includeOptions
+        );
+        return { success: true, cards, nextCursor };
+      }
+
+      const queryOptions: any = {
+        ...cardPageQuery(filterRes.where, after, limit, sortRes.sort),
+        include: includeOptions,
+      };
+
+      const rows = await db.card.findMany(queryOptions);
+      const { cards, nextCursor } = cardPage(rows, limit, sortRes.sort.field);
       return { success: true, cards, nextCursor };
     }
 
@@ -1143,124 +1243,26 @@ export async function executeMcpTool(
 
     case "create_card": {
       const input = parseToolInput(CardCreateSchema, args);
-      const ownerProject = await db.project.findUnique({ where: { id: input.projectId } });
-      if (!ownerProject || !(await verifyProjectAccess(ownerProject.id, userId, "MEMBER"))) throw new Error(`Project with ID ${input.projectId} not found.`);
-
-      const referenceError = await validateReferencedIds(input.projectId, userId, {
-        columnId: input.columnId,
-        typeId: input.typeId,
-        assigneeIds: input.assigneeIds,
-      });
-      if (referenceError) throw new Error(referenceError);
-
-      const ORDER_GAP = 10000;
-      let order = ORDER_GAP;
-      const lastCard = await db.card.findFirst({
-        where: { columnId: input.columnId },
-        orderBy: { order: "desc" },
-      });
-      if (lastCard) order = lastCard.order + ORDER_GAP;
-
-      const targetCol = await db.column.findUnique({ where: { id: input.columnId } });
-      const completedAt = deriveCompletedAt(targetCol?.isDone, null);
-
-      if (input.parentId) {
-        const parentError = await validateParentCard(input.projectId, input.parentId);
-        if (parentError) throw new Error(parentError);
+      const res = await createCard(input, userId);
+      if (!res.success) {
+        if (res.error === "Unauthorized" || res.error === "Access denied") {
+          throw new Error(`Project with ID ${input.projectId} not found.`);
+        }
+        throw new Error(res.error);
       }
-
-      const firstAttemptNumber = await nextCardNumber(input.projectId);
-      const card = await withCardNumberRetry(input.projectId, firstAttemptNumber, (number) =>
-        db.card.create({
-          data: {
-            projectId: input.projectId,
-            columnId: input.columnId,
-            title: input.title,
-            description: input.description || null,
-            number,
-            priority: input.priority || "NONE",
-            points: input.points ?? null,
-            owner: input.owner || null,
-            dueDate: input.dueDate ? new Date(input.dueDate) : null,
-            completedAt,
-            order,
-            parentId: input.parentId || null,
-            typeId: input.typeId || null,
-            assignees:
-              input.assigneeIds && input.assigneeIds.length > 0
-                ? {
-                    create: input.assigneeIds.map((assigneeId) => ({ userId: assigneeId })),
-                  }
-                : undefined,
-          },
-          include: {
-            type: true,
-            assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
-            parent: { select: { id: true, number: true, title: true } },
-            children: { select: { id: true, number: true, title: true, completedAt: true } },
-          },
-        })
-      );
-      return { success: true, card };
+      return { success: true, card: res.data };
     }
 
     case "update_card": {
       const input = parseToolInput(CardUpdateSchema, args);
-      const existingCard = await db.card.findUnique({ where: { id: args.id } });
-      if (!existingCard || !(await verifyProjectAccess(existingCard.projectId, userId, "MEMBER"))) throw new Error(`Card with ID ${args.id} not found.`);
-
-      const referenceError = await validateReferencedIds(existingCard.projectId, userId, {
-        columnId: input.columnId,
-        typeId: input.typeId,
-        assigneeIds: input.assigneeIds,
-      });
-      if (referenceError) throw new Error(referenceError);
-
-      const data: any = {};
-      if (input.title !== undefined) data.title = input.title;
-      if (input.description !== undefined) data.description = input.description;
-      if (input.priority !== undefined) data.priority = input.priority;
-      if (input.points !== undefined) data.points = input.points;
-      if (input.owner !== undefined) data.owner = input.owner;
-      if (input.columnId !== undefined) {
-        data.columnId = input.columnId;
-        const targetCol = await db.column.findUnique({ where: { id: input.columnId } });
-        data.completedAt = deriveCompletedAt(targetCol?.isDone, existingCard.completedAt);
-      }
-      if (input.dueDate !== undefined) {
-        data.dueDate = input.dueDate ? new Date(input.dueDate) : null;
-      }
-      if (input.parentId !== undefined) {
-        if (input.parentId) {
-          const parentError = await validateParentCard(existingCard.projectId, input.parentId, args.id);
-          if (parentError) throw new Error(parentError);
+      const res = await updateCard(args.id, input, userId);
+      if (!res.success) {
+        if (res.error === "Unauthorized" || res.error === "Card not found" || res.error === "Access denied") {
+          throw new Error(`Card with ID ${args.id} not found.`);
         }
-        data.parentId = input.parentId || null;
+        throw new Error(res.error);
       }
-      if (input.typeId !== undefined) {
-        data.typeId = input.typeId || null;
-      }
-
-      if (input.assigneeIds !== undefined) {
-        await db.cardAssignee.deleteMany({ where: { cardId: args.id } });
-        if (input.assigneeIds.length > 0) {
-          data.assignees = {
-            create: input.assigneeIds.map((assigneeId) => ({ userId: assigneeId })),
-          };
-        }
-      }
-
-      const card = await db.card.update({
-        where: { id: args.id },
-        data,
-        include: {
-          type: true,
-          assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
-          parent: { select: { id: true, number: true, title: true } },
-          children: { select: { id: true, number: true, title: true, completedAt: true } },
-        },
-      });
-      return { success: true, card };
+      return { success: true, card: res.data };
     }
 
     case "move_card": {

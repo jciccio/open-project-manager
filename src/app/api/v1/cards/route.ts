@@ -2,10 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
 import { createCard } from "@/lib/services/cards";
 import { db } from "@/lib/db";
-import { cardPage, cardPageQuery, decodeCardCursor } from "@/lib/cardPagination";
+import { cardPage, cardPageQuery, decodeCardCursor, fetchCardsByPriority } from "@/lib/cardPagination";
 import { verifyProjectAccess } from "@/lib/permissions";
-import { parseColumnGroupFilter } from "@/lib/columnGroups";
-import { cardTextSearch } from "@/lib/cardSearch";
+import { buildCardWhere, parseCardOrderBy, countCards, validateCardGroupBy, PRIORITY_RANK } from "@/lib/cardFilters";
 
 const DEFAULT_LIST_CARDS_LIMIT = 100;
 
@@ -19,13 +18,27 @@ export async function GET(request: NextRequest) {
   const projectId = searchParams.get("projectId");
   const columnId = searchParams.get("columnId");
   const parentId = searchParams.get("parentId");
+  const hasParentParam = searchParams.get("hasParent");
   const typeId = searchParams.get("typeId");
   const columnGroup = searchParams.get("columnGroup");
+  const stateGroup = searchParams.get("stateGroup");
   const assignedUserId = searchParams.get("assignedUserId") || searchParams.get("assignedTo");
   const query = searchParams.get("query");
   const limitParam = searchParams.get("limit");
-  const cursor = searchParams.get("cursor");
+  const cursor = searchParams.get("cursor") || searchParams.get("after");
   const isArchivedParam = searchParams.get("isArchived");
+  const isOverdueParam = searchParams.get("isOverdue");
+  const dueBefore = searchParams.get("dueBefore");
+  const dueAfter = searchParams.get("dueAfter");
+  const countParam = searchParams.get("count");
+  const groupBy = searchParams.get("groupBy");
+  const orderBy = searchParams.get("orderBy");
+  const orderDirection = searchParams.get("orderDirection");
+
+  const labelIdsParam = [
+    ...searchParams.getAll("labelIds"),
+    ...(searchParams.get("labelId") ? [searchParams.get("labelId")!] : []),
+  ];
 
   let limit: number = DEFAULT_LIST_CARDS_LIMIT;
   if (limitParam) {
@@ -35,72 +48,114 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  const after = cursor ? decodeCardCursor(cursor) : null;
-  if (cursor && !after) {
-    return NextResponse.json({ error: "Invalid cursor" }, { status: 400 });
-  }
   if (isArchivedParam !== null && isArchivedParam !== "true" && isArchivedParam !== "false") {
     return NextResponse.json({ error: "isArchived must be true or false" }, { status: 400 });
+  }
+  if (hasParentParam !== null && hasParentParam !== "true" && hasParentParam !== "false") {
+    return NextResponse.json({ error: "hasParent must be true or false" }, { status: 400 });
+  }
+  if (isOverdueParam !== null && isOverdueParam !== "true" && isOverdueParam !== "false") {
+    return NextResponse.json({ error: "isOverdue must be true or false" }, { status: 400 });
   }
 
   try {
     if (projectId) {
       const hasAccess = await verifyProjectAccess(projectId, session.userId, "VIEWER");
       if (!hasAccess) {
+        if (countParam === "true") {
+          return NextResponse.json({ success: true, count: 0 });
+        }
         return NextResponse.json({ success: true, data: [], nextCursor: null });
       }
     }
 
-    const where: any = {
-      isArchived: isArchivedParam === "true",
-      ...(columnId ? { columnId } : {}),
-      ...(projectId
-        ? { projectId }
-        : {
-            project: {
-              OR: [
-                { userId: session.userId },
-                { members: { some: { userId: session.userId } } },
-              ],
-            },
-          }),
-    };
-    if (parentId !== null) {
-      where.parentId = parentId === "null" ? null : parentId;
+    const accessibleScope = projectId
+      ? undefined
+      : {
+          project: {
+            OR: [
+              { userId: session.userId },
+              { members: { some: { userId: session.userId } } },
+            ],
+          },
+        };
+
+    const filterRes = buildCardWhere(
+      {
+        projectId,
+        columnId,
+        parentId: searchParams.has("parentId") ? searchParams.get("parentId") : undefined,
+        hasParent: hasParentParam === "true" ? true : hasParentParam === "false" ? false : undefined,
+        typeId,
+        columnGroup: columnGroup ?? undefined,
+        stateGroup: stateGroup ?? undefined,
+        assignedTo: assignedUserId,
+        query,
+        isArchived: isArchivedParam === "true",
+        isOverdue: isOverdueParam === "true" ? true : isOverdueParam === "false" ? false : undefined,
+        dueBefore,
+        dueAfter,
+        labelIds: labelIdsParam.length > 0 ? labelIdsParam : undefined,
+      },
+      accessibleScope
+    );
+
+    if (!filterRes.success) {
+      return NextResponse.json({ error: filterRes.error }, { status: 400 });
     }
-    if (typeId) {
-      where.typeId = typeId;
-    }
-    if (columnGroup !== null) {
-      const groupFilter = parseColumnGroupFilter(columnGroup);
-      if (!groupFilter.success) {
-        return NextResponse.json({ error: groupFilter.error }, { status: 400 });
+
+    if (countParam === "true") {
+      const groupValidation = validateCardGroupBy(groupBy);
+      if (!groupValidation.success) {
+        return NextResponse.json({ error: groupValidation.error }, { status: 400 });
       }
-      where.column = { group: { in: groupFilter.groups } };
+      const countRes = await countCards(filterRes.where, groupValidation.groupBy);
+      return NextResponse.json({ success: true, ...countRes });
     }
-    if (assignedUserId) {
-      where.assignees = { some: { userId: assignedUserId } };
+
+    const sortRes = parseCardOrderBy(orderBy, orderDirection);
+    if (!sortRes.success) {
+      return NextResponse.json({ error: sortRes.error }, { status: 400 });
     }
-    if (query) {
-      where.OR = cardTextSearch(query);
+
+    if (cursor && sortRes.sort.field !== "order") {
+      return NextResponse.json({ error: "Cursor pagination is only supported with orderBy=order" }, { status: 400 });
+    }
+
+    const after = cursor ? decodeCardCursor(cursor) : null;
+    if (cursor && !after) {
+      return NextResponse.json({ error: "Invalid cursor" }, { status: 400 });
+    }
+
+    const includeOptions = {
+      type: true,
+      labels: { include: { label: true } },
+      comments: {
+        orderBy: { createdAt: "asc" as const },
+        include: { authorUser: { select: { id: true, name: true, email: true } } },
+      },
+      assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
+      parent: { select: { id: true, number: true, title: true } },
+      children: { select: { id: true, number: true, title: true, completedAt: true } },
+    };
+
+    if (sortRes.sort.field === "priority") {
+      const { cards, nextCursor } = await fetchCardsByPriority(
+        filterRes.where,
+        limit,
+        sortRes.sort.direction,
+        includeOptions
+      );
+      return NextResponse.json({ success: true, data: cards, nextCursor });
     }
 
     const queryOptions: any = {
-      ...cardPageQuery(where, after, limit),
-      include: {
-        type: true,
-        labels: { include: { label: true } },
-        comments: {
-          orderBy: { createdAt: "asc" },
-          include: { authorUser: { select: { id: true, name: true, email: true } } },
-        },
-        assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
-        parent: { select: { id: true, number: true, title: true } },
-        children: { select: { id: true, number: true, title: true, completedAt: true } },
-      },
+      ...cardPageQuery(filterRes.where, after, limit, sortRes.sort),
+      include: includeOptions,
     };
 
-    const { cards, nextCursor } = cardPage(await db.card.findMany(queryOptions), limit);
+    const rows = await db.card.findMany(queryOptions);
+    const { cards, nextCursor } = cardPage(rows, limit, sortRes.sort.field);
 
     return NextResponse.json({ success: true, data: cards, nextCursor });
   } catch (err) {
