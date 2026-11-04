@@ -38,6 +38,7 @@ interface Props {
         id: string;
         name: string;
         color: string;
+        description?: string | null;
       };
     }>;
     comments: Array<any>;
@@ -89,7 +90,13 @@ export default function TaskCard({ card, onClick }: Props) {
     <div
       role="button"
       tabIndex={0}
-      onClick={onClick}
+      onClick={(e) => {
+        const target = e.target as HTMLElement | null;
+        if (target && target.closest("a")) {
+          return;
+        }
+        onClick();
+      }}
       onKeyDown={(e) => handleRowKeyDown(e, onClick)}
       className="group cursor-pointer rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 shadow-xs hover:border-indigo-500/50 dark:hover:border-indigo-500/40 hover:shadow-md hover:shadow-indigo-500/10 transition-all select-none focus:outline-none focus:ring-2 focus:ring-indigo-500"
     >
@@ -116,6 +123,7 @@ export default function TaskCard({ card, onClick }: Props) {
               key={label.id}
               className="inline-block rounded-md px-2 py-0.5 text-[10px] font-bold tracking-wide text-white shadow-2xs"
               style={{ backgroundColor: label.color }}
+              title={label.description || undefined}
             >
               {label.name}
             </span>

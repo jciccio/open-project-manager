@@ -372,6 +372,29 @@ hierarchy (sub-projects arrive as top-level projects). Images embedded in a desc
 still point at the Vikunja instance, so they may not display in OPM (Vikunja attachment
 URLs usually need a Vikunja login).
 
+### Plane (dry run only for now)
+
+A **Plane** adapter reads Plane Cloud or a self-hosted instance through Plane's public
+REST API. It only does dry runs today. The import contract cannot carry card numbers,
+parents or relations yet, so a live import would break references like `ABC-123`, and
+re-running it would not correct them. The command line refuses to run without
+`--dry-run`, and `POST /api/v1/import` does not accept Plane as a source.
+
+```bash
+PLANE_API_KEY=… npx tsx scripts/import-plane.ts \
+  --workspace my-team --project ABC --user you@example.com --dry-run
+```
+
+Set `PLANE_URL` for a self-hosted instance (the default is `https://api.plane.so`).
+Omit `--project` to include every project the key can see.
+
+Plane allows 60 requests per minute per key. A dry run makes one request per work item
+to read its comments, so a few thousand items takes more than an hour. The adapter
+waits for the rate limit window to reset and retries 429 and 5xx responses.
+
+Plane's public API does not return archived work items, drafts or intake items, so a
+dry run does not count them. Unarchive anything you need in Plane first.
+
 Adding another source is one adapter implementing `Importer` (`src/lib/import/types.ts`)
 plus one line in the `SOURCES` registry in `src/app/api/v1/import/route.ts`.
 
@@ -648,7 +671,7 @@ open-project-manager/
 │   │   └── page.tsx        # Dashboard page
 │   ├── components/         # React UI components (KanbanBoard, TaskCard, Modals, Views, Header)
 │   ├── lib/                # Auth JWT session & SQLite connection client
-│   └── middleware.ts       # Route protection & Bearer token middleware
+│   └── proxy.ts            # Route protection & Bearer token check (Next.js proxy)
 ├── prisma.config.ts        # Prisma v7 configuration
 └── dev.db                  # Local SQLite database file
 ```

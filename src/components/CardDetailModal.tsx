@@ -156,25 +156,6 @@ export default function CardDetailModal({
   const [columnId, setColumnId] = useState(card.columnId);
   const [priority, setPriority] = useState(card.priority);
   const [commentContent, setCommentContent] = useState("");
-
-  const isDirty =
-    title !== card.title ||
-    description !== (card.description || "") ||
-    columnId !== card.columnId ||
-    priority !== card.priority ||
-    commentContent.trim() !== "";
-
-  const handleGuardedClose = () => {
-    if (isDirty) {
-      if (!confirm(t("cardModal.confirmDiscard"))) {
-        return;
-      }
-    }
-    onClose();
-  };
-
-  const modalRef = useModalA11y(handleGuardedClose);
-  const backdropProps = useBackdropClose(handleGuardedClose);
   const [points, setPoints] = useState<string>(
     card.points !== null && card.points !== undefined ? String(card.points) : ""
   );
@@ -197,7 +178,7 @@ export default function CardDetailModal({
   const [subtaskLoadingId, setSubtaskLoadingId] = useState<string | null>(null);
 
   const [availableLabels, setAvailableLabels] = useState<
-    Array<{ id: string; name: string; color: string }>
+    Array<{ id: string; name: string; color: string; description?: string | null }>
   >([]);
   const [availableCardTypes, setAvailableCardTypes] = useState<
     Array<{ id: string; name: string; icon: string; color: string }>
@@ -219,6 +200,50 @@ export default function CardDetailModal({
 
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editingCommentText, setEditingCommentText] = useState("");
+
+  const initialPoints = card.points !== null && card.points !== undefined ? String(card.points) : "";
+  const initialDueDate = card.dueDate ? new Date(card.dueDate).toISOString().split("T")[0] : "";
+  const initialType = card.typeId || card.type?.id || "";
+  const initialLabels = (card.labels ? card.labels.map((l) => l.label.id) : []).sort().join(",");
+  const currentLabels = [...selectedLabelIds].sort().join(",");
+  const initialOwner = card.owner || "";
+  const initialAssignee = (() => {
+    if (card.assignees && card.assignees.length > 0) {
+      return card.assignees[0].user?.id || (card.assignees[0] as any).userId || "";
+    }
+    return "";
+  })();
+
+  const isDirty =
+    title.trim() !== card.title.trim() ||
+    description.trim() !== (card.description || "").trim() ||
+    columnId !== card.columnId ||
+    priority !== card.priority ||
+    points.trim() !== initialPoints ||
+    owner.trim() !== initialOwner.trim() ||
+    selectedAssigneeId !== initialAssignee ||
+    dueDate !== initialDueDate ||
+    typeId !== initialType ||
+    currentLabels !== initialLabels ||
+    commentContent.trim() !== "" ||
+    editingCommentId !== null;
+
+  const handleGuardedClose = () => {
+    if (editingCommentId !== null) {
+      setEditingCommentId(null);
+      setEditingCommentText("");
+      return;
+    }
+    if (isDirty) {
+      if (!confirm(t("cardModal.confirmDiscard"))) {
+        return;
+      }
+    }
+    onClose();
+  };
+
+  const modalRef = useModalA11y(handleGuardedClose);
+  const backdropProps = useBackdropClose(handleGuardedClose);
 
   const [isSaving, setIsSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -656,8 +681,9 @@ export default function CardDetailModal({
         ref={modalRef}
         role="dialog"
         aria-modal="true"
+        tabIndex={-1}
         aria-labelledby="card-modal-title"
-        className="w-full max-w-2xl max-h-[90vh] flex flex-col rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden"
+        className="w-full max-w-2xl max-h-[90vh] flex flex-col rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden focus:outline-none"
       >
         <h2 id="card-modal-title" className="sr-only">
           {card.title}
@@ -922,6 +948,7 @@ export default function CardDetailModal({
                         : "opacity-60 hover:opacity-100 text-white"
                     }`}
                     style={{ backgroundColor: lbl.color }}
+                    title={lbl.description || undefined}
                   >
                     {lbl.name}
                   </button>
@@ -1618,7 +1645,7 @@ export default function CardDetailModal({
         <div className="flex items-center justify-end gap-2 px-6 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50">
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleGuardedClose}
             className="rounded-lg px-4 py-2 text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-colors"
           >
             {t("kanban.cancel")}

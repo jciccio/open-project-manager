@@ -138,6 +138,10 @@ describe("Accessibility (Issue #113)", () => {
 
         fireEvent.keyDown(link, { key: " " });
         expect(onClick).not.toHaveBeenCalled();
+
+        // Clicking the link itself should not trigger card onClick
+        fireEvent.click(link);
+        expect(onClick).not.toHaveBeenCalled();
       }
     });
   });

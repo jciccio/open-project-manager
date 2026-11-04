@@ -42,7 +42,7 @@ export function useModalA11y(onClose: () => void) {
       }
 
       if (e.key === "Escape") {
-        if (e.isComposing) return;
+        if (e.isComposing || (e as any).keyCode === 229) return;
         e.stopPropagation();
         closeHandler();
         return;
@@ -100,28 +100,9 @@ export function useModalA11y(onClose: () => void) {
       return;
     }
 
-    const focusable = Array.from(
-      modalRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
-    ).filter((el) => el.offsetParent !== null || el.getClientRects().length > 0);
-
-    if (focusable.length === 0) return;
-
-    // Avoid focusing destructive actions initially (Archive, Delete, red danger buttons)
-    const safeTarget =
-      focusable.find((el) => {
-        const label = el.getAttribute("aria-label")?.toLowerCase() || "";
-        const text = el.textContent?.toLowerCase() || "";
-        const className = el.className || "";
-        const isDestructive =
-          label.includes("archive") ||
-          label.includes("delete") ||
-          text.includes("archive") ||
-          text.includes("delete") ||
-          (typeof className === "string" && className.includes("text-red"));
-        return !isDestructive;
-      }) || focusable[0];
-
-    safeTarget.focus();
+    if (typeof modalRef.current.focus === "function") {
+      modalRef.current.focus();
+    }
   }, []);
 
   return modalRef;

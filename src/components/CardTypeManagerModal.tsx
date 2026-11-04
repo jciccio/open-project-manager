@@ -133,8 +133,9 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
         ref={modalRef}
         role="dialog"
         aria-modal="true"
+        tabIndex={-1}
         aria-labelledby="card-type-modal-title"
-        className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-6"
+        className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-6 focus:outline-none"
       >
         <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
           <div className="flex items-center gap-2.5">
