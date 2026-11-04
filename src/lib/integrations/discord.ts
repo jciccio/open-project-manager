@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { db } from "@/lib/db";
 import { authenticateBearerToken } from "@/lib/auth";
-import { createCard } from "@/lib/services/cards";
+import { createCard, moveCard } from "@/lib/services/cards";
 import { verifyProjectAccess } from "@/lib/permissions";
 
 export interface DiscordEmbed {
@@ -214,7 +214,10 @@ export async function handleDiscordInteraction(
           "• `/opm link <token>`: Link your Discord account to your OPM user using an API token from your profile.\n" +
           "• `/opm whoami`: Check which OPM user is linked to your Discord account.\n" +
           "• `/opm unlink`: Unlink your Discord account.\n" +
+          "• `/opm list <key>`: List open cards in a project grouped by column.\n" +
+          "• `/opm columns <key>`: List available columns in a project.\n" +
           "• `/opm get <KEY-123>`: Inspect a card's status, priority, and assignment.\n" +
+          "• `/opm move <KEY-123> <column>`: Move a card to a specified column.\n" +
           "• `/opm create <key> <title>`: Create a card in a specific project.\n" +
           "• `/opm new <title>`: Quick-create a card in your oldest active writable project.",
         flags: 64,
@@ -382,6 +385,306 @@ export async function handleDiscordInteraction(
       data: {
         embeds: [embed],
         flags: 64, // Ephemeral view
+      },
+    };
+  }
+
+  if (subCommand === "columns") {
+    const projectKey = String(subArgs.key || subArgs.project || "").trim().toUpperCase();
+    if (!projectKey) {
+      return {
+        type: 4,
+        data: {
+          content: "Usage: `/opm columns <key>`. Example: `/opm columns ENG`",
+          flags: 64,
+        },
+      };
+    }
+
+    const candidates = await db.project.findMany({
+      where: {
+        key: projectKey,
+        isArchived: false,
+        OR: [
+          { userId: opmUser.id },
+          { members: { some: { userId: opmUser.id } } },
+        ],
+      },
+      include: { columns: { orderBy: { order: "asc" } } },
+    });
+
+    const project = candidates.find((p) => p.userId === opmUser.id) || (candidates.length === 1 ? candidates[0] : null);
+    if (!project) {
+      if (candidates.length > 1) {
+        return {
+          type: 4,
+          data: {
+            content: `Multiple active projects match key "${projectKey}". Please contact support to disambiguate.`,
+            flags: 64,
+          },
+        };
+      }
+      return {
+        type: 4,
+        data: {
+          content: `Project with key "${projectKey}" not found or you do not have permission to view it.`,
+          flags: 64,
+        },
+      };
+    }
+
+    if (project.columns.length === 0) {
+      return {
+        type: 4,
+        data: {
+          content: `Project **${project.name}** has no columns.`,
+          flags: 64,
+        },
+      };
+    }
+
+    const lines = project.columns.map(
+      (c, idx) => `${idx + 1}. **${c.name}** (\`${c.id}\`)${c.isDone ? " *(Done)*" : ""}`
+    );
+    return {
+      type: 4,
+      data: {
+        content: `**Columns in ${project.name} (${project.key})**:\n${lines.join("\n")}`,
+        flags: 64,
+      },
+    };
+  }
+
+  if (subCommand === "list") {
+    const projectKey = String(subArgs.key || subArgs.project || "").trim().toUpperCase();
+    if (!projectKey) {
+      return {
+        type: 4,
+        data: {
+          content: "Usage: `/opm list <key>`. Example: `/opm list ENG`",
+          flags: 64,
+        },
+      };
+    }
+
+    const candidates = await db.project.findMany({
+      where: {
+        key: projectKey,
+        isArchived: false,
+        OR: [
+          { userId: opmUser.id },
+          { members: { some: { userId: opmUser.id } } },
+        ],
+      },
+      include: {
+        columns: {
+          orderBy: { order: "asc" },
+          include: {
+            cards: {
+              where: { isArchived: false },
+              orderBy: { order: "asc" },
+            },
+          },
+        },
+      },
+    });
+
+    const project = candidates.find((p) => p.userId === opmUser.id) || (candidates.length === 1 ? candidates[0] : null);
+    if (!project) {
+      if (candidates.length > 1) {
+        return {
+          type: 4,
+          data: {
+            content: `Multiple active projects match key "${projectKey}". Please contact support to disambiguate.`,
+            flags: 64,
+          },
+        };
+      }
+      return {
+        type: 4,
+        data: {
+          content: `Project with key "${projectKey}" not found or you do not have permission to view it.`,
+          flags: 64,
+        },
+      };
+    }
+
+    const openColumns = project.columns.filter((c) => !c.isDone);
+    const targetColumns = openColumns.length > 0 ? openColumns : project.columns;
+
+    const sections: string[] = [];
+    let totalCards = 0;
+    for (const col of targetColumns) {
+      const colCards = col.cards;
+      totalCards += colCards.length;
+      const cardLines =
+        colCards.length > 0
+          ? colCards.map((c) => `• \`${project.key}-${c.number}\` - ${c.title}`).join("\n")
+          : "_No cards_";
+      sections.push(`**${col.name}** (${colCards.length}):\n${cardLines}`);
+    }
+
+    if (totalCards === 0) {
+      return {
+        type: 4,
+        data: {
+          content: `No open cards found in project **${project.name}** (\`${project.key}\`).`,
+          flags: 64,
+        },
+      };
+    }
+
+    return {
+      type: 4,
+      data: {
+        content: `**Open Cards in ${project.name} (${project.key})**:\n\n${sections.join("\n\n")}`,
+        flags: 64,
+      },
+    };
+  }
+
+  if (subCommand === "move") {
+    const rawId = String(subArgs.identifier || subArgs.card || "").trim().toUpperCase();
+    const targetColInput = String(subArgs.column || subArgs.destination || subArgs.to || "").trim();
+
+    if (!rawId || !targetColInput) {
+      return {
+        type: 4,
+        data: {
+          content: "Usage: `/opm move <KEY-123> <column>`. Example: `/opm move ENG-12 In Progress`",
+          flags: 64,
+        },
+      };
+    }
+
+    const match = rawId.match(/^([A-Z0-9]+)-(\d{1,9})$/);
+    if (!match) {
+      return {
+        type: 4,
+        data: {
+          content: `Invalid card identifier format "${rawId}". Expected format like "PROJ-12".`,
+          flags: 64,
+        },
+      };
+    }
+
+    const projectKey = match[1];
+    const number = parseInt(match[2], 10);
+    const identifier = `${projectKey}-${number}`;
+
+    const matchingCards = await db.card.findMany({
+      where: {
+        number,
+        isArchived: false,
+        project: {
+          key: projectKey,
+          isArchived: false,
+          OR: [
+            { userId: opmUser.id },
+            { members: { some: { userId: opmUser.id, role: { in: ["OWNER", "ADMIN", "MEMBER"] } } } },
+          ],
+        },
+      },
+      include: {
+        project: {
+          include: {
+            columns: { orderBy: { order: "asc" } },
+          },
+        },
+        column: true,
+      },
+    });
+
+    const card = matchingCards.find((c) => c.project.userId === opmUser.id) || (matchingCards.length === 1 ? matchingCards[0] : null);
+    if (!card) {
+      if (matchingCards.length > 1) {
+        return {
+          type: 4,
+          data: {
+            content: `Multiple active projects match key "${projectKey}". Please contact support to disambiguate.`,
+            flags: 64,
+          },
+        };
+      }
+      return {
+        type: 4,
+        data: {
+          content: `Card ${identifier} was not found or you do not have permission to move it.`,
+          flags: 64,
+        },
+      };
+    }
+
+    const canMove = await verifyProjectAccess(card.projectId, opmUser.id, "MEMBER");
+    if (!canMove) {
+      return {
+        type: 4,
+        data: {
+          content: `Card ${identifier} was not found or you do not have permission to move it.`,
+          flags: 64,
+        },
+      };
+    }
+
+    const columns = card.project.columns;
+    const destColumn = columns.find(
+      (c) => c.id === targetColInput || c.name.toLowerCase() === targetColInput.toLowerCase()
+    );
+
+    if (!destColumn) {
+      return {
+        type: 4,
+        data: {
+          content: `Column "${targetColInput}" not found in project ${card.project.key}. Use \`/opm columns ${card.project.key}\` to see available columns.`,
+          flags: 64,
+        },
+      };
+    }
+
+    if (destColumn.id === card.columnId) {
+      return {
+        type: 4,
+        data: {
+          content: `Card **${identifier}** is already in column **${card.column.name}**.`,
+          flags: 64,
+        },
+      };
+    }
+
+    const lastCard = await db.card.findFirst({
+      where: { columnId: destColumn.id },
+      orderBy: { order: "desc" },
+      select: { order: true },
+    });
+    const newOrder = lastCard ? lastCard.order + 1 : 0;
+
+    const moveResult = await moveCard(card.id, destColumn.id, newOrder, opmUser.id);
+    if (!moveResult.success) {
+      return {
+        type: 4,
+        data: {
+          content: `Failed to move card: ${moveResult.error || "Unknown error"}`,
+          flags: 64,
+        },
+      };
+    }
+
+    const embed = formatDiscordCardEmbed({
+      identifier,
+      title: card.title,
+      status: destColumn.name,
+      projectName: card.project.name,
+      priority: card.priority,
+      owner: card.owner,
+      points: card.points,
+      url: `/projects/${card.projectId}?cardId=${card.id}`,
+    });
+
+    return {
+      type: 4,
+      data: {
+        content: `Moved **${identifier}** to **${destColumn.name}**:`,
+        embeds: [embed],
       },
     };
   }

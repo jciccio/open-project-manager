@@ -308,7 +308,10 @@ Open Project Manager supports Discord Interactions for slash commands and rich c
    - `/opm link <token>`: Link your Discord account to your OPM user using an API token generated in User Profile.
    - `/opm whoami`: Check which OPM user is linked to your Discord account.
    - `/opm unlink`: Unlink your Discord account.
+   - `/opm list <key>`: List open cards in a project grouped by column with copyable IDs.
+   - `/opm columns <key>`: List available columns in a project.
    - `/opm get <KEY-123>`: Inspect a card's status, priority, points, assignee, and project.
+   - `/opm move <KEY-123> <column>`: Move a card to a designated column.
    - `/opm create <key> <title>`: Create a card in the specified project.
    - `/opm new <title>`: Quick-create a card in your oldest active writable project.
 

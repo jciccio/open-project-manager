@@ -398,5 +398,137 @@ describe("Discord Integration", () => {
       await cleanupTestUser(adminRes.user.id);
       await cleanupTestUser(viewerRes.user.id);
     });
+
+    it("lists project columns via /opm columns", async () => {
+      const col2 = await db.column.create({
+        data: {
+          projectId,
+          name: "In Progress",
+          order: 2,
+        },
+      });
+
+      const res = await handleDiscordInteraction({
+        id: "i-cols",
+        type: 2,
+        data: {
+          name: "opm",
+          options: [
+            {
+              name: "columns",
+              type: 1,
+              options: [{ name: "key", type: 3, value: projectKey }],
+            },
+          ],
+        },
+        user: { id: "DISCORD_TEST_USER_1", username: "tester" },
+      });
+
+      expect(res.data?.content).toContain(`Columns in Discord App Test Project (${projectKey})`);
+      expect(res.data?.content).toContain("Backlog");
+      expect(res.data?.content).toContain("In Progress");
+      expect(res.data?.content).toContain(`\`${col2.id}\``);
+    });
+
+    it("lists open cards grouped by column with formatted copyable ID via /opm list", async () => {
+      const backlogCol = await db.column.findFirstOrThrow({ where: { projectId, name: "Backlog" } });
+      const inProgCol = await db.column.create({
+        data: {
+          projectId,
+          name: "In Progress",
+          order: 2,
+        },
+      });
+
+      await db.card.create({
+        data: {
+          projectId,
+          columnId: backlogCol.id,
+          number: 1,
+          title: "Backlog Card",
+          order: 1,
+        },
+      });
+
+      await db.card.create({
+        data: {
+          projectId,
+          columnId: inProgCol.id,
+          number: 2,
+          title: "In Progress Card",
+          order: 1,
+        },
+      });
+
+      const res = await handleDiscordInteraction({
+        id: "i-list",
+        type: 2,
+        data: {
+          name: "opm",
+          options: [
+            {
+              name: "list",
+              type: 1,
+              options: [{ name: "key", type: 3, value: projectKey }],
+            },
+          ],
+        },
+        user: { id: "DISCORD_TEST_USER_1", username: "tester" },
+      });
+
+      expect(res.data?.content).toContain(`Open Cards in Discord App Test Project (${projectKey})`);
+      expect(res.data?.content).toContain("**Backlog** (1):");
+      expect(res.data?.content).toContain(`• \`${projectKey}-1\` - Backlog Card`);
+      expect(res.data?.content).toContain("**In Progress** (1):");
+      expect(res.data?.content).toContain(`• \`${projectKey}-2\` - In Progress Card`);
+    });
+
+    it("moves a card to a designated column via /opm move", async () => {
+      const backlogCol = await db.column.findFirstOrThrow({ where: { projectId, name: "Backlog" } });
+      const doneCol = await db.column.create({
+        data: {
+          projectId,
+          name: "Done",
+          order: 2,
+          isDone: true,
+        },
+      });
+
+      const card = await db.card.create({
+        data: {
+          projectId,
+          columnId: backlogCol.id,
+          number: 1,
+          title: "Card to Move",
+          order: 1,
+        },
+      });
+
+      const res = await handleDiscordInteraction({
+        id: "i-move",
+        type: 2,
+        data: {
+          name: "opm",
+          options: [
+            {
+              name: "move",
+              type: 1,
+              options: [
+                { name: "identifier", type: 3, value: `${projectKey}-1` },
+                { name: "column", type: 3, value: "Done" },
+              ],
+            },
+          ],
+        },
+        user: { id: "DISCORD_TEST_USER_1", username: "tester" },
+      });
+
+      expect(res.data?.content).toContain(`Moved **${projectKey}-1** to **Done**:`);
+      expect(res.data?.embeds?.[0].fields?.find((f) => f.name === "Status")?.value).toBe("Done");
+
+      const updatedCard = await db.card.findUnique({ where: { id: card.id } });
+      expect(updatedCard?.columnId).toBe(doneCol.id);
+      expect(updatedCard?.completedAt).not.toBeNull();
+    });
   });
 });
