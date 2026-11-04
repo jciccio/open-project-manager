@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
 import { updateSavedView, deleteSavedView } from "@/lib/services/views";
 import { db } from "@/lib/db";
+import { verifyProjectAccess } from "@/lib/permissions";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -15,12 +16,9 @@ export async function GET(request: NextRequest, { params }: Props) {
 
   const { id } = await params;
   try {
-    const savedView = await db.savedView.findUnique({
-      where: { id },
-      include: { project: true },
-    });
+    const savedView = await db.savedView.findUnique({ where: { id } });
 
-    if (!savedView || savedView.project.userId !== session.userId) {
+    if (!savedView || !(await verifyProjectAccess(savedView.projectId, session.userId, "VIEWER"))) {
       return NextResponse.json({ error: "Saved view not found" }, { status: 404 });
     }
 
