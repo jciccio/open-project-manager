@@ -18,14 +18,12 @@ import { db } from "@/lib/db";
 import { deleteRowsAndAttachmentFiles } from "@/lib/attachmentCleanup";
 import { validateParentCard } from "@/lib/cardParent";
 import { lastColumnError } from "@/lib/columnGuards";
-import { DEFAULT_CARD_TYPES } from "@/lib/cardTypeDefaults";
 import { nextCardNumber, withCardNumberRetry } from "@/lib/cardNumbering";
 import { cardPage, cardPageQuery, decodeCardCursor } from "@/lib/cardPagination";
-import { generateProjectKey } from "@/lib/projectKey";
 import { createScopedLabel } from "@/lib/scopedLabels";
 import { verifyProjectAccess } from "@/lib/permissions";
 import { deriveCompletedAt } from "@/lib/cardCompletion";
-import { DEFAULT_PROJECT_COLUMNS, isClosedColumn, parseColumnGroupFilter } from "@/lib/columnGroups";
+import { isClosedColumn, parseColumnGroupFilter } from "@/lib/columnGroups";
 import { parseColumnCreate, parseColumnUpdate } from "@/lib/validation/columns";
 import { CardCreateSchema, CardReorderSchema, CardUpdateSchema } from "@/lib/validation/cards";
 import { CardTypeCreateSchema, CardTypeUpdateSchema } from "@/lib/validation/cardTypes";
@@ -33,7 +31,10 @@ import { parseInput } from "@/lib/validation/errors";
 import { ProjectNameSchema } from "@/lib/validation/projects";
 import { INVALID_LINK_URL_ERROR, SafeUrlSchema } from "@/lib/validation/safeUrl";
 import { SavedViewCreateSchema, SavedViewUpdateSchema } from "@/lib/validation/views";
+import * as cardsService from "@/lib/services/cards";
 import { validateReferencedIds } from "@/lib/services/cards";
+import * as commentsService from "@/lib/services/comments";
+import * as projectsService from "@/lib/services/projects";
 import type { z } from "zod";
 import { cardTextSearch } from "@/lib/cardSearch";
 
@@ -61,6 +62,19 @@ function parseProjectName(value: unknown): string {
   const parsed = parseInput(ProjectNameSchema, value);
   if (!parsed.success) throw new Error(parsed.error);
   return parsed.data;
+}
+
+const SERVICE_NO_ACCESS_ERRORS = new Set([
+  "Unauthorized",
+  "Unauthorized or card not found",
+  "Card not found or access denied",
+]);
+
+// A tool reports "no access" and "does not exist" the same way, so a caller can't
+// learn that a record exists.
+function unwrapService<T>(res: { success: boolean; data?: T; error?: string }, notFoundMessage: string): T {
+  if (res.success) return res.data as T;
+  throw new Error(!res.error || SERVICE_NO_ACCESS_ERRORS.has(res.error) ? notFoundMessage : res.error);
 }
 
 function filterJsonArg(value: unknown) {
@@ -869,29 +883,21 @@ export async function executeMcpTool(
     }
 
     case "create_project": {
-      const nameStr = parseProjectName(args.name);
-      const projectKey = await generateProjectKey(nameStr, args.key, userId);
-      const project = await db.project.create({
-        data: {
-          userId,
-          name: nameStr,
-          key: projectKey,
-          description: args.description || null,
-          color: args.color ? assertHexColor(args.color) : "#6366f1",
-          visibility: args.visibility || "PRIVATE",
-          columns: {
-            create: DEFAULT_PROJECT_COLUMNS.map((column) => ({ ...column })),
+      const { id: projectId } = unwrapService(
+        await projectsService.createProject(
+          {
+            name: args.name,
+            key: args.key,
+            description: args.description || undefined,
+            color: args.color || undefined,
+            visibility: args.visibility,
           },
-          cardTypes: {
-            create: DEFAULT_CARD_TYPES,
-          },
-          members: {
-            create: {
-              userId,
-              role: "OWNER",
-            },
-          },
-        },
+          userId
+        ),
+        "Project could not be created."
+      );
+      const project = await db.project.findUnique({
+        where: { id: projectId },
         include: { columns: true, cardTypes: true, members: true },
       });
       return { success: true, project };
@@ -1264,66 +1270,17 @@ export async function executeMcpTool(
     }
 
     case "move_card": {
-      const existingCard = await db.card.findUnique({ where: { id: args.id } });
-      if (!existingCard || !(await verifyProjectAccess(existingCard.projectId, userId, "MEMBER"))) throw new Error(`Card with ID ${args.id} not found.`);
-
-      const targetColumnId = args.targetColumnId;
       const newOrder = typeof args.newOrder === "number" ? args.newOrder : 0;
-      const targetCol = await db.column.findUnique({ where: { id: targetColumnId } });
-      const completedAt = deriveCompletedAt(targetCol?.isDone, existingCard.completedAt);
-
-      const card = await db.card.update({
-        where: { id: args.id },
-        data: {
-          columnId: targetColumnId,
-          order: newOrder,
-          completedAt,
-        },
-      });
+      const card = unwrapService(
+        await cardsService.moveCard(args.id, args.targetColumnId, newOrder, userId),
+        `Card with ID ${args.id} not found.`
+      );
       return { success: true, card };
     }
 
     case "reorder_cards": {
       const { items } = parseToolInput(CardReorderSchema, args);
-
-      const cardIds = items.map((item) => item.id);
-      const existingCards = await db.card.findMany({
-        where: { id: { in: cardIds } },
-        select: { id: true, projectId: true, completedAt: true },
-      });
-      if (existingCards.length !== new Set(cardIds).size) {
-        throw new Error("One or more cards were not found.");
-      }
-      for (const projectId of new Set(existingCards.map((c) => c.projectId))) {
-        if (!(await verifyProjectAccess(projectId, userId, "MEMBER"))) {
-          throw new Error("One or more cards were not found.");
-        }
-      }
-      const cardById = new Map(existingCards.map((c) => [c.id, c]));
-
-      const columnIds = [...new Set(items.map((item) => item.columnId).filter((id): id is string => !!id))];
-      const columns = await db.column.findMany({
-        where: { id: { in: columnIds } },
-        select: { id: true, isDone: true },
-      });
-      const columnById = new Map(columns.map((c) => [c.id, c]));
-
-      const updates = items.map((item) => {
-        const existingCard = cardById.get(item.id);
-        const targetColumn = item.columnId ? columnById.get(item.columnId) : undefined;
-        const completedAt = item.columnId
-          ? deriveCompletedAt(targetColumn?.isDone, existingCard?.completedAt)
-          : undefined;
-        return db.card.update({
-          where: { id: item.id },
-          data: {
-            order: item.order,
-            ...(item.columnId ? { columnId: item.columnId } : {}),
-            ...(completedAt !== undefined ? { completedAt } : {}),
-          },
-        });
-      });
-      await db.$transaction(updates);
+      unwrapService(await cardsService.reorderCards(items, userId), "One or more cards were not found.");
       return { success: true, count: items.length };
     }
 
@@ -1335,22 +1292,12 @@ export async function executeMcpTool(
     }
 
     case "archive_card": {
-      const existingCard = await db.card.findUnique({ where: { id: args.id } });
-      if (!existingCard || !(await verifyProjectAccess(existingCard.projectId, userId, "MEMBER"))) throw new Error(`Card with ID ${args.id} not found.`);
-      const card = await db.card.update({
-        where: { id: args.id },
-        data: { isArchived: true },
-      });
+      const card = unwrapService(await cardsService.archiveCard(args.id, userId), `Card with ID ${args.id} not found.`);
       return { success: true, card };
     }
 
     case "unarchive_card": {
-      const existingCard = await db.card.findUnique({ where: { id: args.id } });
-      if (!existingCard || !(await verifyProjectAccess(existingCard.projectId, userId, "MEMBER"))) throw new Error(`Card with ID ${args.id} not found.`);
-      const card = await db.card.update({
-        where: { id: args.id },
-        data: { isArchived: false },
-      });
+      const card = unwrapService(await cardsService.unarchiveCard(args.id, userId), `Card with ID ${args.id} not found.`);
       return { success: true, card };
     }
 
@@ -1386,15 +1333,11 @@ export async function executeMcpTool(
     }
 
     case "update_comment": {
-      const existingComment = await db.comment.findUnique({
-        where: { id: args.commentId },
-        include: { card: { select: { projectId: true } } },
-      });
-      if (!existingComment || !(await verifyProjectAccess(existingComment.card.projectId, userId, "MEMBER"))) throw new Error(`Comment with ID ${args.commentId} not found.`);
-      const comment = await db.comment.update({
-        where: { id: args.commentId },
-        data: { content: args.content.trim() },
-      });
+      if (typeof args.content !== "string") throw new Error("Comment content cannot be empty.");
+      const comment = unwrapService(
+        await commentsService.updateComment(args.commentId, args.content, userId),
+        `Comment with ID ${args.commentId} not found.`
+      );
       return { success: true, comment };
     }
 
