@@ -79,7 +79,7 @@ export async function POST(
         filename,
         contentBuffer: buffer,
         mimeType,
-        uploadedBy: session.userId,
+        uploadedBy: session.name || session.email || session.userId,
       },
       session.userId
     );
