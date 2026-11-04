@@ -41,6 +41,7 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
 
   const [tokens, setTokens] = useState<ApiTokenSummary[]>([]);
   const [newTokenName, setNewTokenName] = useState("");
+  const [tokenExpiration, setTokenExpiration] = useState<string>("365");
   const [apiToken, setApiToken] = useState("");
   const [tokenLoading, setTokenLoading] = useState(false);
   const [showToken, setShowToken] = useState(false);
@@ -110,10 +111,12 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
     setTokenLoading(true);
     setTokenError("");
     try {
-      const res = await createApiToken(newTokenName.trim());
+      const expiresInDays = tokenExpiration === "never" ? "never" : Number(tokenExpiration);
+      const res = await createApiToken(newTokenName.trim(), expiresInDays);
       if (res.success && res.token) {
         setApiToken(res.token.secret);
         setNewTokenName("");
+        setTokenExpiration("365");
         setShowToken(false);
         const listRes = await listApiTokens();
         if (listRes.success && listRes.tokens) setTokens(listRes.tokens);
@@ -230,7 +233,7 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4">
       <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-5 relative max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4">
           <div className="flex items-center gap-2.5">
@@ -381,7 +384,7 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
 
             {tokenError && <ErrorBanner message={tokenError} />}
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
               <input
                 type="text"
                 value={newTokenName}
@@ -389,6 +392,18 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
                 placeholder={t("profileModal.tokenNamePlaceholder")}
                 className="flex-1 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
               />
+              <select
+                value={tokenExpiration}
+                onChange={(e) => setTokenExpiration(e.target.value)}
+                className="rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3 py-2 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
+                aria-label={t("profileModal.expirationOption")}
+              >
+                <option value="30">{t("profileModal.expiration30Days")}</option>
+                <option value="60">{t("profileModal.expiration60Days")}</option>
+                <option value="90">{t("profileModal.expiration90Days")}</option>
+                <option value="365">{t("profileModal.expiration1Year")}</option>
+                <option value="never">{t("profileModal.neverExpires")}</option>
+              </select>
               <button
                 type="button"
                 onClick={handleGenerateToken}
@@ -466,6 +481,21 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
                         </p>
                         <p className="text-[10px] text-slate-500 dark:text-slate-400">
                           {t("profileModal.createdLabel")} {formatDate(token.createdAt, locale)}
+                          {" · "}
+                          {token.expiresAt ? (
+                            new Date(token.expiresAt).getTime() < Date.now() ? (
+                              <span className="text-red-500 font-semibold">
+                                {t("profileModal.expired")} ({formatDate(token.expiresAt, locale)})
+                              </span>
+                            ) : (
+                              <>
+                                {t("profileModal.expiresLabel")}{" "}
+                                {formatDate(token.expiresAt, locale)}
+                              </>
+                            )
+                          ) : (
+                            t("profileModal.neverExpires")
+                          )}
                           {" · "}
                           {t("profileModal.lastUsedLabel")}{" "}
                           {token.lastUsedAt

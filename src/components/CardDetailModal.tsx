@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   X,
   Trash2,
@@ -23,7 +23,6 @@ import {
   History,
   Activity as ActivityIcon,
   ArrowRight,
-  Clock,
   CheckSquare,
   CornerDownRight,
   Unlink,
@@ -98,6 +97,8 @@ interface Props {
     comments: Array<{
       id: string;
       author: string;
+      authorUserId?: string | null;
+      authorUser?: { id: string; name: string; email: string } | null;
       content: string;
       createdAt: Date | string;
     }>;
@@ -177,7 +178,7 @@ export default function CardDetailModal({
   const [subtaskLoadingId, setSubtaskLoadingId] = useState<string | null>(null);
 
   const [availableLabels, setAvailableLabels] = useState<
-    Array<{ id: string; name: string; color: string }>
+    Array<{ id: string; name: string; color: string; description?: string | null }>
   >([]);
   const [availableCardTypes, setAvailableCardTypes] = useState<
     Array<{ id: string; name: string; icon: string; color: string }>
@@ -194,7 +195,6 @@ export default function CardDetailModal({
   const [relationError, setRelationError] = useState("");
   const [isAddingRelation, setIsAddingRelation] = useState(false);
 
-  const [commentAuthor, setCommentAuthor] = useState("");
   const [commentContent, setCommentContent] = useState("");
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
 
@@ -221,21 +221,21 @@ export default function CardDetailModal({
 
   const { t, locale } = useTranslation();
 
-  async function loadActivities() {
+  const loadActivities = useCallback(async () => {
     setIsLoadingActivities(true);
     const res = await getCardActivity(card.id);
     if (res.success && res.data) {
       setActivities(res.data);
     }
     setIsLoadingActivities(false);
-  }
+  }, [card.id]);
 
-  async function loadRelations() {
+  const loadRelations = useCallback(async () => {
     const res = await getCardRelations(card.id);
     if (res.success && res.data) {
       setRelations(res.data);
     }
-  }
+  }, [card.id]);
 
   useEffect(() => {
     async function fetchAttachments() {
@@ -246,7 +246,7 @@ export default function CardDetailModal({
     }
     fetchAttachments();
     loadActivities();
-  }, [card.id]);
+  }, [card.id, loadActivities]);
 
   const MAX_ATTACHMENT_MB = 10;
 
@@ -325,22 +325,10 @@ export default function CardDetailModal({
       }
     }
 
-    async function loadMembers() {
-      if (members && members.length > 0) {
-        setProjectMembers(members);
-        return;
-      }
-      const mRes = await getProjectMembers(card.projectId);
-      if (mRes.success && mRes.data) {
-        setProjectMembers(mRes.data);
-      }
-    }
-
     loadLabels();
     loadCardTypes();
     loadRelations();
     loadProjectCards();
-    loadMembers();
 
     setTitle(card.title);
     setDescription(card.description || "");
@@ -360,7 +348,24 @@ export default function CardDetailModal({
     setIsAddingSubtask(false);
     setNewSubtaskTitle("");
     setSubtaskError("");
-  }, [card.id, card.projectId, members]);
+    // Only reset form state when opening a different card; keep in-progress edits on background refresh
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [card.id]);
+
+  // Synchronize project members in a separate effect so background member updates don't reset in-progress form edits
+  useEffect(() => {
+    async function loadMembers() {
+      if (members && members.length > 0) {
+        setProjectMembers(members);
+        return;
+      }
+      const mRes = await getProjectMembers(card.projectId);
+      if (mRes.success && mRes.data) {
+        setProjectMembers(mRes.data);
+      }
+    }
+    loadMembers();
+  }, [card.projectId, members]);
 
   async function handleCreateSubtask(e: React.FormEvent) {
     e.preventDefault();
@@ -516,7 +521,6 @@ export default function CardDetailModal({
     setIsSubmittingComment(true);
     const res = await addComment(
       card.id,
-      commentAuthor.trim(),
       commentContent.trim()
     );
     setIsSubmittingComment(false);
@@ -629,7 +633,7 @@ export default function CardDetailModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <div className="w-full max-w-2xl max-h-[90vh] flex flex-col rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50">
@@ -856,10 +860,11 @@ export default function CardDetailModal({
 
           {/* Description */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+            <label htmlFor="card-description-editor" className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
               {t("cardModal.description")}
             </label>
             <MarkdownEditor
+              id="card-description-editor"
               value={description}
               onChange={setDescription}
               placeholder={t("cardModal.descriptionPlaceholder")}
@@ -888,6 +893,7 @@ export default function CardDetailModal({
                         : "opacity-60 hover:opacity-100 text-white"
                     }`}
                     style={{ backgroundColor: lbl.color }}
+                    title={lbl.description || undefined}
                   >
                     {lbl.name}
                   </button>
@@ -1376,34 +1382,23 @@ export default function CardDetailModal({
             {feedTab === "comments" ? (
               <>
                 {/* Add Comment Form */}
-                <form onSubmit={handleAddComment} className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      placeholder={t("cardModal.yourName")}
-                      value={commentAuthor}
-                      onChange={(e) => setCommentAuthor(e.target.value)}
-                      className="w-1/3 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2.5 py-1 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
-                    />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      required
-                      placeholder={t("cardModal.writeComment")}
-                      value={commentContent}
-                      onChange={(e) => setCommentContent(e.target.value)}
-                      className="flex-1 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
-                    />
-                    <button
-                      type="submit"
-                      disabled={isSubmittingComment}
-                      className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 transition-colors flex items-center gap-1"
-                    >
-                      <Send className="h-3 w-3" />
-                      <span>{t("cardModal.post")}</span>
-                    </button>
-                  </div>
+                <form onSubmit={handleAddComment} className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    required
+                    placeholder={t("cardModal.writeComment")}
+                    value={commentContent}
+                    onChange={(e) => setCommentContent(e.target.value)}
+                    className="flex-1 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
+                  />
+                  <button
+                    type="submit"
+                    disabled={isSubmittingComment}
+                    className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 transition-colors flex items-center gap-1 shrink-0"
+                  >
+                    <Send className="h-3 w-3" />
+                    <span>{t("cardModal.post")}</span>
+                  </button>
                 </form>
 
                 {/* Comments List */}
@@ -1417,7 +1412,7 @@ export default function CardDetailModal({
                         <div className="space-y-1 flex-1">
                           <div className="flex items-center gap-2">
                             <span className="text-xs font-bold text-slate-900 dark:text-slate-200">
-                              {c.author}
+                              {c.authorUser?.name || c.author}
                             </span>
                             <span className="text-[10px] text-slate-400">
                               {formatDate(c.createdAt, locale, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}

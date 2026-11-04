@@ -4,10 +4,10 @@ import { vi } from 'vitest';
 // Fix dual Uint8Array/TextEncoder prototype mismatch between JSDOM and Node for jose library
 if (typeof Uint8Array !== 'undefined') {
   Object.defineProperty(Uint8Array, Symbol.hasInstance, {
-    value: (obj: any) =>
+    value: (obj: unknown) =>
       obj !== null &&
       typeof obj === 'object' &&
-      (obj.constructor?.name === 'Uint8Array' ||
+      ((obj as { constructor?: { name?: string } }).constructor?.name === 'Uint8Array' ||
         Object.prototype.toString.call(obj) === '[object Uint8Array]' ||
         ArrayBuffer.isView(obj)),
   });
@@ -74,7 +74,7 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(typeof window !== 'undefined' ? window.location.search : ''),
   redirect: vi.fn((url: string) => {
     const err = new Error(`NEXT_REDIRECT:${url}`);
-    (err as any).digest = `NEXT_REDIRECT;${url}`;
+    Object.assign(err, { digest: `NEXT_REDIRECT;${url}` });
     throw err;
   }),
 }));
