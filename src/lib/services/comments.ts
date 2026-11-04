@@ -16,6 +16,11 @@ export async function listComments(cardId: string, userId: string) {
 
     const comments = await db.comment.findMany({
       where: { cardId },
+      include: {
+        authorUser: {
+          select: { id: true, name: true, email: true },
+        },
+      },
       orderBy: { createdAt: "desc" },
     });
 
@@ -26,7 +31,7 @@ export async function listComments(cardId: string, userId: string) {
   }
 }
 
-export async function addComment(cardId: string, author: string, content: string, userId: string) {
+export async function addComment(cardId: string, content: string, userId: string) {
   try {
     if (!content.trim()) {
       return { success: false, error: "Comment content cannot be empty" };
@@ -41,6 +46,12 @@ export async function addComment(cardId: string, author: string, content: string
       return { success: false, error: "Unauthorized" };
     }
 
+    const user = await db.user.findUnique({
+      where: { id: userId },
+      select: { name: true, email: true },
+    });
+    const author = user?.name?.trim() || user?.email?.trim() || "Team Member";
+
     const activityEntries: ActivityEntry[] = [
       { cardId, actorUserId: userId, type: "comment_added", toValue: content.trim().slice(0, 100) },
     ];
@@ -49,8 +60,14 @@ export async function addComment(cardId: string, author: string, content: string
       const created = await tx.comment.create({
         data: {
           cardId,
-          author: author.trim() || "Team Member",
+          author,
+          authorUserId: userId,
           content: content.trim(),
+        },
+        include: {
+          authorUser: {
+            select: { id: true, name: true, email: true },
+          },
         },
       });
       await createActivities(tx, activityEntries);
@@ -113,6 +130,11 @@ export async function updateComment(commentId: string, content: string, userId: 
       where: { id: commentId },
       data: {
         content: content.trim(),
+      },
+      include: {
+        authorUser: {
+          select: { id: true, name: true, email: true },
+        },
       },
     });
 

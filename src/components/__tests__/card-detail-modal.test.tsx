@@ -186,4 +186,38 @@ describe("CardDetailModal", () => {
     expect(payload.owner).toBeNull();
     expect(payload.dueDate).toBeNull();
   });
+
+  it("does not render a free-text author input and displays authorUser name", () => {
+    const card = {
+      ...buildCard(),
+      comments: [
+        {
+          id: "c-modern",
+          author: "Legacy Name",
+          authorUser: { id: "u1", name: "Verified User", email: "v@example.com" },
+          content: "Comment with FK",
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: "c-legacy",
+          author: "Old Author",
+          authorUser: null,
+          content: "Legacy comment",
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    };
+
+    renderWithProviders(
+      <CardDetailModal card={card} columns={columns} onClose={vi.fn()} onRefresh={vi.fn()} />
+    );
+
+    // Free-text author input should no longer exist
+    expect(screen.queryByPlaceholderText("Your Name (Optional)")).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Write a comment...")).toBeInTheDocument();
+
+    // Verify attribution display
+    expect(screen.getByText("Verified User")).toBeInTheDocument();
+    expect(screen.getByText("Old Author")).toBeInTheDocument();
+  });
 });

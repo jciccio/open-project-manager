@@ -213,7 +213,6 @@ export const es: TranslationKeys = {
     tabActivity: "Actividad",
     noActivity: "No hay actividad registrada aún.",
     writeComment: "Escribe un comentario...",
-    yourName: "Tu Nombre (Opcional)",
     post: "Publicar",
     noComments: "Aún no hay comentarios.",
     saveChanges: "Guardar Cambios",

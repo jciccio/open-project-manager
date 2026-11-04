@@ -93,6 +93,11 @@ export async function getProjectById(id: string, userId: string) {
                 },
                 comments: {
                   orderBy: { createdAt: "desc" },
+                  include: {
+                    authorUser: {
+                      select: { id: true, name: true, email: true },
+                    },
+                  },
                 },
                 activities: {
                   orderBy: { createdAt: "desc" },

@@ -106,7 +106,7 @@ describe("MCP tools: cross-user ownership enforcement", () => {
       ["delete_card", { id: cardId }],
       ["archive_card", { id: cardId }],
       ["unarchive_card", { id: cardId }],
-      ["add_comment", { cardId, author: "Intruder", content: "x" }],
+      ["add_comment", { cardId, content: "x" }],
       ["list_comments", { cardId }],
       ["list_card_activity", { cardId }],
       ["update_comment", { commentId, content: "Hacked" }],

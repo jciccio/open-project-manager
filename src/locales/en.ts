@@ -211,7 +211,6 @@ export const en = {
     tabActivity: "Activity",
     noActivity: "No activity recorded yet.",
     writeComment: "Write a comment...",
-    yourName: "Your Name (Optional)",
     post: "Post",
     noComments: "No comments yet.",
     saveChanges: "Save Changes",
