@@ -128,7 +128,7 @@ const LAST_USED_WRITE_INTERVAL_MS = 5 * 60 * 1000;
 // token JWT (carries `jti`). API tokens are additionally checked against the
 // ApiToken table so a deleted (revoked) row invalidates an otherwise
 // still-valid signature.
-async function verifyBearerToken(token: string): Promise<UserSession | null> {
+export async function verifyBearerToken(token: string): Promise<UserSession | null> {
   let payload;
   try {
     ({ payload } = await jwtVerify(token, JWT_SECRET, { algorithms: ["HS256"] }));
@@ -191,6 +191,12 @@ export async function getSession(): Promise<UserSession | null> {
   } catch (error) {
     return null;
   }
+}
+
+export async function authenticateBearerToken(token: string): Promise<UserSession | null> {
+  const session = await verifyBearerToken(token);
+  if (!session) return null;
+  return await currentUserFor(session);
 }
 
 export async function getApiSession(request: NextRequest): Promise<UserSession | null> {

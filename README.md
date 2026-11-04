@@ -291,6 +291,25 @@ curl -X GET http://localhost:3000/api/v1/cards/CARD_ID/attachments \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
 ```
 
+### 9. Slack App Integration
+Open Project Manager provides a Slack app integration supporting `/opm` slash commands and event callbacks.
+
+1. **Environment Configuration**:
+   Set `SLACK_SIGNING_SECRET` on the server with the Signing Secret from your Slack App Basic Information settings:
+   ```bash
+   SLACK_SIGNING_SECRET=your_slack_signing_secret_here
+   ```
+2. **Slack App Settings**:
+   - **Slash Commands**: Configure the `/opm` command pointing Request URL to `https://your-domain.com/api/v1/integrations/slack/commands`.
+   - **Event Subscriptions**: Point Request URL to `https://your-domain.com/api/v1/integrations/slack/events` for URL verification.
+3. **Usage**:
+   - `/opm link <api-token>`: Link your Slack user to your OPM account using an API token generated in User Profile.
+   - `/opm whoami`: Check which OPM user account is linked to your Slack user.
+   - `/opm unlink`: Unlink your Slack account.
+   - `/opm get <KEY-123>`: Inspect a card's status, priority, points, assignee, and project.
+   - `/opm create <KEY> <title>`: Create a card in the specified project.
+   - `/opm new <title>`: Create a card in your oldest active writable project.
+
 ---
 
 ## 📥 Importing an Existing Board (Vikunja)

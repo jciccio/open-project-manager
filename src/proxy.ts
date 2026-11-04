@@ -11,6 +11,8 @@ const PUBLIC_PATHS = [
   "/api/v1/auth/session-expired",
   "/api/v1/auth/oidc/login",
   "/api/v1/auth/oidc/callback",
+  "/api/v1/integrations/slack/commands",
+  "/api/v1/integrations/slack/events",
 ];
 
 export async function proxy(request: NextRequest) {
