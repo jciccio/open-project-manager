@@ -1,3 +1,5 @@
+import { db } from "@/lib/db";
+
 type CardPosition = { order: number; id: string };
 
 export function encodeCardCursor(card: CardPosition): string {
@@ -26,8 +28,6 @@ export function cardPageQuery(
   let orderByClause: any[];
   if (field === "dueDate") {
     orderByClause = [{ dueDate: { sort: direction, nulls: "last" as const } }, { id: "asc" as const }];
-  } else if (field === "priority") {
-    orderByClause = [{ id: "asc" as const }];
   } else if (field === "order") {
     orderByClause = [{ order: direction }, { id: direction }];
   } else {
@@ -47,7 +47,7 @@ export function cardPageQuery(
   return {
     where: finalWhere,
     orderBy: orderByClause,
-    ...(field === "priority" ? {} : { take: limit + 1 }),
+    take: limit + 1,
   };
 }
 
@@ -62,4 +62,35 @@ export function cardPage<T extends CardPosition>(
       ? encodeCardCursor(cards[cards.length - 1])
       : null;
   return { cards, nextCursor };
+}
+
+const PRIORITIES_DESC = ["URGENT", "HIGH", "MEDIUM", "LOW", "NONE"] as const;
+const PRIORITIES_ASC = ["NONE", "LOW", "MEDIUM", "HIGH", "URGENT"] as const;
+
+export async function fetchCardsByPriority(
+  where: object,
+  limit: number,
+  direction: "asc" | "desc",
+  include: object
+) {
+  const priorities = direction === "asc" ? PRIORITIES_ASC : PRIORITIES_DESC;
+  const cards: any[] = [];
+
+  for (const priority of priorities) {
+    const remaining = limit - cards.length;
+    if (remaining <= 0) break;
+
+    const rows = await db.card.findMany({
+      where: {
+        AND: [where, { priority }],
+      },
+      orderBy: [{ id: "asc" }],
+      take: remaining,
+      include,
+    });
+
+    cards.push(...rows);
+  }
+
+  return { cards, nextCursor: null };
 }

@@ -298,5 +298,55 @@ describe("REST API: Rich Card Filters & Counts (#135)", () => {
 
     const invalidHasParent = await authGet(`http://localhost/api/v1/cards?projectId=${projectId}&hasParent=maybe`);
     expect(invalidHasParent.status).toBe(400);
+
+    const emptyColGroup = await authGet(`http://localhost/api/v1/cards?projectId=${projectId}&columnGroup=`);
+    expect(emptyColGroup.status).toBe(400);
+  });
+
+  it("walks pages with desc cursor pagination across tied order values", async () => {
+    // Create cards with tied order values
+    for (let i = 0; i < 4; i++) {
+      await db.card.create({
+        data: {
+          projectId,
+          columnId: colTodoId,
+          number: 100 + i,
+          title: `Tied Card ${i}`,
+          order: 10,
+        },
+      });
+    }
+
+    const page1Res = await authGet(`http://localhost/api/v1/cards?projectId=${projectId}&orderBy=order&orderDirection=desc&limit=2`);
+    expect(page1Res.status).toBe(200);
+    const page1 = await page1Res.json();
+    expect(page1.data.length).toBe(2);
+    expect(page1.nextCursor).toBeDefined();
+
+    const page2Res = await authGet(`http://localhost/api/v1/cards?projectId=${projectId}&orderBy=order&orderDirection=desc&limit=2&cursor=${page1.nextCursor}`);
+    expect(page2Res.status).toBe(200);
+    const page2 = await page2Res.json();
+    expect(page2.data.length).toBe(2);
+
+    const page1Ids = page1.data.map((c: any) => c.id);
+    const page2Ids = page2.data.map((c: any) => c.id);
+    // Disjoint pages
+    expect(page1Ids.some((id: string) => page2Ids.includes(id))).toBe(false);
+  });
+
+  it("places null due dates last in both asc and desc due sorts", async () => {
+    const today = new Date();
+    await postCard({ projectId, columnId: colTodoId, title: "Undated Card", dueDate: null });
+    await postCard({ projectId, columnId: colTodoId, title: "Dated Card", dueDate: today.toISOString() });
+
+    const ascRes = await authGet(`http://localhost/api/v1/cards?projectId=${projectId}&orderBy=due&orderDirection=asc`);
+    const ascData = await ascRes.json();
+    expect(ascData.data[0].title).toBe("Dated Card");
+    expect(ascData.data[1].title).toBe("Undated Card");
+
+    const descRes = await authGet(`http://localhost/api/v1/cards?projectId=${projectId}&orderBy=due&orderDirection=desc`);
+    const descData = await descRes.json();
+    expect(descData.data[0].title).toBe("Dated Card");
+    expect(descData.data[1].title).toBe("Undated Card");
   });
 });

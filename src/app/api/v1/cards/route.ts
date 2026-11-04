@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
 import { createCard } from "@/lib/services/cards";
 import { db } from "@/lib/db";
-import { cardPage, cardPageQuery, decodeCardCursor } from "@/lib/cardPagination";
+import { cardPage, cardPageQuery, decodeCardCursor, fetchCardsByPriority } from "@/lib/cardPagination";
 import { verifyProjectAccess } from "@/lib/permissions";
 import { buildCardWhere, parseCardOrderBy, countCards, validateCardGroupBy, PRIORITY_RANK } from "@/lib/cardFilters";
 
@@ -127,27 +127,31 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Invalid cursor" }, { status: 400 });
     }
 
+    const includeOptions = {
+      type: true,
+      labels: { include: { label: true } },
+      comments: { orderBy: { createdAt: "asc" } },
+      assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
+      parent: { select: { id: true, number: true, title: true } },
+      children: { select: { id: true, number: true, title: true, completedAt: true } },
+    };
+
+    if (sortRes.sort.field === "priority") {
+      const { cards, nextCursor } = await fetchCardsByPriority(
+        filterRes.where,
+        limit,
+        sortRes.sort.direction,
+        includeOptions
+      );
+      return NextResponse.json({ success: true, data: cards, nextCursor });
+    }
+
     const queryOptions: any = {
       ...cardPageQuery(filterRes.where, after, limit, sortRes.sort),
-      include: {
-        type: true,
-        labels: { include: { label: true } },
-        comments: { orderBy: { createdAt: "asc" } },
-        assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
-        parent: { select: { id: true, number: true, title: true } },
-        children: { select: { id: true, number: true, title: true, completedAt: true } },
-      },
+      include: includeOptions,
     };
 
     const rows = await db.card.findMany(queryOptions);
-    if (sortRes.sort.field === "priority") {
-      rows.sort((a: any, b: any) => {
-        const ra = PRIORITY_RANK[a.priority ?? "NONE"] ?? 0;
-        const rb = PRIORITY_RANK[b.priority ?? "NONE"] ?? 0;
-        return sortRes.sort.direction === "asc" ? ra - rb : rb - ra;
-      });
-    }
-
     const { cards, nextCursor } = cardPage(rows, limit, sortRes.sort.field);
 
     return NextResponse.json({ success: true, data: cards, nextCursor });

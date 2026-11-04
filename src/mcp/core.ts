@@ -20,7 +20,7 @@ import { validateParentCard } from "@/lib/cardParent";
 import { lastColumnError } from "@/lib/columnGuards";
 import { DEFAULT_CARD_TYPES } from "@/lib/cardTypeDefaults";
 import { nextCardNumber, withCardNumberRetry } from "@/lib/cardNumbering";
-import { cardPage, cardPageQuery, decodeCardCursor } from "@/lib/cardPagination";
+import { cardPage, cardPageQuery, decodeCardCursor, fetchCardsByPriority } from "@/lib/cardPagination";
 import { generateProjectKey } from "@/lib/projectKey";
 import { createScopedLabel } from "@/lib/scopedLabels";
 import { verifyProjectAccess } from "@/lib/permissions";
@@ -295,7 +295,10 @@ export const MCP_TOOLS = [
         },
         isArchived: { type: "boolean", description: "Filter by archived status (default: false)" },
         limit: { type: "number", description: "Maximum number of cards to return (1-100, default 100)" },
-        cursor: { type: "string", description: "The nextCursor value from the previous page (returns the cards after it)" },
+        cursor: {
+          type: "string",
+          description: "The nextCursor value from the previous page (returns the cards after it). Cursor pagination is only supported with orderBy='order'; other sort orders return nextCursor: null.",
+        },
       },
     },
     annotations: {
@@ -1140,28 +1143,32 @@ export async function executeMcpTool(
       const after = cursorVal ? decodeCardCursor(String(cursorVal)) : null;
       if (cursorVal && !after) throw new Error("Invalid cursor");
 
+      const includeOptions = {
+        column: { select: { name: true, group: true } },
+        type: true,
+        labels: { include: { label: true } },
+        assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
+        parent: { select: { id: true, number: true, title: true } },
+        children: { select: { id: true, number: true, title: true, completedAt: true } },
+        _count: { select: { comments: true } },
+      };
+
+      if (sortRes.sort.field === "priority") {
+        const { cards, nextCursor } = await fetchCardsByPriority(
+          filterRes.where,
+          limit,
+          sortRes.sort.direction,
+          includeOptions
+        );
+        return { success: true, cards, nextCursor };
+      }
+
       const queryOptions: any = {
         ...cardPageQuery(filterRes.where, after, limit, sortRes.sort),
-        include: {
-          column: { select: { name: true, group: true } },
-          type: true,
-          labels: { include: { label: true } },
-          assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
-          parent: { select: { id: true, number: true, title: true } },
-          children: { select: { id: true, number: true, title: true, completedAt: true } },
-          _count: { select: { comments: true } },
-        },
+        include: includeOptions,
       };
 
       const rows = await db.card.findMany(queryOptions);
-      if (sortRes.sort.field === "priority") {
-        rows.sort((a: any, b: any) => {
-          const ra = PRIORITY_RANK[a.priority ?? "NONE"] ?? 0;
-          const rb = PRIORITY_RANK[b.priority ?? "NONE"] ?? 0;
-          return sortRes.sort.direction === "asc" ? ra - rb : rb - ra;
-        });
-      }
-
       const { cards, nextCursor } = cardPage(rows, limit, sortRes.sort.field);
       return { success: true, cards, nextCursor };
     }
@@ -1234,14 +1241,26 @@ export async function executeMcpTool(
     case "create_card": {
       const input = parseToolInput(CardCreateSchema, args);
       const res = await createCard(input, userId);
-      if (!res.success) throw new Error(res.error);
+      if (!res.success) {
+        if (res.error === "Unauthorized" || res.error === "Access denied") {
+          const project = await db.project.findUnique({ where: { id: input.projectId } });
+          if (!project) throw new Error(`Project with ID ${input.projectId} not found.`);
+        }
+        throw new Error(res.error);
+      }
       return { success: true, card: res.data };
     }
 
     case "update_card": {
       const input = parseToolInput(CardUpdateSchema, args);
       const res = await updateCard(args.id, input, userId);
-      if (!res.success) throw new Error(res.error);
+      if (!res.success) {
+        if (res.error === "Unauthorized" || res.error === "Card not found" || res.error === "Access denied") {
+          const card = await db.card.findUnique({ where: { id: args.id } });
+          if (!card) throw new Error(`Card with ID ${args.id} not found.`);
+        }
+        throw new Error(res.error);
+      }
       return { success: true, card: res.data };
     }
 

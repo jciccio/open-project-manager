@@ -340,4 +340,14 @@ describe("MCP Rich Card Filters & Counts (#135)", () => {
       executeMcpTool("list_cards", { projectId, dueBefore: "not-a-date" }, { userId })
     ).rejects.toThrow(/Invalid dueBefore date/);
   });
+
+  it("returns clear not-found error messages for missing cards and projects", async () => {
+    await expect(
+      executeMcpTool("create_card", { projectId: "nonexistent-proj", columnId: colTodoId, title: "Test" }, { userId })
+    ).rejects.toThrow("Project with ID nonexistent-proj not found.");
+
+    await expect(
+      executeMcpTool("update_card", { id: "nonexistent-card", title: "Test" }, { userId })
+    ).rejects.toThrow("Card with ID nonexistent-card not found.");
+  });
 });
