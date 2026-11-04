@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as client from "openid-client";
+import { SignJWT } from "jose";
 import { getOidcConfig, getOidcRedirectUri, isOidcConfigured } from "@/lib/oidc";
 import { determineCookieSecurity, getSession } from "@/lib/auth";
+import { JWT_SECRET } from "@/lib/env";
+import { OIDC_FLOW_AUDIENCE, TOKEN_ISSUER } from "@/lib/tokenClaims";
 
 const OIDC_COOKIE_MAX_AGE = 600; // 10 minutes — long enough to complete a login redirect
 
@@ -35,21 +38,28 @@ export async function GET(request: NextRequest) {
 
     const response = NextResponse.redirect(authorizationUrl);
     const isSecure = await determineCookieSecurity();
-    const cookieOptions = {
+    const flowCookieOptions = {
       httpOnly: true,
       secure: isSecure,
       sameSite: "lax" as const,
-      path: "/",
+      path: "/api/v1/auth/oidc/callback",
       maxAge: OIDC_COOKIE_MAX_AGE,
     };
-    response.cookies.set("opm_oidc_verifier", codeVerifier, cookieOptions);
-    response.cookies.set("opm_oidc_state", state, cookieOptions);
-    response.cookies.set("opm_oidc_nonce", nonce, cookieOptions);
-    if (linkMode) {
-      response.cookies.set("opm_oidc_link", "1", cookieOptions);
-    } else {
-      response.cookies.delete("opm_oidc_link");
-    }
+
+    const signedFlow = await new SignJWT({
+      verifier: codeVerifier,
+      state,
+      nonce,
+      link: linkMode ? 1 : 0,
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuer(TOKEN_ISSUER)
+      .setAudience(OIDC_FLOW_AUDIENCE)
+      .setIssuedAt()
+      .setExpirationTime(`${OIDC_COOKIE_MAX_AGE}s`)
+      .sign(JWT_SECRET);
+
+    response.cookies.set(`opm_oidc_flow_${state}`, signedFlow, flowCookieOptions);
 
     return response;
   } catch (error) {
