@@ -53,7 +53,7 @@ describe("MCP HTTP and stdio error handling", () => {
   // A Prisma validation error (query shape, model names) and a TypeError (code path).
   const leakyCalls: [string, Record<string, unknown>, RegExp][] = [
     ["get_project", { id: { not: "x" } }, /findUnique|Argument|prisma/i],
-    ["create_project", { name: 123 }, /trim|not a function/],
+    ["get_card_by_identifier", { identifier: 123 }, /trim|not a function/],
   ];
 
   describe("internal error text is not returned", () => {
@@ -182,10 +182,10 @@ describe("MCP HTTP and stdio error handling", () => {
 
         await expect(client.callTool({ name: "drop_database", arguments: {} })).rejects.toMatchObject({ code: -32602 });
 
-        const leaked = await client.callTool({ name: "create_project", arguments: { name: 123 } });
+        const leaked = await client.callTool({ name: "get_card_by_identifier", arguments: { identifier: 123 } });
         expect(leaked.isError).toBe(true);
         expect((leaked.content as { text: string }[])[0].text).toBe(
-          `Error executing tool 'create_project': ${INTERNAL_ERROR_MESSAGE}`
+          `Error executing tool 'get_card_by_identifier': ${INTERNAL_ERROR_MESSAGE}`
         );
       } finally {
         await client.close();
