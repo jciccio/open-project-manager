@@ -659,10 +659,13 @@ export async function reorderCards(rawItems: ReorderItem[], userId: string) {
       });
     });
 
-    await db.$transaction(updates);
-
-    for (const act of movedActivities) {
-      await recordActivity(act);
+    if (movedActivities.length > 0) {
+      await db.$transaction([...updates, createActivities(db, movedActivities)]);
+      for (const act of movedActivities) {
+        notifyActivity(act.projectId, [act]);
+      }
+    } else {
+      await db.$transaction(updates);
     }
     const projectIds = new Set(existingCards.map((c) => c.projectId));
     for (const projectId of projectIds) {

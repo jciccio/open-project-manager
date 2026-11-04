@@ -101,7 +101,7 @@ describe("Issue #114: Analytics, Priority, and Filter unifications", () => {
       />
     );
 
-    const badge = screen.getByText("NONE");
+    const badge = screen.getByText(/none/i);
     expect(badge.className).toContain("text-slate-500");
     expect(badge.className).not.toContain("text-blue-600");
   });

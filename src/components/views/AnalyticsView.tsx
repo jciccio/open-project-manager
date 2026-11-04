@@ -139,7 +139,7 @@ export default function AnalyticsView({ project }: Props) {
         }
 
         // Assignee map
-        const ownerName = card.owner ? card.owner : "Unassigned";
+        const ownerName = card.owner ? card.owner : t("cardModal.unassigned");
         if (!assigneeMap[ownerName]) {
           assigneeMap[ownerName] = { name: ownerName, points: 0, cards: 0 };
         }
@@ -172,7 +172,7 @@ export default function AnalyticsView({ project }: Props) {
       priorityData: prioData,
       assigneeData: assData,
     };
-  }, [project]);
+  }, [project, t]);
 
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-6">

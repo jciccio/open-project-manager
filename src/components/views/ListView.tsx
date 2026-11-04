@@ -5,6 +5,7 @@ import { Zap, Calendar, User, MessageSquare } from "lucide-react";
 import { moveCard } from "@/actions/cards";
 import { useTranslation } from "../LanguageProvider";
 import { formatDueDate } from "@/lib/formatDate";
+import { priorityLabel } from "@/lib/priority";
 import ErrorBanner from "../ErrorBanner";
 import { getPriorityStyle } from "@/lib/priority";
 import { filterCards } from "@/lib/cardFilter";
@@ -141,7 +142,7 @@ export default function ListView({
                         <span
                           className={`inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider border ${priorityStyle.bg} ${priorityStyle.text} ${priorityStyle.border}`}
                         >
-                          {card.priority}
+                          {priorityLabel(t, card.priority)}
                         </span>
 
                         {/* Points */}
@@ -159,7 +160,7 @@ export default function ListView({
                             <span>{card.owner}</span>
                           </div>
                         ) : (
-                          <span className="text-slate-400 dark:text-slate-500 text-[11px] italic">Unassigned</span>
+                          <span className="text-slate-400 dark:text-slate-500 text-[11px] italic">{t("cardModal.unassigned")}</span>
                         )}
 
                         {/* Due Date */}
@@ -185,7 +186,7 @@ export default function ListView({
                 })}
               </div>
             ) : (
-              <p className="text-xs text-slate-400 dark:text-slate-500 italic py-2">No tasks in this column.</p>
+              <p className="text-xs text-slate-400 dark:text-slate-500 italic py-2">{t("kanban.noTasks")}</p>
             )}
           </div>
         );
