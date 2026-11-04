@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import crypto from "crypto";
+import { SignJWT } from "jose";
 import { db } from "@/lib/db";
+import { signApiToken } from "@/lib/auth";
+import { revokeUserAccess } from "@/lib/revokeUser";
 import { createTestUser, createTestProject, cleanupTestUser } from "@/test/helpers";
 import {
   verifySlackSignature,
@@ -145,12 +148,20 @@ describe("Slack Integration", () => {
       expect(res.text).toContain("Your Slack account is not linked to Open Project Manager");
     });
 
-    it("links a Slack user via /opm link <api-token>", async () => {
+    it("links a Slack user via /opm link with a real API token", async () => {
       const user = await db.user.findUnique({ where: { id: userId } });
+      const apiTokenRow = await db.apiToken.create({
+        data: { userId, name: "Slack Link Token" },
+      });
+      const realApiToken = await signApiToken(
+        { userId, email: user!.email, name: user!.name, tokenVersion: user!.tokenVersion },
+        apiTokenRow.id
+      );
+
       const res = await handleSlackSlashCommand({
         command: "/opm",
-        text: `link ${userToken}`,
-        user_id: "U_NEW_LINK",
+        text: `link ${realApiToken}`,
+        user_id: "U_REAL_API_TOKEN_USER",
       });
 
       expect(res.response_type).toBe("ephemeral");
@@ -159,12 +170,12 @@ describe("Slack Integration", () => {
       const who = await handleSlackSlashCommand({
         command: "/opm",
         text: "whoami",
-        user_id: "U_NEW_LINK",
+        user_id: "U_REAL_API_TOKEN_USER",
       });
       expect(who.text).toContain(user!.email);
     });
 
-    it("rejects linking via bare email or invalid token", async () => {
+    it("rejects linking via bare email, forged token, or token with invalid signature", async () => {
       const user = await db.user.findUnique({ where: { id: userId } });
       const bareEmailRes = await handleSlackSlashCommand({
         command: "/opm",
@@ -181,6 +192,67 @@ describe("Slack Integration", () => {
       });
       expect(invalidTokenRes.response_type).toBe("ephemeral");
       expect(invalidTokenRes.text).toContain("Invalid or expired API token");
+
+      // Forged JWT signed with a different key
+      const forgedSecret = new TextEncoder().encode("wrong-secret-key-forged-test-12345678");
+      const forgedToken = await new SignJWT({
+        userId,
+        email: user!.email,
+        name: user!.name,
+        tv: user!.tokenVersion,
+        aud: "opm:session",
+      })
+        .setProtectedHeader({ alg: "HS256" })
+        .setExpirationTime("1h")
+        .sign(forgedSecret);
+
+      const forgedRes = await handleSlackSlashCommand({
+        command: "/opm",
+        text: `link ${forgedToken}`,
+        user_id: "U_ATTACKER",
+      });
+      expect(forgedRes.response_type).toBe("ephemeral");
+      expect(forgedRes.text).toContain("Invalid or expired API token");
+    });
+
+    it("rejects token when user's tokenVersion was incremented (revoked)", async () => {
+      // User creates token, then tokenVersion is incremented
+      await db.user.update({
+        where: { id: userId },
+        data: { tokenVersion: { increment: 1 } },
+      });
+
+      const res = await handleSlackSlashCommand({
+        command: "/opm",
+        text: `link ${userToken}`,
+        user_id: "U_STALE_TV_USER",
+      });
+      expect(res.response_type).toBe("ephemeral");
+      expect(res.text).toContain("Invalid or expired API token");
+    });
+
+    it("ends Slack actions and severs link when revokeUserAccess is called", async () => {
+      await handleSlackSlashCommand({
+        command: "/opm",
+        text: `link ${userToken}`,
+        user_id: "U_REVOKE_TARGET",
+      });
+
+      const whoBefore = await handleSlackSlashCommand({
+        command: "/opm",
+        text: "whoami",
+        user_id: "U_REVOKE_TARGET",
+      });
+      expect(whoBefore.text).toContain("You are linked as");
+
+      await revokeUserAccess(userId);
+
+      const whoAfter = await handleSlackSlashCommand({
+        command: "/opm",
+        text: "whoami",
+        user_id: "U_REVOKE_TARGET",
+      });
+      expect(whoAfter.text).toContain("Your Slack account is not linked");
     });
 
     it("replaces existing link on re-link avoiding duplicate mappings", async () => {
@@ -361,6 +433,141 @@ describe("Slack Integration", () => {
 
       expect(res.response_type).toBe("ephemeral");
       expect(res.text).toContain("was not found");
+    });
+
+    it("prevents looking up a card in another user's project where caller has no membership", async () => {
+      const otherUser = await createTestUser(`slack-other-${Date.now()}`);
+      const otherProject = await createTestProject(otherUser.user.id, "Secret Project");
+      const otherCol = await db.column.create({
+        data: {
+          projectId: otherProject.id,
+          name: "Backlog",
+          group: "BACKLOG",
+          order: 1,
+        },
+      });
+      await db.card.create({
+        data: {
+          projectId: otherProject.id,
+          columnId: otherCol.id,
+          title: "Confidential Strategy",
+          number: 1,
+          order: 1000,
+        },
+      });
+
+      const res = await handleSlackSlashCommand({
+        command: "/opm",
+        text: `get ${otherProject.key}-1`,
+        user_id: "U_TEST_USER",
+      });
+
+      expect(res.response_type).toBe("ephemeral");
+      expect(res.text).toContain("was not found or you do not have permission to view it");
+
+      await cleanupTestUser(otherUser.user.id);
+    });
+
+    it("rejects invalid or overflow identifiers in /opm get without throwing", async () => {
+      const resOverflow = await handleSlackSlashCommand({
+        command: "/opm",
+        text: "get ENG-99999999999999999999",
+        user_id: "U_TEST_USER",
+      });
+      expect(resOverflow.response_type).toBe("ephemeral");
+      expect(resOverflow.text).toContain("Invalid card identifier format");
+
+      const resBad1 = await handleSlackSlashCommand({
+        command: "/opm",
+        text: "get ENG-2abc",
+        user_id: "U_TEST_USER",
+      });
+      expect(resBad1.response_type).toBe("ephemeral");
+      expect(resBad1.text).toContain("Invalid card identifier format");
+
+      const resBad2 = await handleSlackSlashCommand({
+        command: "/opm",
+        text: "get ENG-2-9",
+        user_id: "U_TEST_USER",
+      });
+      expect(resBad2.response_type).toBe("ephemeral");
+      expect(resBad2.text).toContain("Invalid card identifier format");
+    });
+
+    it("does not return archived cards in /opm get", async () => {
+      const col = await db.column.findFirst({ where: { projectId } });
+      const card = await db.card.create({
+        data: {
+          projectId,
+          columnId: col!.id,
+          title: "Archived Card",
+          number: 77,
+          order: 1000,
+          isArchived: true,
+        },
+      });
+
+      const res = await handleSlackSlashCommand({
+        command: "/opm",
+        text: `get ${projectKey}-${card.number}`,
+        user_id: "U_TEST_USER",
+      });
+
+      expect(res.response_type).toBe("ephemeral");
+      expect(res.text).toContain("was not found or you do not have permission to view it");
+    });
+
+    it("allows project ADMINs to create cards via /opm create and /opm new", async () => {
+      const adminRes = await createTestUser(`slack-admin-${Date.now()}`);
+      await db.projectMember.create({
+        data: {
+          projectId,
+          userId: adminRes.user.id,
+          role: "ADMIN",
+        },
+      });
+      await linkSlackUser("U_ADMIN", adminRes.user.id);
+
+      const resCreate = await handleSlackSlashCommand({
+        command: "/opm",
+        text: `create ${projectKey} Admin Created Card`,
+        user_id: "U_ADMIN",
+      });
+      expect(resCreate.response_type).toBe("in_channel");
+      expect(resCreate.text).toContain("Admin Created Card");
+
+      const resNew = await handleSlackSlashCommand({
+        command: "/opm",
+        text: "new Admin New Card",
+        user_id: "U_ADMIN",
+      });
+      expect(resNew.response_type).toBe("in_channel");
+      expect(resNew.text).toContain("Admin New Card");
+
+      await cleanupTestUser(adminRes.user.id);
+    });
+
+    it("includes project name in /opm get unfurl response", async () => {
+      const col = await db.column.findFirst({ where: { projectId } });
+      await db.card.create({
+        data: {
+          projectId,
+          columnId: col!.id,
+          title: "Unfurl Target Card",
+          number: 55,
+          order: 1000,
+        },
+      });
+
+      const res = await handleSlackSlashCommand({
+        command: "/opm",
+        text: `get ${projectKey}-55`,
+        user_id: "U_TEST_USER",
+      });
+
+      expect(res.response_type).toBe("ephemeral");
+      const blockText = (res.blocks?.[0] as any)?.text?.text;
+      expect(blockText).toContain("Slack App Test Project");
     });
   });
 });

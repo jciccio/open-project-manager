@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { db } from "@/lib/db";
-import { verifyBearerToken } from "@/lib/auth";
+import { authenticateBearerToken } from "@/lib/auth";
 import { createCard } from "@/lib/services/cards";
 import { verifyProjectAccess } from "@/lib/permissions";
 
@@ -99,6 +99,7 @@ export function formatCardUnfurl(card: {
   identifier: string;
   title: string;
   status: string;
+  projectName?: string;
   priority?: string | null;
   owner?: string | null;
   points?: number | null;
@@ -114,13 +115,17 @@ export function formatCardUnfurl(card: {
     ? card.url
     : `${getAppBaseUrl()}${card.url.startsWith("/") ? "" : "/"}${card.url}`;
 
+  const headerText = card.projectName
+    ? `*<${fullUrl}|${safeIdentifier}: ${safeTitle}>* in *${escapeSlackMrkdwn(card.projectName)}*`
+    : `*<${fullUrl}|${safeIdentifier}: ${safeTitle}>*`;
+
   return {
     blocks: [
       {
         type: "section",
         text: {
           type: "mrkdwn",
-          text: `*<${fullUrl}|${safeIdentifier}: ${safeTitle}>*`,
+          text: headerText,
         },
         fields: [
           { type: "mrkdwn", text: `*Status:*\n${escapeSlackMrkdwn(card.status)}` },
@@ -221,7 +226,7 @@ export async function handleSlackSlashCommand(params: {
       return { response_type: "ephemeral", text: "Missing Slack user ID." };
     }
 
-    const session = await verifyBearerToken(token);
+    const session = await authenticateBearerToken(token);
     if (!session) {
       return {
         response_type: "ephemeral",
@@ -299,21 +304,23 @@ export async function handleSlackSlashCommand(params: {
       };
     }
 
-    const identifier = parts[1].toUpperCase();
-    const [projectKey, numStr] = identifier.split("-");
-    const number = parseInt(numStr, 10);
-
-    if (!projectKey || Number.isNaN(number)) {
+    const match = parts[1].trim().toUpperCase().match(/^([A-Z0-9]+)-(\d{1,9})$/);
+    if (!match) {
       return {
         response_type: "ephemeral",
         text: `Invalid card identifier format "${parts[1]}". Expected format like "PROJ-12".`,
       };
     }
 
+    const projectKey = match[1];
+    const number = parseInt(match[2], 10);
+    const identifier = `${projectKey}-${number}`;
+
     // Scoped to projects accessible to the user
     const matchingCards = await db.card.findMany({
       where: {
         number,
+        isArchived: false,
         project: {
           key: projectKey,
           isArchived: false,
@@ -355,6 +362,7 @@ export async function handleSlackSlashCommand(params: {
       identifier,
       title: card.title,
       status: card.column.name,
+      projectName: card.project.name,
       priority: card.priority,
       owner: card.owner,
       points: card.points,
@@ -392,7 +400,7 @@ export async function handleSlackSlashCommand(params: {
         isArchived: false,
         OR: [
           { userId: opmUser.id },
-          { members: { some: { userId: opmUser.id, role: { in: ["OWNER", "MEMBER"] } } } },
+          { members: { some: { userId: opmUser.id, role: { in: ["OWNER", "ADMIN", "MEMBER"] } } } },
         ],
       },
       include: { columns: { orderBy: { order: "asc" } } },
@@ -474,9 +482,10 @@ export async function handleSlackSlashCommand(params: {
     const project = await db.project.findFirst({
       where: {
         isArchived: false,
+        columns: { some: {} },
         OR: [
           { userId: opmUser.id },
-          { members: { some: { userId: opmUser.id, role: { in: ["OWNER", "MEMBER"] } } } },
+          { members: { some: { userId: opmUser.id, role: { in: ["OWNER", "ADMIN", "MEMBER"] } } } },
         ],
       },
       orderBy: { createdAt: "asc" },

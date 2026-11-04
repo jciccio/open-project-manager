@@ -30,13 +30,21 @@ export async function POST(request: NextRequest) {
   const user_id = params.get("user_id") || undefined;
   const channel_id = params.get("channel_id") || undefined;
 
-  const result = await handleSlackSlashCommand({
-    command,
-    text,
-    user_name,
-    user_id,
-    channel_id,
-  });
+  try {
+    const result = await handleSlackSlashCommand({
+      command,
+      text,
+      user_name,
+      user_id,
+      channel_id,
+    });
 
-  return NextResponse.json(result);
+    return NextResponse.json(result);
+  } catch (err) {
+    console.error("Slack slash command error:", err);
+    return NextResponse.json(
+      { response_type: "ephemeral", text: "An error occurred while processing the Slack command." },
+      { status: 200 }
+    );
+  }
 }
