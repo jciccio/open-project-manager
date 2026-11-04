@@ -96,7 +96,7 @@ describe("activity rows commit or roll back with the change they record", () => 
   it("addComment stores no comment and sends no webhook when the activity write fails", async () => {
     const card = await createTestCard(projectId, columnId);
     activityWrites.fail = true;
-    const res = await addComment(card.id, "Me", "Hello", userId);
+    const res = await addComment(card.id, "Hello", userId);
     await flushWebhooks();
 
     expect(res.success).toBe(false);

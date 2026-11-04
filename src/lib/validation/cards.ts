@@ -15,7 +15,7 @@ const cardFields = {
   title: z.string().trim().min(1, "Card title is required").max(MAX_TITLE_LENGTH),
   description: z.string().max(MAX_DESCRIPTION_LENGTH).nullable(),
   priority: PrioritySchema,
-  points: z.number().nullable(),
+  points: z.number().int().nullable(),
   owner: z.string().max(200).nullable(),
   dueDate: DueDateSchema.nullable(),
   parentId: z.string().nullable(),

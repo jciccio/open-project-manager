@@ -30,6 +30,8 @@ import { parseColumnCreate, parseColumnUpdate } from "@/lib/validation/columns";
 import { CardCreateSchema, CardReorderSchema, CardUpdateSchema } from "@/lib/validation/cards";
 import { CardTypeCreateSchema, CardTypeUpdateSchema } from "@/lib/validation/cardTypes";
 import { parseInput } from "@/lib/validation/errors";
+import { ProjectNameSchema } from "@/lib/validation/projects";
+import { INVALID_LINK_URL_ERROR, SafeUrlSchema } from "@/lib/validation/safeUrl";
 import { SavedViewCreateSchema, SavedViewUpdateSchema } from "@/lib/validation/views";
 import { createCard, updateCard, validateReferencedIds } from "@/lib/services/cards";
 import type { z } from "zod";
@@ -52,6 +54,12 @@ function parseToolInput<T>(schema: z.ZodType<T>, args: Record<string, any>, enve
     Object.entries(args).filter(([key]) => !["id", "userId", ...envelopeKeys].includes(key))
   );
   const parsed = parseInput(schema, input);
+  if (!parsed.success) throw new Error(parsed.error);
+  return parsed.data;
+}
+
+function parseProjectName(value: unknown): string {
+  const parsed = parseInput(ProjectNameSchema, value);
   if (!parsed.success) throw new Error(parsed.error);
   return parsed.data;
 }
@@ -530,10 +538,9 @@ export const MCP_TOOLS = [
       type: "object",
       properties: {
         cardId: { type: "string", description: "Target card ID" },
-        author: { type: "string", description: "Name of the author" },
         content: { type: "string", description: "Comment body text" },
       },
-      required: ["cardId", "author", "content"],
+      required: ["cardId", "content"],
     },
     annotations: {
       readOnlyHint: false,
@@ -758,7 +765,6 @@ export const MCP_TOOLS = [
         filename: { type: "string", description: "Original filename" },
         contentBase64: { type: "string", description: "Base64-encoded file contents" },
         mimeType: { type: "string", description: "Optional MIME type (e.g. image/png, text/plain)" },
-        uploadedBy: { type: "string", description: "Optional uploader identifier" },
         userId: { type: "string", description: "Optional user ID scope" },
       },
       required: ["cardId", "filename", "contentBase64"],
@@ -948,7 +954,7 @@ export async function executeMcpTool(
     }
 
     case "create_project": {
-      const nameStr = args.name.trim();
+      const nameStr = parseProjectName(args.name);
       const projectKey = await generateProjectKey(nameStr, args.key, userId);
       const project = await db.project.create({
         data: {
@@ -981,7 +987,7 @@ export async function executeMcpTool(
       if (!existingProject || !(await verifyProjectAccess(existingProject.id, userId, "ADMIN"))) throw new Error(`Project with ID ${args.id} not found.`);
 
       const data: any = {};
-      if (args.name !== undefined) data.name = args.name.trim();
+      if (args.name !== undefined) data.name = parseProjectName(args.name);
       if (args.description !== undefined) data.description = args.description;
       if (args.color !== undefined) data.color = assertHexColor(args.color);
       if (args.isArchived !== undefined) data.isArchived = args.isArchived;
@@ -1356,26 +1362,24 @@ export async function executeMcpTool(
     }
 
     case "add_comment": {
-      const parentCard = await db.card.findUnique({ where: { id: args.cardId } });
-      if (!parentCard || !(await verifyProjectAccess(parentCard.projectId, userId, "MEMBER"))) throw new Error(`Card with ID ${args.cardId} not found.`);
-      const comment = await db.comment.create({
-        data: {
-          cardId: args.cardId,
-          author: args.author.trim(),
-          content: args.content.trim(),
-        },
-      });
-      return { success: true, comment };
+      if (!args.content || typeof args.content !== "string" || !args.content.trim()) {
+        throw new Error("Comment content cannot be empty.");
+      }
+      const { addComment } = await import("@/lib/services/comments");
+      const res = await addComment(args.cardId, args.content, userId);
+      if (!res.success) {
+        throw new Error(res.error || `Card with ID ${args.cardId} not found.`);
+      }
+      return { success: true, comment: res.data };
     }
 
     case "list_comments": {
-      const parentCard = await db.card.findUnique({ where: { id: args.cardId } });
-      if (!parentCard || !(await verifyProjectAccess(parentCard.projectId, userId, "VIEWER"))) throw new Error(`Card with ID ${args.cardId} not found.`);
-      const comments = await db.comment.findMany({
-        where: { cardId: args.cardId },
-        orderBy: { createdAt: "desc" },
-      });
-      return { success: true, comments };
+      const { listComments } = await import("@/lib/services/comments");
+      const res = await listComments(args.cardId, userId);
+      if (!res.success) {
+        throw new Error(res.error || `Card with ID ${args.cardId} not found.`);
+      }
+      return { success: true, comments: res.data };
     }
 
     case "list_card_activity": {
@@ -1567,7 +1571,7 @@ export async function executeMcpTool(
           filename: args.filename,
           contentBuffer: buffer,
           mimeType: args.mimeType,
-          uploadedBy: args.uploadedBy,
+          uploadedBy: userId,
         },
         userId
       );
@@ -1599,10 +1603,12 @@ export async function executeMcpTool(
     case "add_card_link": {
       const linkCard = await db.card.findUnique({ where: { id: args.cardId } });
       if (!linkCard || !(await verifyProjectAccess(linkCard.projectId, userId, "MEMBER"))) throw new Error(`Card with ID ${args.cardId} not found.`);
+      const parsedUrl = SafeUrlSchema.safeParse(args.url);
+      if (!parsedUrl.success) throw new Error(INVALID_LINK_URL_ERROR);
       const link = await db.cardLink.create({
         data: {
           cardId: args.cardId,
-          url: args.url,
+          url: parsedUrl.data,
           title: args.title || null,
         },
       });

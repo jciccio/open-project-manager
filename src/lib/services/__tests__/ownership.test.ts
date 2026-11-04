@@ -68,7 +68,7 @@ describe("Service layer: cross-user ownership rejection", () => {
   });
 
   it("blocks a comment update by a non-owner of its card's project", async () => {
-    const created = await commentsService.addComment(cardId, "Owner", "Original", ownerId);
+    const created = await commentsService.addComment(cardId, "Original", ownerId);
     const commentId = created.data!.id;
 
     const res = await commentsService.updateComment(commentId, "Hacked", intruderId);

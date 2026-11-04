@@ -130,7 +130,10 @@ export async function GET(request: NextRequest) {
     const includeOptions = {
       type: true,
       labels: { include: { label: true } },
-      comments: { orderBy: { createdAt: "asc" } },
+      comments: {
+        orderBy: { createdAt: "asc" as const },
+        include: { authorUser: { select: { id: true, name: true, email: true } } },
+      },
       assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
       parent: { select: { id: true, number: true, title: true } },
       children: { select: { id: true, number: true, title: true, completedAt: true } },

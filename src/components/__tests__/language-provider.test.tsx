@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, act } from "@testing-library/react";
 import { describe, it, expect, beforeEach } from "vitest";
 import { LanguageProvider, useTranslation } from "../LanguageProvider";
 
@@ -63,5 +63,47 @@ describe("LanguageProvider", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(screen.getByText("Single Sign-On")).toBeInTheDocument();
+  });
+
+  it("updates document.documentElement.lang whenever setLocale is invoked", async () => {
+    function Switcher() {
+      const { setLocale, locale } = useTranslation();
+      return <button onClick={() => setLocale(locale === "en" ? "es" : "en")}>Toggle</button>;
+    }
+
+    render(
+      <LanguageProvider initialLocale="en" localeFromCookie>
+        <Switcher />
+      </LanguageProvider>
+    );
+
+    expect(document.documentElement.lang).toBe("en");
+    act(() => {
+      screen.getByText("Toggle").click();
+    });
+    await waitFor(() => expect(document.documentElement.lang).toBe("es"));
+  });
+
+  it("handles dollar signs and parameter names in interpolation without corruption", () => {
+    function InterpolationTest() {
+      const { t } = useTranslation();
+      return (
+        <div>
+          <span data-testid="ampersand">{t("cardModal.events.title_changed", { title: "Budget $& plan" })}</span>
+          <span data-testid="dollars">{t("cardModal.events.title_changed", { title: "Save $$$" })}</span>
+          <span data-testid="nested-tokens">{t("cardModal.events.moved", { from: "{to}", to: "Done" })}</span>
+        </div>
+      );
+    }
+
+    render(
+      <LanguageProvider initialLocale="en" localeFromCookie>
+        <InterpolationTest />
+      </LanguageProvider>
+    );
+
+    expect(screen.getByTestId("ampersand").textContent).toBe('Title changed to "Budget $& plan"');
+    expect(screen.getByTestId("dollars").textContent).toBe('Title changed to "Save $$$"');
+    expect(screen.getByTestId("nested-tokens").textContent).toBe('Moved from "{to}" to "Done"');
   });
 });
