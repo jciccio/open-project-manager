@@ -89,11 +89,6 @@ export async function getProjectById(id: string, userId: string) {
                     label: true,
                   },
                 },
-                _count: {
-                  select: {
-                    comments: true,
-                  },
-                },
                 comments: {
                   orderBy: { createdAt: "desc" },
                 },

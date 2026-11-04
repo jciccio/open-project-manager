@@ -328,13 +328,7 @@ export async function updateCard(
 
     if (data.typeId !== undefined && data.typeId !== existingCard.typeId) {
       const newType = data.typeId ? await db.cardType.findUnique({ where: { id: data.typeId } }) : null;
-      if (existingCard.type && newType) {
-        logChange("type_changed", { fromValue: existingCard.type.name, toValue: newType.name });
-      } else if (newType) {
-        logChange("type_changed", { toValue: newType.name });
-      } else if (existingCard.type) {
-        logChange("type_removed", { fromValue: existingCard.type.name });
-      }
+      logChange("type_changed", { fromValue: existingCard.type?.name, toValue: newType?.name });
     }
 
     if (data.dueDate !== undefined) {

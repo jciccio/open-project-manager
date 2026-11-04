@@ -221,6 +221,7 @@ export default function CardDetailModal({
   const [comments, setComments] = useState<Props["card"]["comments"]>(card.comments || []);
   const [feedTab, setFeedTab] = useState<"comments" | "activity">("comments");
   const [isLoadingComments, setIsLoadingComments] = useState(false);
+  const [commentsError, setCommentsError] = useState<string | null>(null);
   const [isLoadingActivities, setIsLoadingActivities] = useState(false);
 
   const { t, locale } = useTranslation();
@@ -244,6 +245,7 @@ export default function CardDetailModal({
   useEffect(() => {
     setComments(card.comments || []);
     setActivities([]);
+    setCommentsError(null);
 
     async function fetchAttachments() {
       const res = await listAttachments(card.id);
@@ -253,11 +255,19 @@ export default function CardDetailModal({
     }
     async function fetchComments() {
       setIsLoadingComments(true);
-      const res = await listComments(card.id);
-      if (res.success && res.data) {
-        setComments(res.data);
+      setCommentsError(null);
+      try {
+        const res = await listComments(card.id);
+        if (res.success && res.data) {
+          setComments(res.data);
+        } else {
+          setCommentsError(res.error || "Failed to load comments.");
+        }
+      } catch (err: any) {
+        setCommentsError(err?.message || "Failed to load comments.");
+      } finally {
+        setIsLoadingComments(false);
       }
-      setIsLoadingComments(false);
     }
     fetchAttachments();
     fetchComments();
@@ -1363,7 +1373,7 @@ export default function CardDetailModal({
                   <MessageSquare className="h-3.5 w-3.5" />
                   <span>{t("cardModal.tabComments")}</span>
                   <span className="ml-1 rounded-full bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-700 dark:text-slate-300">
-                    {comments.length || (card as any)._count?.comments || 0}
+                    {isLoadingComments ? ((card as any)._count?.comments ?? comments.length) : comments.length}
                   </span>
                 </button>
                 <button
@@ -1422,6 +1432,10 @@ export default function CardDetailModal({
                   {isLoadingComments ? (
                     <p className="text-xs text-slate-400 italic text-center py-4">
                       Loading comments...
+                    </p>
+                  ) : commentsError ? (
+                    <p className="text-xs text-red-500 italic text-center py-2">
+                      {commentsError}
                     </p>
                   ) : comments.length > 0 ? (
                     comments.map((c) => (

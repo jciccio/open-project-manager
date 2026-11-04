@@ -86,7 +86,7 @@ describe("Project data fetching performance optimizations (Issue #105)", () => {
     expect(fullCard.activities.length).toBe(3);
   });
 
-  it("batches multiple activity updates in updateCard atomically", async () => {
+  it("batches multiple activity updates in updateCard", async () => {
     const cardRes = await createCard({
       projectId,
       columnId,
@@ -154,5 +154,16 @@ describe("Project data fetching performance optimizations (Issue #105)", () => {
     expect(card.comments.length).toBe(10);
     expect(card.comments[0].content).toBe("Comment 5");
     expect(card.comments[9].content).toBe("Comment 14");
+  });
+
+  it("denies access in getProjectBoard for a non-member on a private project", async () => {
+    const { user: stranger } = await createTestUser(`stranger-${Date.now()}`);
+    try {
+      const res = await getProjectBoard(projectId, stranger.id);
+      expect(res.success).toBe(false);
+      expect(res.error).toBe("Project not found or access denied");
+    } finally {
+      await cleanupTestUser(stranger.id);
+    }
   });
 });

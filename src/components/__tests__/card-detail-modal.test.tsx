@@ -4,7 +4,7 @@ import CardDetailModal from "../CardDetailModal";
 import { LanguageProvider } from "../LanguageProvider";
 import { ThemeProvider } from "../ThemeProvider";
 import { updateCard, addCardLink } from "@/actions/cards";
-import { addComment } from "@/actions/comments";
+import { addComment, listComments } from "@/actions/comments";
 
 vi.mock("@/actions/cards", () => ({
   updateCard: vi.fn(async () => ({ success: true, data: {} })),
@@ -186,5 +186,33 @@ describe("CardDetailModal", () => {
     expect(payload.description).toBeNull();
     expect(payload.owner).toBeNull();
     expect(payload.dueDate).toBeNull();
+  });
+
+  it("renders loaded comments and updates comment badge", async () => {
+    vi.mocked(listComments).mockResolvedValueOnce({
+      success: true,
+      data: [
+        { id: "c1", author: "Bob", content: "Loaded comment 1", createdAt: new Date().toISOString() },
+      ],
+    } as never);
+
+    const card = buildCard({ _count: { comments: 1 } });
+    renderWithProviders(<CardDetailModal card={card} columns={columns} onClose={vi.fn()} onRefresh={vi.fn()} />);
+
+    expect(await screen.findByText("Loaded comment 1")).toBeInTheDocument();
+  });
+
+  it("handles comment loading error gracefully", async () => {
+    vi.mocked(listComments).mockResolvedValueOnce({
+      success: false,
+      error: "Failed to fetch comments from server",
+    } as never);
+
+    const card = buildCard({ _count: { comments: 3 } });
+    renderWithProviders(<CardDetailModal card={card} columns={columns} onClose={vi.fn()} onRefresh={vi.fn()} />);
+
+    expect(await screen.findByText("Failed to fetch comments from server")).toBeInTheDocument();
+    expect(screen.queryByText("Loading comments...")).not.toBeInTheDocument();
+    expect(screen.queryByText("No comments yet.")).not.toBeInTheDocument();
   });
 });
