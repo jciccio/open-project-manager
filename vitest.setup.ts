@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-import { vi } from 'vitest';
+import { vi, beforeEach } from 'vitest';
 
 // Fix dual Uint8Array/TextEncoder prototype mismatch between JSDOM and Node for jose library
 if (typeof Uint8Array !== 'undefined') {
@@ -80,6 +80,10 @@ vi.mock('next/navigation', () => ({
 }));
 
 const cookieStore = new Map<string, string>();
+
+beforeEach(() => {
+  resetMockCookies();
+});
 
 vi.mock('next/headers', () => ({
   cookies: async () => ({

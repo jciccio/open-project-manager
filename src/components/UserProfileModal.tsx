@@ -70,6 +70,8 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
     linkingDisablesPassword: boolean;
   } | null>(null);
 
+  const [currentTime] = useState(() => Date.now());
+
   const { t, locale } = useTranslation();
   const router = useRouter();
 
@@ -483,7 +485,7 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
                           {t("profileModal.createdLabel")} {formatDate(token.createdAt, locale)}
                           {" · "}
                           {token.expiresAt ? (
-                            new Date(token.expiresAt).getTime() < Date.now() ? (
+                            new Date(token.expiresAt).getTime() < currentTime ? (
                               <span className="text-red-500 font-semibold">
                                 {t("profileModal.expired")} ({formatDate(token.expiresAt, locale)})
                               </span>
