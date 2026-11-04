@@ -7,7 +7,7 @@ import { DEFAULT_PROJECT_COLUMNS } from "@/lib/columnGroups";
 import { triggerWebhooks } from "@/lib/webhooks";
 import { generateProjectKey } from "@/lib/projectKey";
 import { parseInput } from "@/lib/validation/errors";
-import { ProjectNameSchema } from "@/lib/validation/projects";
+import { ProjectNameSchema, ProjectVisibilitySchema } from "@/lib/validation/projects";
 import { getProjectAccess } from "@/lib/permissions";
 import { isHexColor, INVALID_COLOR_ERROR } from "@/lib/colors";
 
@@ -188,6 +188,10 @@ export async function createProject(
     if (data.color !== undefined && !isHexColor(data.color)) {
       return { success: false, error: INVALID_COLOR_ERROR };
     }
+    const visibility = parseInput(ProjectVisibilitySchema, data.visibility ?? "PRIVATE");
+    if (!visibility.success) {
+      return { success: false, error: visibility.error };
+    }
 
     const projectKey = await generateProjectKey(name.data, data.key, userId);
 
@@ -198,7 +202,7 @@ export async function createProject(
         key: projectKey,
         description: data.description,
         color: data.color || "#6366f1",
-        visibility: data.visibility || "PRIVATE",
+        visibility: visibility.data,
         columns: {
           create: DEFAULT_PROJECT_COLUMNS.map((column) => ({ ...column })),
         },
@@ -248,6 +252,10 @@ export async function updateProject(
     if (data.color !== undefined && !isHexColor(data.color)) {
       return { success: false, error: INVALID_COLOR_ERROR };
     }
+    const visibility = data.visibility === undefined ? undefined : parseInput(ProjectVisibilitySchema, data.visibility);
+    if (visibility && !visibility.success) {
+      return { success: false, error: visibility.error };
+    }
 
     const access = await getProjectAccess(id, userId, "ADMIN");
     if (!access.hasAccess) {
@@ -264,6 +272,7 @@ export async function updateProject(
         name: name?.data,
         description: data.description,
         color: data.color,
+        visibility: visibility?.data,
       },
     });
 
