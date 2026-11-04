@@ -72,6 +72,41 @@ describe("MCP tool input validation", () => {
     ).rejects.toThrow(/^items\.0\.order: /);
   });
 
+  it("create_card and update_card reject fractional points", async () => {
+    await expect(
+      executeMcpTool("create_card", { projectId, columnId, title: "Card", points: 1.5 }, { userId })
+    ).rejects.toThrow(/^points: /);
+
+    const card = await createTestCard(projectId, columnId);
+    await expect(executeMcpTool("update_card", { id: card.id, points: 1.5 }, { userId })).rejects.toThrow(/^points: /);
+  });
+
+  it("add_card_link refuses a javascript: URL and stores nothing", async () => {
+    const card = await createTestCard(projectId, columnId);
+    await expect(
+      executeMcpTool("add_card_link", { cardId: card.id, url: "javascript:alert(1)" }, { userId })
+    ).rejects.toThrow("Link URL must be");
+    await expect(executeMcpTool("add_card_link", { cardId: card.id, url: 42 }, { userId })).rejects.toThrow(
+      "Link URL must be"
+    );
+    expect(await db.cardLink.count({ where: { cardId: card.id } })).toBe(0);
+
+    const res = await executeMcpTool("add_card_link", { cardId: card.id, url: "https://example.com" }, { userId });
+    expect(res.success).toBe(true);
+  });
+
+  it("create_project and update_project reject a non-string or blank name", async () => {
+    await expect(executeMcpTool("create_project", { name: 42 }, { userId })).rejects.toThrow("Project name is required");
+    await expect(executeMcpTool("create_project", { name: "  " }, { userId })).rejects.toThrow(
+      "Project name is required"
+    );
+
+    await expect(executeMcpTool("update_project", { id: projectId, name: 42 }, { userId })).rejects.toThrow(
+      "Project name is required"
+    );
+    expect((await db.project.findUnique({ where: { id: projectId } }))!.name).toBe("MCP Validation");
+  });
+
   it("create_card_type and update_card_type reject a bad color and an over-long name", async () => {
     await expect(
       executeMcpTool("create_card_type", { projectId, name: "Story", color: "#12345" }, { userId })

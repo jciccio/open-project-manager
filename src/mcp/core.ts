@@ -30,6 +30,8 @@ import { parseColumnCreate, parseColumnUpdate } from "@/lib/validation/columns";
 import { CardCreateSchema, CardReorderSchema, CardUpdateSchema } from "@/lib/validation/cards";
 import { CardTypeCreateSchema, CardTypeUpdateSchema } from "@/lib/validation/cardTypes";
 import { parseInput } from "@/lib/validation/errors";
+import { ProjectNameSchema } from "@/lib/validation/projects";
+import { INVALID_LINK_URL_ERROR, SafeUrlSchema } from "@/lib/validation/safeUrl";
 import { SavedViewCreateSchema, SavedViewUpdateSchema } from "@/lib/validation/views";
 import { validateReferencedIds } from "@/lib/services/cards";
 import type { z } from "zod";
@@ -51,6 +53,12 @@ function parseToolInput<T>(schema: z.ZodType<T>, args: Record<string, any>, enve
     Object.entries(args).filter(([key]) => !["id", "userId", ...envelopeKeys].includes(key))
   );
   const parsed = parseInput(schema, input);
+  if (!parsed.success) throw new Error(parsed.error);
+  return parsed.data;
+}
+
+function parseProjectName(value: unknown): string {
+  const parsed = parseInput(ProjectNameSchema, value);
   if (!parsed.success) throw new Error(parsed.error);
   return parsed.data;
 }
@@ -863,7 +871,7 @@ export async function executeMcpTool(
     }
 
     case "create_project": {
-      const nameStr = args.name.trim();
+      const nameStr = parseProjectName(args.name);
       const projectKey = await generateProjectKey(nameStr, args.key, userId);
       const project = await db.project.create({
         data: {
@@ -896,7 +904,7 @@ export async function executeMcpTool(
       if (!existingProject || !(await verifyProjectAccess(existingProject.id, userId, "ADMIN"))) throw new Error(`Project with ID ${args.id} not found.`);
 
       const data: any = {};
-      if (args.name !== undefined) data.name = args.name.trim();
+      if (args.name !== undefined) data.name = parseProjectName(args.name);
       if (args.description !== undefined) data.description = args.description;
       if (args.color !== undefined) data.color = assertHexColor(args.color);
       if (args.isArchived !== undefined) data.isArchived = args.isArchived;
@@ -1592,10 +1600,12 @@ export async function executeMcpTool(
     case "add_card_link": {
       const linkCard = await db.card.findUnique({ where: { id: args.cardId } });
       if (!linkCard || !(await verifyProjectAccess(linkCard.projectId, userId, "MEMBER"))) throw new Error(`Card with ID ${args.cardId} not found.`);
+      const parsedUrl = SafeUrlSchema.safeParse(args.url);
+      if (!parsedUrl.success) throw new Error(INVALID_LINK_URL_ERROR);
       const link = await db.cardLink.create({
         data: {
           cardId: args.cardId,
-          url: args.url,
+          url: parsedUrl.data,
           title: args.title || null,
         },
       });

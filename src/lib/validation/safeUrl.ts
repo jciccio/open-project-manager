@@ -4,6 +4,8 @@ const ALLOWED_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
 
 export const MAX_URL_LENGTH = 2048;
 
+export const INVALID_LINK_URL_ERROR = "Link URL must be a valid http, https or mailto URL";
+
 export function isSafeUrl(value: string): boolean {
   try {
     return ALLOWED_PROTOCOLS.has(new URL(value).protocol);
