@@ -176,6 +176,158 @@ export async function getProjectById(id: string, userId: string) {
   }
 }
 
+export async function getProjectBoard(id: string, userId: string) {
+  try {
+    const access = await getProjectAccess(id, userId, "VIEWER");
+    if (!access.hasAccess) {
+      return { success: false, error: "Project not found or access denied" };
+    }
+
+    const project = await db.project.findUnique({
+      where: { id },
+      include: {
+        members: {
+          include: {
+            user: { select: { id: true, name: true, email: true } },
+          },
+          orderBy: { createdAt: "asc" },
+        },
+        savedViews: {
+          orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
+        },
+        cardTypes: {
+          orderBy: { name: "asc" },
+        },
+        columns: {
+          orderBy: { order: "asc" },
+          include: {
+            cards: {
+              where: { isArchived: false },
+              orderBy: { order: "asc" },
+              include: {
+                type: true,
+                labels: {
+                  include: {
+                    label: true,
+                  },
+                },
+                _count: {
+                  select: {
+                    comments: true,
+                  },
+                },
+                links: true,
+                activities: {
+                  where: { type: "moved" },
+                  select: { id: true, type: true, fromValue: true, toValue: true, createdAt: true },
+                },
+                assignees: {
+                  include: { user: { select: { id: true, name: true, email: true } } },
+                },
+                incomingRelations: {
+                  include: {
+                    sourceCard: {
+                      select: {
+                        id: true,
+                        number: true,
+                        title: true,
+                        columnId: true,
+                        column: {
+                          select: {
+                            id: true,
+                            name: true,
+                            isDone: true,
+                            group: true,
+                          },
+                        },
+                        project: {
+                          select: {
+                            id: true,
+                            key: true,
+                            name: true,
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+                outgoingRelations: {
+                  include: {
+                    targetCard: {
+                      select: {
+                        id: true,
+                        number: true,
+                        title: true,
+                        columnId: true,
+                        column: {
+                          select: {
+                            id: true,
+                            name: true,
+                            isDone: true,
+                            group: true,
+                          },
+                        },
+                        project: {
+                          select: {
+                            id: true,
+                            key: true,
+                            name: true,
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+                parent: {
+                  select: {
+                    id: true,
+                    number: true,
+                    title: true,
+                    columnId: true,
+                  },
+                },
+                children: {
+                  where: { isArchived: false },
+                  orderBy: { order: "asc" },
+                  select: {
+                    id: true,
+                    number: true,
+                    title: true,
+                    dueDate: true,
+                    completedAt: true,
+                    columnId: true,
+                    column: {
+                      select: {
+                        id: true,
+                        name: true,
+                        isDone: true,
+                      },
+                    },
+                    assignees: {
+                      include: {
+                        user: { select: { id: true, name: true, email: true } },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!project) {
+      return { success: false, error: "Project not found or access denied" };
+    }
+
+    return { success: true, data: { ...project, currentUserRole: access.role } };
+  } catch (error) {
+    console.error(`Error fetching project board ${id}:`, error);
+    return { success: false, error: "Failed to fetch project board details" };
+  }
+}
+
 export async function createProject(
   data: { name: string; description?: string; color?: string; key?: string; visibility?: string },
   userId: string

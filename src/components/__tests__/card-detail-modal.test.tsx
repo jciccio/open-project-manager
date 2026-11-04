@@ -4,7 +4,7 @@ import CardDetailModal from "../CardDetailModal";
 import { LanguageProvider } from "../LanguageProvider";
 import { ThemeProvider } from "../ThemeProvider";
 import { updateCard, addCardLink } from "@/actions/cards";
-import { addComment } from "@/actions/comments";
+import { addComment, listComments } from "@/actions/comments";
 
 vi.mock("@/actions/cards", () => ({
   updateCard: vi.fn(async () => ({ success: true, data: {} })),
@@ -26,6 +26,7 @@ vi.mock("@/actions/comments", () => ({
   })),
   updateComment: vi.fn(async () => ({ success: true, data: {} })),
   deleteComment: vi.fn(async () => ({ success: true })),
+  listComments: vi.fn(async () => ({ success: true, data: [] })),
 }));
 
 vi.mock("@/actions/activity", () => ({
@@ -187,25 +188,60 @@ describe("CardDetailModal", () => {
     expect(payload.dueDate).toBeNull();
   });
 
-  it("does not render a free-text author input and displays authorUser name", () => {
+  it("renders loaded comments and updates comment badge", async () => {
+    vi.mocked(listComments).mockResolvedValueOnce({
+      success: true,
+      data: [
+        { id: "c1", author: "Bob", content: "Loaded comment 1", createdAt: new Date().toISOString() },
+      ],
+    } as never);
+
+    const card = buildCard({ _count: { comments: 1 } });
+    renderWithProviders(<CardDetailModal card={card} columns={columns} onClose={vi.fn()} onRefresh={vi.fn()} />);
+
+    expect(await screen.findByText("Loaded comment 1")).toBeInTheDocument();
+  });
+
+  it("handles comment loading error gracefully", async () => {
+    vi.mocked(listComments).mockResolvedValueOnce({
+      success: false,
+      error: "Failed to fetch comments from server",
+    } as never);
+
+    const card = buildCard({ _count: { comments: 3 } });
+    renderWithProviders(<CardDetailModal card={card} columns={columns} onClose={vi.fn()} onRefresh={vi.fn()} />);
+
+    expect(await screen.findByText("Failed to fetch comments from server")).toBeInTheDocument();
+    expect(screen.queryByText("Loading comments...")).not.toBeInTheDocument();
+    expect(screen.queryByText("No comments yet.")).not.toBeInTheDocument();
+  });
+
+  it("does not render a free-text author input and displays authorUser name", async () => {
+    const commentsData = [
+      {
+        id: "c-modern",
+        author: "Legacy Name",
+        authorUser: { id: "u1", name: "Verified User", email: "v@example.com" },
+        content: "Comment with FK",
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: "c-legacy",
+        author: "Old Author",
+        authorUser: null,
+        content: "Legacy comment",
+        createdAt: new Date().toISOString(),
+      },
+    ];
+
+    vi.mocked(listComments).mockResolvedValueOnce({
+      success: true,
+      data: commentsData,
+    } as never);
+
     const card = {
       ...buildCard(),
-      comments: [
-        {
-          id: "c-modern",
-          author: "Legacy Name",
-          authorUser: { id: "u1", name: "Verified User", email: "v@example.com" },
-          content: "Comment with FK",
-          createdAt: new Date().toISOString(),
-        },
-        {
-          id: "c-legacy",
-          author: "Old Author",
-          authorUser: null,
-          content: "Legacy comment",
-          createdAt: new Date().toISOString(),
-        },
-      ],
+      comments: commentsData,
     };
 
     renderWithProviders(
@@ -217,7 +253,7 @@ describe("CardDetailModal", () => {
     expect(screen.getByPlaceholderText("Write a comment...")).toBeInTheDocument();
 
     // Verify attribution display
-    expect(screen.getByText("Verified User")).toBeInTheDocument();
-    expect(screen.getByText("Old Author")).toBeInTheDocument();
+    expect(await screen.findByText("Verified User")).toBeInTheDocument();
+    expect(await screen.findByText("Old Author")).toBeInTheDocument();
   });
 });

@@ -28,8 +28,7 @@ import {
   Unlink,
 } from "lucide-react";
 import { createCard, updateCard, deleteCard, archiveCard, getCardByIdentifier, addCardLink, removeCardLink } from "@/actions/cards";
-import { getProjectById } from "@/actions/projects";
-import { addComment, updateComment, deleteComment } from "@/actions/comments";
+import { addComment, updateComment, deleteComment, listComments } from "@/actions/comments";
 import { getCardActivity } from "@/actions/activity";
 import { uploadAttachment, listAttachments, deleteAttachment } from "@/actions/attachments";
 import { getLabels } from "@/actions/labels";
@@ -125,7 +124,10 @@ interface Props {
     id: string;
     name: string;
     isDone?: boolean;
+    cards?: Array<any>;
   }>;
+  projectKey?: string;
+  cardTypes?: Array<any>;
   members?: Array<{
     id?: string;
     userId: string;
@@ -140,6 +142,8 @@ interface Props {
 export default function CardDetailModal({
   card,
   columns,
+  projectKey,
+  cardTypes,
   members,
   onClose,
   onRefresh,
@@ -187,7 +191,7 @@ export default function CardDetailModal({
 
   const [relations, setRelations] = useState<Array<any>>([]);
   const [projectCards, setProjectCards] = useState<
-    Array<{ id: string; identifier: string; title: string }>
+    Array<{ id: string; identifier?: string; title: string }>
   >([]);
   const [selectedProjectCardId, setSelectedProjectCardId] = useState("");
   const [targetIdentifierInput, setTargetIdentifierInput] = useState("");
@@ -214,9 +218,11 @@ export default function CardDetailModal({
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
 
-  const [activities, setActivities] = useState<Array<any>>(card.activities || []);
+  const [activities, setActivities] = useState<Array<any>>([]);
   const [comments, setComments] = useState<Props["card"]["comments"]>(card.comments || []);
   const [feedTab, setFeedTab] = useState<"comments" | "activity">("comments");
+  const [isLoadingComments, setIsLoadingComments] = useState(false);
+  const [commentsError, setCommentsError] = useState<string | null>(null);
   const [isLoadingActivities, setIsLoadingActivities] = useState(false);
 
   const { t, locale } = useTranslation();
@@ -238,13 +244,34 @@ export default function CardDetailModal({
   }, [card.id]);
 
   useEffect(() => {
+    setComments(card.comments || []);
+    setActivities([]);
+    setCommentsError(null);
+
     async function fetchAttachments() {
       const res = await listAttachments(card.id);
       if (res.success && res.data) {
         setAttachments(res.data);
       }
     }
+    async function fetchComments() {
+      setIsLoadingComments(true);
+      setCommentsError(null);
+      try {
+        const res = await listComments(card.id);
+        if (res.success && res.data) {
+          setComments(res.data);
+        } else {
+          setCommentsError(res.error || "Failed to load comments.");
+        }
+      } catch (err: any) {
+        setCommentsError(err?.message || "Failed to load comments.");
+      } finally {
+        setIsLoadingComments(false);
+      }
+    }
     fetchAttachments();
+    fetchComments();
     loadActivities();
   }, [card.id, loadActivities]);
 
@@ -304,25 +331,26 @@ export default function CardDetailModal({
       }
     }
     async function loadCardTypes() {
+      if (cardTypes && cardTypes.length > 0) {
+        setAvailableCardTypes(cardTypes);
+        return;
+      }
       const res = await getCardTypes(card.projectId);
       if (res.success && res.data) {
         setAvailableCardTypes(res.data);
       }
     }
-    async function loadProjectCards() {
-      const pRes = await getProjectById(card.projectId);
-      if (pRes.success && pRes.data && pRes.data.columns) {
-        const key = pRes.data.key;
-        const allCards = pRes.data.columns.flatMap((col: any) => col.cards || []);
-        const otherCards = allCards
-          .filter((c: any) => c.id !== card.id)
-          .map((c: any) => ({
-            id: c.id,
-            identifier: `${key}-${c.number}`,
-            title: c.title,
-          }));
-        setProjectCards(otherCards);
-      }
+    function loadProjectCards() {
+      const allCards = (columns as any[]).flatMap((col: any) => col.cards || []);
+      const key = projectKey || (card as any).project?.key;
+      const otherCards = allCards
+        .filter((c: any) => c.id !== card.id)
+        .map((c: any) => ({
+          id: c.id,
+          identifier: key && c.number ? `${key}-${c.number}` : undefined,
+          title: c.title,
+        }));
+      setProjectCards(otherCards);
     }
 
     loadLabels();
@@ -1108,7 +1136,7 @@ export default function CardDetailModal({
                     <option value="">-- {t("cardModal.selectCardPlaceholder")} --</option>
                     {projectCards.map((pc) => (
                       <option key={pc.id} value={pc.id}>
-                        [{pc.identifier}] {pc.title}
+                        {pc.identifier ? `[${pc.identifier}] ` : ""}{pc.title}
                       </option>
                     ))}
                   </select>
@@ -1358,7 +1386,7 @@ export default function CardDetailModal({
                   <MessageSquare className="h-3.5 w-3.5" />
                   <span>{t("cardModal.tabComments")}</span>
                   <span className="ml-1 rounded-full bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-700 dark:text-slate-300">
-                    {comments.length}
+                    {isLoadingComments ? ((card as any)._count?.comments ?? comments.length) : comments.length}
                   </span>
                 </button>
                 <button
@@ -1403,7 +1431,15 @@ export default function CardDetailModal({
 
                 {/* Comments List */}
                 <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                  {comments.length > 0 ? (
+                  {isLoadingComments ? (
+                    <p className="text-xs text-slate-400 italic text-center py-4">
+                      Loading comments...
+                    </p>
+                  ) : commentsError ? (
+                    <p className="text-xs text-red-500 italic text-center py-2">
+                      {commentsError}
+                    </p>
+                  ) : comments.length > 0 ? (
                     comments.map((c) => (
                       <div
                         key={c.id}
