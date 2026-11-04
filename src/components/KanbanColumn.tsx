@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Plus, Trash2, Layers, ChevronLeft, ChevronRight, Pencil } from "lucide-react";
 import TaskCard from "./TaskCard";
 import { createCard } from "@/actions/cards";
@@ -25,7 +25,12 @@ interface Props {
   onCardClick: (card: any) => void;
   onRefresh: () => void;
   onDragStartCard: (e: React.DragEvent, cardId: string, sourceColumnId: string) => void;
-  onDropCard: (e: React.DragEvent, targetColumnId: string) => void;
+  onDropCard: (
+    e: React.DragEvent,
+    targetColumnId: string,
+    targetCardId?: string,
+    position?: "before" | "after"
+  ) => void;
   canMoveLeft?: boolean;
   canMoveRight?: boolean;
   onMoveLeft?: () => void;
@@ -49,6 +54,9 @@ export default function KanbanColumn({
   const [newPoints, setNewPoints] = useState<number | "">("");
   const [newOwner, setNewOwner] = useState("");
   const [isHoveredOver, setIsHoveredOver] = useState(false);
+  const dragCounter = useRef(0);
+  const [dragOverCardId, setDragOverCardId] = useState<string | null>(null);
+  const [dropPosition, setDropPosition] = useState<"before" | "after">("before");
   const [loading, setLoading] = useState(false);
   const [deletingColumn, setDeletingColumn] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -96,32 +104,75 @@ export default function KanbanColumn({
       if (res.success) {
         onRefresh();
       } else {
-        setError(res.error || "Failed to delete column.");
+        setError(res.error || t("kanban.deleteColumnFailed"));
       }
     } catch {
-      setError("Failed to delete column.");
+      setError(t("kanban.deleteColumnFailed"));
     } finally {
       setDeletingColumn(false);
     }
   }
 
-  function handleDragOver(e: React.DragEvent) {
+  function handleDragEnter(e: React.DragEvent) {
     e.preventDefault();
+    dragCounter.current += 1;
     setIsHoveredOver(true);
   }
 
-  function handleDragLeave() {
-    setIsHoveredOver(false);
+  function handleDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    if (!isHoveredOver) {
+      setIsHoveredOver(true);
+    }
+  }
+
+  function handleDragLeave(e: React.DragEvent) {
+    dragCounter.current -= 1;
+    if (dragCounter.current <= 0 || (e.relatedTarget && !e.currentTarget.contains(e.relatedTarget as Node))) {
+      dragCounter.current = 0;
+      setIsHoveredOver(false);
+      setDragOverCardId(null);
+    }
   }
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
+    dragCounter.current = 0;
     setIsHoveredOver(false);
+    setDragOverCardId(null);
     onDropCard(e, column.id);
+  }
+
+  function handleCardDragOver(e: React.DragEvent, cardId: string) {
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const isAfter = e.clientY - rect.top > rect.height / 2;
+    setDragOverCardId(cardId);
+    setDropPosition(isAfter ? "after" : "before");
+  }
+
+  function handleCardDragLeave(e: React.DragEvent) {
+    if (e.relatedTarget && !e.currentTarget.contains(e.relatedTarget as Node)) {
+      setDragOverCardId(null);
+    }
+  }
+
+  function handleCardDrop(e: React.DragEvent, targetCardId: string) {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current = 0;
+    setIsHoveredOver(false);
+    const rect = e.currentTarget.getBoundingClientRect();
+    const isAfter = rect && rect.height > 0 ? e.clientY - rect.top > rect.height / 2 : dropPosition === "after";
+    const pos = isAfter ? "after" : "before";
+    setDragOverCardId(null);
+    onDropCard(e, column.id, targetCardId, pos);
   }
 
   return (
     <div
+      onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -190,7 +241,7 @@ export default function KanbanColumn({
             onClick={handleDeleteColumn}
             disabled={deletingColumn}
             className="rounded-lg p-1 text-slate-500 hover:bg-red-500/10 hover:text-red-500 transition-colors disabled:opacity-50"
-            title="Delete column"
+            title={t("kanban.deleteColumnTooltip")}
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>
@@ -213,15 +264,28 @@ export default function KanbanColumn({
       {/* Cards List */}
       <div className="flex-1 space-y-3 min-h-[150px] overflow-y-auto pr-0.5">
         {column.cards && column.cards.length > 0 ? (
-          column.cards.map((card) => (
-            <div
-              key={card.id}
-              draggable
-              onDragStart={(e) => onDragStartCard(e, card.id, column.id)}
-            >
-              <TaskCard card={card} onClick={() => onCardClick(card)} />
-            </div>
-          ))
+          column.cards.map((card) => {
+            const isTarget = dragOverCardId === card.id;
+            return (
+              <div
+                key={card.id}
+                draggable
+                onDragStart={(e) => onDragStartCard(e, card.id, column.id)}
+                onDragOver={(e) => handleCardDragOver(e, card.id)}
+                onDragLeave={handleCardDragLeave}
+                onDrop={(e) => handleCardDrop(e, card.id)}
+                className={`relative transition-all rounded-xl ${
+                  isTarget
+                    ? dropPosition === "before"
+                      ? "border-t-2 border-indigo-500 pt-1"
+                      : "border-b-2 border-indigo-500 pb-1"
+                    : ""
+                }`}
+              >
+                <TaskCard card={card} onClick={() => onCardClick(card)} />
+              </div>
+            );
+          })
         ) : (
           <div className="flex h-32 flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 dark:border-slate-800 p-4 text-center">
             <Layers className="h-6 w-6 text-slate-400 dark:text-slate-600 mb-1.5" />
@@ -248,16 +312,16 @@ export default function KanbanColumn({
               onChange={(e) => setNewPriority(e.target.value)}
               className="flex-1 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2 py-1 text-[11px] text-slate-900 dark:text-white focus:outline-none"
             >
-              <option value="NONE">None</option>
-              <option value="LOW">Low</option>
-              <option value="MEDIUM">Medium</option>
-              <option value="HIGH">High</option>
-              <option value="URGENT">Urgent</option>
+              <option value="NONE">{t("cardModal.priorityNone")}</option>
+              <option value="LOW">{t("cardModal.priorityLow")}</option>
+              <option value="MEDIUM">{t("cardModal.priorityMedium")}</option>
+              <option value="HIGH">{t("cardModal.priorityHigh")}</option>
+              <option value="URGENT">{t("cardModal.priorityUrgent")}</option>
             </select>
 
             <input
               type="number"
-              placeholder="Pts"
+              placeholder={t("kanban.pts")}
               value={newPoints}
               onChange={(e) => setNewPoints(e.target.value === "" ? "" : Number(e.target.value))}
               className="w-16 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2 py-1 text-[11px] text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none"

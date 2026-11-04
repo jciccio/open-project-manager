@@ -9,10 +9,9 @@ interface Props {
   user: any;
   projects: any[];
   stats?: Record<string, ProjectStats>;
-  archivedCount: number;
 }
 
-export default function DashboardClient({ user, projects, stats, archivedCount }: Props) {
+export default function DashboardClient({ user, projects, stats }: Props) {
   const { t } = useTranslation();
   const totalCards = projects.reduce((acc, p) => acc + (stats?.[p.id]?.total ?? p._count?.cards ?? 0), 0);
   const workspaceTotals = stats
@@ -39,7 +38,7 @@ export default function DashboardClient({ user, projects, stats, archivedCount }
               <span>{t("dashboard.tagline")}</span>
             </div>
             <h1 className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-              {t("dashboard.welcome")}, {user?.name || "User"} 👋
+              {t("dashboard.welcome")}, {user?.name || t("dashboard.defaultUser")} 👋
             </h1>
             <p className="text-sm text-slate-600 dark:text-slate-400 mt-1 max-w-xl">
               {t("dashboard.subheading")}

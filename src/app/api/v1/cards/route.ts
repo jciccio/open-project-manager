@@ -95,6 +95,7 @@ export async function GET(request: NextRequest) {
         comments: {
           take: 10,
           orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          include: { authorUser: { select: { id: true, name: true, email: true } } },
         },
         assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
         parent: { select: { id: true, number: true, title: true } },

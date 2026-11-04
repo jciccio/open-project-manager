@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
-import { createSession, destroySession, getSession, signApiToken } from "@/lib/auth";
+import { API_TOKEN_DURATION, createSession, destroySession, getSession, signApiToken } from "@/lib/auth";
 import bcrypt from "bcryptjs";
 import { getClientIp } from "@/lib/clientIp";
 import { checkLoginRateLimit, recordLoginFailure, recordLoginSuccess } from "@/lib/loginRateLimit";
@@ -259,7 +259,10 @@ export async function listApiTokens() {
   }
 }
 
-export async function createApiToken(name: string) {
+export async function createApiToken(
+  name: string,
+  expiresInDays?: number | string | null
+) {
   try {
     const session = await getSession();
     if (!session) {
@@ -271,11 +274,26 @@ export async function createApiToken(name: string) {
       return { success: false, error: "Token name is required." };
     }
 
+    const ALLOWED_EXPIRATION_DAYS = [30, 60, 90, 365] as const;
+
+    let expiresAt: Date | null = null;
+    if (expiresInDays === "never") {
+      expiresAt = null;
+    } else if (expiresInDays === undefined || expiresInDays === null) {
+      expiresAt = new Date(Date.now() + API_TOKEN_DURATION * 1000);
+    } else {
+      const days = typeof expiresInDays === "number" ? expiresInDays : Number(expiresInDays);
+      if (!ALLOWED_EXPIRATION_DAYS.includes(days as (typeof ALLOWED_EXPIRATION_DAYS)[number])) {
+        return { success: false, error: "Invalid token expiration option." };
+      }
+      expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+    }
+
     const record = await db.apiToken.create({
-      data: { userId: session.userId, name: trimmedName },
+      data: { userId: session.userId, name: trimmedName, expiresAt },
     });
 
-    const secret = await signApiToken(session, record.id);
+    const secret = await signApiToken(session, record.id, expiresAt);
 
     return {
       success: true,
@@ -283,6 +301,7 @@ export async function createApiToken(name: string) {
         id: record.id,
         name: record.name,
         createdAt: record.createdAt,
+        expiresAt: record.expiresAt,
         secret,
       },
     };

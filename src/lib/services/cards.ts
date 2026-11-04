@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import type { Prisma } from "@prisma/client";
 import { deleteRowsAndAttachmentFiles } from "@/lib/attachmentCleanup";
 import { validateParentCard } from "@/lib/cardParent";
 import { safeRevalidatePath } from "@/lib/revalidate";
@@ -6,7 +7,7 @@ import { createActivities, notifyActivity, type ActivityEntry } from "@/lib/serv
 import { nextCardNumber, withCardNumberRetry } from "@/lib/cardNumbering";
 import { verifyProjectAccess } from "@/lib/permissions";
 import { deriveCompletedAt } from "@/lib/cardCompletion";
-import { SafeUrlSchema } from "@/lib/validation/safeUrl";
+import { INVALID_LINK_URL_ERROR, SafeUrlSchema } from "@/lib/validation/safeUrl";
 import { CardCreateSchema, CardReorderSchema, CardUpdateSchema } from "@/lib/validation/cards";
 import { parseInput } from "@/lib/validation/errors";
 
@@ -247,7 +248,7 @@ export async function updateCard(
       completedAtUpdate = deriveCompletedAt(targetColumn?.isDone, existingCard.completedAt);
     }
 
-    const updatePayload: any = {
+    const updatePayload: Prisma.CardUncheckedUpdateInput = {
       title: data.title !== undefined ? data.title : undefined,
       description: data.description !== undefined ? data.description : undefined,
       priority: data.priority !== undefined ? data.priority : undefined,
@@ -283,6 +284,11 @@ export async function updateCard(
         },
         comments: {
           orderBy: { createdAt: "desc" },
+          include: {
+            authorUser: {
+              select: { id: true, name: true, email: true },
+            },
+          },
         },
         activities: {
           orderBy: { createdAt: "desc" },
@@ -504,6 +510,11 @@ export async function getCardByIdentifier(identifier: string, userId: string) {
         },
         comments: {
           orderBy: { createdAt: "desc" },
+          include: {
+            authorUser: {
+              select: { id: true, name: true, email: true },
+            },
+          },
         },
         activities: {
           orderBy: { createdAt: "desc" },
@@ -538,7 +549,7 @@ export async function addCardLink(cardId: string, url: string, title: string | u
   try {
     const parsedUrl = SafeUrlSchema.safeParse(url);
     if (!parsedUrl.success) {
-      return { success: false, error: "Link URL must be a valid http, https or mailto URL" };
+      return { success: false, error: INVALID_LINK_URL_ERROR };
     }
     url = parsedUrl.data;
 
@@ -584,7 +595,13 @@ export async function reorderCards(rawItems: ReorderItem[], userId: string) {
       where: {
         id: { in: cardIds },
       },
-      select: { id: true, projectId: true, completedAt: true },
+      select: {
+        id: true,
+        projectId: true,
+        completedAt: true,
+        columnId: true,
+        column: { select: { name: true } },
+      },
     });
 
     if (existingCards.length !== cardIds.length) {
@@ -602,12 +619,38 @@ export async function reorderCards(rawItems: ReorderItem[], userId: string) {
     const columnIds = [...new Set(items.map((i) => i.columnId).filter((id): id is string => !!id))];
     const columns = await db.column.findMany({
       where: { id: { in: columnIds } },
-      select: { id: true, projectId: true, isDone: true },
+      select: { id: true, projectId: true, isDone: true, name: true },
     });
     const columnById = new Map(columns.map((c) => [c.id, c]));
     for (const item of items) {
       if (item.columnId && columnById.get(item.columnId)?.projectId !== cardById.get(item.id)!.projectId) {
         return { success: false, error: "Invalid column" };
+      }
+    }
+
+    const movedActivities: Array<{
+      cardId: string;
+      projectId: string;
+      actorUserId: string;
+      type: string;
+      fromValue?: string | null;
+      toValue?: string | null;
+    }> = [];
+    for (const item of items) {
+      if (item.columnId) {
+        const existingCard = cardById.get(item.id);
+        if (existingCard && existingCard.columnId !== item.columnId) {
+          const fromCol = existingCard.column?.name;
+          const toCol = columnById.get(item.columnId)?.name;
+          movedActivities.push({
+            cardId: item.id,
+            projectId: existingCard.projectId,
+            actorUserId: userId,
+            type: "moved",
+            fromValue: fromCol,
+            toValue: toCol,
+          });
+        }
       }
     }
 
@@ -625,7 +668,14 @@ export async function reorderCards(rawItems: ReorderItem[], userId: string) {
       });
     });
 
-    await db.$transaction(updates);
+    if (movedActivities.length > 0) {
+      await db.$transaction([...updates, createActivities(db, movedActivities)]);
+      for (const act of movedActivities) {
+        notifyActivity(act.projectId, [act]);
+      }
+    } else {
+      await db.$transaction(updates);
+    }
     const projectIds = new Set(existingCards.map((c) => c.projectId));
     for (const projectId of projectIds) {
       safeRevalidatePath(`/projects/${projectId}`);

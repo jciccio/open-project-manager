@@ -8,13 +8,18 @@ export async function uploadAttachment(data: {
   filename: string;
   contentBuffer: Buffer;
   mimeType?: string;
-  uploadedBy?: string;
 }) {
   const session = await getSession();
   if (!session) {
     return { success: false as const, error: "Unauthorized" };
   }
-  return attachmentsService.uploadAttachment(data, session.userId);
+  return attachmentsService.uploadAttachment(
+    {
+      ...data,
+      uploadedBy: session.userId,
+    },
+    session.userId
+  );
 }
 
 export async function listAttachments(cardId: string) {
