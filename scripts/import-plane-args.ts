@@ -2,10 +2,8 @@ export interface ImportPlaneArgs {
   user?: string;
   workspace: string;
   projectIdentifiers: string[];
+  dryRun: boolean;
 }
-
-export const LIVE_IMPORT_UNAVAILABLE =
-  "Live Plane imports are not available yet: the import contract cannot carry card numbers, parents or relations, and re-runs would not correct them. Pass --dry-run.";
 
 export function parseImportPlaneArgs(argv: string[]): ImportPlaneArgs {
   let user: string | undefined;
@@ -27,7 +25,6 @@ export function parseImportPlaneArgs(argv: string[]): ImportPlaneArgs {
     else throw new Error(`Unknown argument: ${arg}`);
   }
 
-  if (!dryRun) throw new Error(LIVE_IMPORT_UNAVAILABLE);
   if (!workspace) throw new Error("--workspace needs a Plane workspace slug");
-  return { user, workspace, projectIdentifiers };
+  return { user, workspace, projectIdentifiers, dryRun };
 }
