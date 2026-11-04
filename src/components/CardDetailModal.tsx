@@ -215,6 +215,8 @@ export default function CardDetailModal({
     return "";
   })();
 
+  const { t, locale } = useTranslation();
+
   const isDirty =
     title.trim() !== card.title.trim() ||
     description.trim() !== (card.description || "").trim() ||
@@ -263,8 +265,6 @@ export default function CardDetailModal({
   const [comments, setComments] = useState<Props["card"]["comments"]>(card.comments || []);
   const [feedTab, setFeedTab] = useState<"comments" | "activity">("comments");
   const [isLoadingActivities, setIsLoadingActivities] = useState(false);
-
-  const { t, locale } = useTranslation();
 
   const loadActivities = useCallback(async () => {
     setIsLoadingActivities(true);
