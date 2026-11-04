@@ -3,14 +3,16 @@ import crypto from "crypto";
 import { z } from "zod";
 import { processInboundEmail } from "@/lib/inboundEmail";
 import { getApiSession } from "@/lib/auth";
-import { MAX_TITLE_LENGTH, MAX_DESCRIPTION_LENGTH } from "@/lib/validation/cards";
+import { MAX_TITLE_LENGTH } from "@/lib/validation/cards";
 
 const inboundSchema = z.object({
   to: z.string().min(1).max(2000),
   from: z.string().min(1).max(2000),
-  subject: z.string().trim().min(1, "Email subject is required").max(MAX_TITLE_LENGTH),
-  text: z.string().max(MAX_DESCRIPTION_LENGTH).optional(),
-  html: z.string().max(MAX_DESCRIPTION_LENGTH * 4).optional(),
+  subject: z.string().optional().default(""),
+  text: z.string().optional(),
+  html: z.string().optional(),
+  spf: z.string().optional(),
+  dkim: z.string().optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -18,14 +20,18 @@ export async function POST(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
   const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : null;
   const customHeaderToken = request.headers.get("x-inbound-token");
-  const tokenProvided = bearerToken || customHeaderToken;
 
   let isWebhookAuthorized = false;
-  if (configuredToken && tokenProvided) {
-    const bufProvided = Buffer.from(tokenProvided);
+  if (configuredToken) {
     const bufConfigured = Buffer.from(configuredToken);
-    if (bufProvided.length === bufConfigured.length && crypto.timingSafeEqual(bufProvided, bufConfigured)) {
-      isWebhookAuthorized = true;
+    for (const token of [customHeaderToken, bearerToken]) {
+      if (token) {
+        const bufProvided = Buffer.from(token);
+        if (bufProvided.length === bufConfigured.length && crypto.timingSafeEqual(bufProvided, bufConfigured)) {
+          isWebhookAuthorized = true;
+          break;
+        }
+      }
     }
   }
 
@@ -68,6 +74,29 @@ export async function POST(request: NextRequest) {
     };
   }
 
+  if (payloadData.spf && payloadData.spf.toLowerCase() === "fail") {
+    return NextResponse.json(
+      { success: false, accepted: false, error: "Inbound email rejected: SPF validation failed" },
+      { status: 200 }
+    );
+  }
+
+  if (payloadData.dkim && payloadData.dkim.toLowerCase() === "fail") {
+    return NextResponse.json(
+      { success: false, accepted: false, error: "Inbound email rejected: DKIM validation failed" },
+      { status: 200 }
+    );
+  }
+
+  let title = (payloadData.subject || "").trim();
+  if (!title) {
+    title = "Untitled Email";
+  }
+  if (title.length > MAX_TITLE_LENGTH) {
+    title = title.slice(0, MAX_TITLE_LENGTH);
+  }
+  payloadData.subject = title;
+
   try {
     const result = await processInboundEmail(payloadData);
     if (!result.success) {
@@ -78,7 +107,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Error processing inbound email:", error);
     return NextResponse.json(
-      { error: "Failed to process inbound email", details: error instanceof Error ? error.message : String(error) },
+      { error: "Failed to process inbound email" },
       { status: 500 }
     );
   }

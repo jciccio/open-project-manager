@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { NextRequest } from "next/server";
 import { POST } from "../inbound-email/route";
+import { proxy } from "@/proxy";
 import { db } from "@/lib/db";
 import { createTestUser, createTestProject, cleanupTestUser } from "@/test/helpers";
 
@@ -139,13 +140,13 @@ describe("POST /api/v1/inbound-email", () => {
     await cleanupTestUser(attackerRes.user.id);
   });
 
-  it("returns 401 when INBOUND_EMAIL_TOKEN is incorrect or timing-mismatched", async () => {
-    process.env.INBOUND_EMAIL_TOKEN = "correct-token-value";
+  it("returns 401 when INBOUND_EMAIL_TOKEN is incorrect or timing-mismatched with same-length wrong token", async () => {
+    process.env.INBOUND_EMAIL_TOKEN = "correct-token-val-1";
     const req = new NextRequest("http://localhost/api/v1/inbound-email", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Inbound-Token": "wrong-token-value",
+        "X-Inbound-Token": "wrong-token-value-99", // exactly same length (20 chars)
       },
       body: JSON.stringify({
         to: `opm+${projectKey}@opm.local`,
@@ -156,5 +157,84 @@ describe("POST /api/v1/inbound-email", () => {
 
     const res = await POST(req);
     expect(res.status).toBe(401);
+  });
+
+  it("authorizes when valid X-Inbound-Token is provided even with an unrelated Bearer token", async () => {
+    process.env.INBOUND_EMAIL_TOKEN = "correct-token-val-1";
+    const user = await db.user.findUnique({ where: { id: userId } });
+
+    const req = new NextRequest("http://localhost/api/v1/inbound-email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Inbound-Token": "correct-token-val-1",
+        Authorization: "Bearer unrelated-opaque-bearer-token",
+      },
+      body: JSON.stringify({
+        to: `opm+${projectKey}@opm.local`,
+        from: user!.email,
+        subject: "Card with both headers",
+      }),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+  });
+
+  it("rejects email when SPF or DKIM validation indicates failure", async () => {
+    process.env.INBOUND_EMAIL_TOKEN = "secret-webhook-key-123";
+    const user = await db.user.findUnique({ where: { id: userId } });
+
+    const reqSpfFail = new NextRequest("http://localhost/api/v1/inbound-email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Inbound-Token": "secret-webhook-key-123",
+      },
+      body: JSON.stringify({
+        to: `opm+${projectKey}@opm.local`,
+        from: user!.email,
+        subject: "SPF failing mail",
+        spf: "fail",
+      }),
+    });
+
+    const resSpf = await POST(reqSpfFail);
+    expect(resSpf.status).toBe(200);
+    const bodySpf = await resSpf.json();
+    expect(bodySpf.accepted).toBe(false);
+    expect(bodySpf.error).toContain("SPF validation failed");
+
+    const reqDkimFail = new NextRequest("http://localhost/api/v1/inbound-email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Inbound-Token": "secret-webhook-key-123",
+      },
+      body: JSON.stringify({
+        to: `opm+${projectKey}@opm.local`,
+        from: user!.email,
+        subject: "DKIM failing mail",
+        dkim: "fail",
+      }),
+    });
+
+    const resDkim = await POST(reqDkimFail);
+    expect(resDkim.status).toBe(200);
+    const bodyDkim = await resDkim.json();
+    expect(bodyDkim.accepted).toBe(false);
+    expect(bodyDkim.error).toContain("DKIM validation failed");
+  });
+
+  it("allows unauthenticated requests through proxy for public inbound-email path", async () => {
+    const proxyReq = new NextRequest("http://localhost/api/v1/inbound-email", {
+      method: "POST",
+    });
+
+    const proxyRes = await proxy(proxyReq);
+    // Should not return 401 Unauthorized
+    expect(proxyRes.status).not.toBe(401);
   });
 });

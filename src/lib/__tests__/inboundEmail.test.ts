@@ -79,7 +79,17 @@ describe("Inbound Email", () => {
       expect(extractSenderEmail("user@example.com")).toBe("user@example.com");
       expect(extractSenderEmail("Alice Smith <ALICE@EXAMPLE.COM>")).toBe("alice@example.com");
       expect(extractSenderEmail('"<owner@corp.com>" <attacker@evil.com>')).toBe("attacker@evil.com");
+      expect(extractSenderEmail("Attacker <attacker@evil.com> (<owner@corp.com>)")).toBe("attacker@evil.com");
+      expect(extractSenderEmail('"<owner@corp.com>"@evil.com')).toBe('"<owner@corp.com>"@evil.com');
+      expect(extractSenderEmail("<attacker@evil.com>, <owner@corp.com>")).toBeNull();
+      expect(extractSenderEmail('"Smith, John" <john@example.com>')).toBe("john@example.com");
       expect(extractSenderEmail("")).toBeNull();
+    });
+
+    it("extracts project key resolving plus addresses and direct addresses across mailboxes", () => {
+      expect(extractProjectKeyFromRecipient("bob+news@gmail.com, opm+PROJ@inbound.example.com")).toBe("PROJ");
+      expect(extractProjectKeyFromRecipient("alice@x.com, PROJ@inbound.example.com")).toBe("PROJ");
+      expect(extractProjectKeyFromRecipient('"Smith, John" <PROJ@inbound.example.com>')).toBe("PROJ");
     });
   });
 
@@ -301,6 +311,136 @@ describe("Inbound Email", () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toContain("multiple candidate projects found");
+    });
+
+    it("creates card when sender has ADMIN role on project", async () => {
+      const adminRes = await createTestUser(`inbound-admin-${Date.now()}`);
+      await db.projectMember.create({
+        data: {
+          projectId,
+          userId: adminRes.user.id,
+          role: "ADMIN",
+        },
+      });
+
+      const result = await processInboundEmail({
+        to: `opm+${projectKey}@inbound.local`,
+        from: adminRes.user.email,
+        subject: "Admin created card",
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.card?.title).toBe("Admin created card");
+
+      await cleanupTestUser(adminRes.user.id);
+    });
+
+    it("routes unambiguously when sender is VIEWER on one project and MEMBER on another with same key", async () => {
+      // Create second project with same key where sender is VIEWER
+      const viewerProject = await db.project.create({
+        data: {
+          userId: strangerId,
+          name: "Viewer Project With Same Key",
+          key: projectKey,
+          color: "#0284c7",
+        },
+      });
+      await db.column.create({
+        data: {
+          projectId: viewerProject.id,
+          name: "Viewer Backlog",
+          group: "BACKLOG",
+          order: 1,
+        },
+      });
+      await db.projectMember.create({
+        data: {
+          projectId: viewerProject.id,
+          userId: memberId,
+          role: "VIEWER",
+        },
+      });
+
+      const member = await db.user.findUnique({ where: { id: memberId } });
+      const result = await processInboundEmail({
+        to: `opm+${projectKey}@inbound.local`,
+        from: member!.email,
+        subject: "Disambiguated member card",
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.card?.projectId).toBe(projectId);
+    });
+
+    it("rejects archived projects with matching key", async () => {
+      await db.project.update({
+        where: { id: projectId },
+        data: { isArchived: true },
+      });
+
+      const owner = await db.user.findUnique({ where: { id: ownerId } });
+      const result = await processInboundEmail({
+        to: `opm+${projectKey}@inbound.local`,
+        from: owner!.email,
+        subject: "Card for archived project",
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("project not found or sender unauthorized");
+    });
+
+    it("sets completedAt when card is placed in a done column", async () => {
+      // Create project where all columns are completed
+      const doneProject = await db.project.create({
+        data: {
+          userId: ownerId,
+          name: "All Done Project",
+          key: "ALLDONE",
+          color: "#10b981",
+        },
+      });
+      const doneCol = await db.column.create({
+        data: {
+          projectId: doneProject.id,
+          name: "Completed",
+          group: "COMPLETED",
+          isDone: true,
+          order: 1,
+        },
+      });
+
+      const owner = await db.user.findUnique({ where: { id: ownerId } });
+      const result = await processInboundEmail({
+        to: `opm+ALLDONE@inbound.local`,
+        from: owner!.email,
+        subject: "Done card from email",
+      });
+
+      expect(result.success).toBe(true);
+      const card = await db.card.findUnique({ where: { id: result.card!.id } });
+      expect(card?.columnId).toBe(doneCol.id);
+      expect(card?.completedAt).not.toBeNull();
+    });
+
+    it("falls back to Untitled Email when subject is empty and truncates when exceeding MAX_TITLE_LENGTH", async () => {
+      const owner = await db.user.findUnique({ where: { id: ownerId } });
+
+      const resBlank = await processInboundEmail({
+        to: `opm+${projectKey}@inbound.local`,
+        from: owner!.email,
+        subject: "   ",
+      });
+      expect(resBlank.success).toBe(true);
+      expect(resBlank.card?.title).toBe("Untitled Email");
+
+      const longSubject = "A".repeat(600);
+      const resLong = await processInboundEmail({
+        to: `opm+${projectKey}@inbound.local`,
+        from: owner!.email,
+        subject: longSubject,
+      });
+      expect(resLong.success).toBe(true);
+      expect(resLong.card?.title.length).toBeLessThanOrEqual(500);
     });
   });
 });
