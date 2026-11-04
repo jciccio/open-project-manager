@@ -9,6 +9,7 @@ import {
   createTestUser,
 } from "@/test/helpers";
 import { db } from "@/lib/db";
+import { MAX_COMMENT_LENGTH } from "@/lib/validation/comments";
 
 describe("MCP tool input validation", () => {
   let userId: string;
@@ -134,5 +135,31 @@ describe("MCP tool input validation", () => {
       { userId }
     );
     expect(JSON.parse((created as any).savedView.filterJson)).toEqual({ search: "x" });
+  });
+
+  it("add_comment rejects non-string, blank and over-limit content without writing", async () => {
+    const card = await createTestCard(projectId, columnId);
+    await expect(executeMcpTool("add_comment", { cardId: card.id, content: 42 }, { userId })).rejects.toThrow(/cannot be empty/);
+    await expect(executeMcpTool("add_comment", { cardId: card.id, content: "   " }, { userId })).rejects.toThrow(/cannot be empty/);
+    await expect(
+      executeMcpTool("add_comment", { cardId: card.id, content: "x".repeat(MAX_COMMENT_LENGTH + 1) }, { userId })
+    ).rejects.toThrow(/characters or fewer/);
+    expect(await db.comment.count({ where: { cardId: card.id } })).toBe(0);
+  });
+
+  it("update_comment rejects non-string, blank and over-limit content and keeps the stored text", async () => {
+    const card = await createTestCard(projectId, columnId);
+    const added = await executeMcpTool("add_comment", { cardId: card.id, content: "Original" }, { userId });
+    const commentId = (added as any).comment.id;
+
+    await expect(executeMcpTool("update_comment", { commentId, content: 42 }, { userId })).rejects.toThrow(/cannot be empty/);
+    await expect(executeMcpTool("update_comment", { commentId, content: "   " }, { userId })).rejects.toThrow(/cannot be empty/);
+    await expect(
+      executeMcpTool("update_comment", { commentId, content: "x".repeat(MAX_COMMENT_LENGTH + 1) }, { userId })
+    ).rejects.toThrow(/characters or fewer/);
+    expect((await db.comment.findUnique({ where: { id: commentId } }))?.content).toBe("Original");
+
+    const updated = await executeMcpTool("update_comment", { commentId, content: "  Edited  " }, { userId });
+    expect((updated as any).comment.content).toBe("Edited");
   });
 });
