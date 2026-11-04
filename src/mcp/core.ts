@@ -30,7 +30,7 @@ import { parseColumnCreate, parseColumnUpdate } from "@/lib/validation/columns";
 import { CardCreateSchema, CardReorderSchema, CardUpdateSchema } from "@/lib/validation/cards";
 import { CardTypeCreateSchema, CardTypeUpdateSchema } from "@/lib/validation/cardTypes";
 import { parseInput } from "@/lib/validation/errors";
-import { ProjectNameSchema } from "@/lib/validation/projects";
+import { ProjectNameSchema, ProjectVisibilitySchema } from "@/lib/validation/projects";
 import { INVALID_LINK_URL_ERROR, SafeUrlSchema } from "@/lib/validation/safeUrl";
 import { SavedViewCreateSchema, SavedViewUpdateSchema } from "@/lib/validation/views";
 import { validateReferencedIds } from "@/lib/services/cards";
@@ -870,6 +870,8 @@ export async function executeMcpTool(
 
     case "create_project": {
       const nameStr = parseProjectName(args.name);
+      const visibility = parseInput(ProjectVisibilitySchema, args.visibility ?? "PRIVATE");
+      if (!visibility.success) throw new Error(visibility.error);
       const projectKey = await generateProjectKey(nameStr, args.key, userId);
       const project = await db.project.create({
         data: {
@@ -878,7 +880,7 @@ export async function executeMcpTool(
           key: projectKey,
           description: args.description || null,
           color: args.color ? assertHexColor(args.color) : "#6366f1",
-          visibility: args.visibility || "PRIVATE",
+          visibility: visibility.data,
           columns: {
             create: DEFAULT_PROJECT_COLUMNS.map((column) => ({ ...column })),
           },
