@@ -63,4 +63,20 @@ describe("i18n dictionary parity", () => {
       expect(es.cardModal.events[evt as keyof typeof es.cardModal.events]).toBeTruthy();
     }
   });
+
+  it("has matching interpolation tokens between en and es for every string", () => {
+    function getValue(obj: any, path: string) {
+      return path.split(".").reduce((acc, part) => acc?.[part], obj);
+    }
+    const tokenRegex = /\{([a-zA-Z0-9_-]+)\}/g;
+    function getTokens(str: string): string[] {
+      const matches = str.match(tokenRegex) || [];
+      return matches.sort();
+    }
+    for (const key of enKeys) {
+      const enTokens = getTokens(getValue(en, key));
+      const esTokens = getTokens(getValue(es, key));
+      expect(esTokens, `Tokens mismatch for key: ${key}`).toEqual(enTokens);
+    }
+  });
 });

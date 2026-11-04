@@ -65,6 +65,25 @@ describe("Kanban & Project UI Components", () => {
     expect(handleClick).toHaveBeenCalledTimes(1);
   });
 
+  it("renders TaskCard with custom priority fallback and owner tooltip", () => {
+    const mockCard = {
+      id: "c2",
+      title: "Unknown Priority Task",
+      description: null,
+      priority: "CRITICAL",
+      points: null,
+      dueDate: null,
+      owner: "Alice",
+      labels: [],
+      comments: [],
+    };
+
+    renderWithProviders(<TaskCard card={mockCard} onClick={vi.fn()} />);
+
+    expect(screen.getByText("CRITICAL")).toBeInTheDocument();
+    expect(screen.getByTitle("Assigned to Alice")).toBeInTheDocument();
+  });
+
   it("renders KanbanColumn move buttons when enabled", () => {
     const mockColumn = {
       id: "col1",
