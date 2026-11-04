@@ -117,7 +117,7 @@ describe("Card Activity / Audit Trail Actions", () => {
     const cardId = cardRes.data!.id;
 
     await moveCard(cardId, col2Id, 20000, userId);
-    await addComment(cardId, "Tester", "This is an important comment", userId);
+    await addComment(cardId, "This is an important comment", userId);
 
     const actRes = await getCardActivity(cardId, userId);
     expect(actRes.success).toBe(true);

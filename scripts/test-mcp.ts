@@ -77,10 +77,9 @@ async function runMcpTests() {
     // Test 8: Add Comment via MCP
     const commentRes = await executeMcpTool("add_comment", {
       cardId,
-      author: "MCP Test Bot",
       content: "Task completed via MCP workflow",
     }, { userId: testUser.id });
-    assert(commentRes.success && commentRes.comment?.author === "MCP Test Bot", "add_comment tool execution");
+    assert(commentRes.success && commentRes.comment?.author === testUser.name, "add_comment tool execution");
 
     // Test 9: Cleanup Created Test Project
     const deleteRes = await executeMcpTool("delete_project", { id: projectId }, { userId: testUser.id });
