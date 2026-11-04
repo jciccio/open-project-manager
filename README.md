@@ -291,6 +291,28 @@ curl -X GET http://localhost:3000/api/v1/cards/CARD_ID/attachments \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
 ```
 
+### 9. Inbound Email Webhook (Card Creation)
+Create cards automatically from inbound email services (e.g. SendGrid Inbound Parse, Mailgun, Postmark, AWS SES via an HTTP relay or webhook adapter):
+```bash
+curl -X POST http://localhost:3000/api/v1/inbound-email \
+  -H "X-Inbound-Token: YOUR_INBOUND_EMAIL_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "to": "opm+PROJ@inbound.example.com",
+    "from": "user@example.com",
+    "subject": "Task Title",
+    "text": "Detailed task description",
+    "spf": "pass",
+    "dkim": "pass"
+  }'
+```
+
+- **Authentication**: Set `INBOUND_EMAIL_TOKEN` on the server and pass it via `X-Inbound-Token` or `Authorization: Bearer`.
+- **Relay & Payload Format**: Inbound mail relays must shape payloads into JSON with `to`, `from`, optional `subject`, `text` / `html`, and optional `spf` / `dkim` verdicts. Inbound mail must be authenticated (SPF/DKIM) by the receiving mail relay before forwarding; any email with `spf: "fail"` or `dkim: "fail"` is rejected.
+- **Recipient Routing**: Specify the project key via plus-addressing (e.g. `opm+KEY@domain`, `task+KEY@domain`) or direct address (`KEY@inbound.domain`).
+- **Sender Authorization**: The sender (`from`) must correspond to a registered OPM user with `OWNER`, `ADMIN`, or `MEMBER` permissions on the target project. Unauthenticated, unregistered, or non-member emails are safely rejected without creating cards.
+- **Scope**: Email-to-card attachment ingestion is planned for a follow-up PR (part of #169).
+
 ---
 
 ## 📥 Importing an Existing Board (Vikunja)

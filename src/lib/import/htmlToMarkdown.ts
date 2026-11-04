@@ -12,6 +12,9 @@ const turndownService = new TurndownService({
 // Enable GFM plugin (tables, strikethrough, task lists)
 turndownService.use(gfm);
 
+// Strip non-content and styling/script tags so they don't leak into markdown
+turndownService.remove(["head", "style", "script", "title"]);
+
 // Rule for <br> so line breaks match CommonMark single newlines in cards
 turndownService.addRule("lineBreak", {
   filter: "br",
