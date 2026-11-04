@@ -11,8 +11,13 @@ import { generateProjectKey } from "@/lib/projectKey";
 import { withCardNumberRetry } from "@/lib/cardNumbering";
 import { validateParentCard } from "@/lib/cardParent";
 import { SafeUrlSchema } from "@/lib/validation/safeUrl";
+import { removeAttachmentFiles } from "@/lib/attachmentCleanup";
+import { MAX_ATTACHMENT_BYTES, writeAttachmentFile } from "@/lib/attachmentStorage";
 import type {
   Importer,
+  ImportAssignee,
+  ImportAttachment,
+  ImportDroppedField,
   ImportEntityType,
   ImportRecordResult,
   ImportDryRunRecordResult,
@@ -71,6 +76,107 @@ interface RunCtx {
   userId: string;
   source: string;
   importRunId: string;
+  tally: DroppedTally;
+}
+
+interface DroppedTally {
+  unmatchedAssignees: number;
+}
+
+function droppedReport(importer: Importer, tally: DroppedTally): ImportDroppedField[] {
+  const dropped = importer.droppedFields?.() ?? [];
+  if (tally.unmatchedAssignees === 0) return dropped;
+  return [
+    ...dropped,
+    { field: "Assignees with no matching OPM account (names kept in the card owner)", count: tally.unmatchedAssignees },
+  ];
+}
+
+/** Lowercased email to user id, for the users a card in this project can be assigned to. */
+async function assignableUsersByEmail(projectLocalId: string): Promise<Map<string, string>> {
+  const project = await db.project.findUnique({
+    where: { id: projectLocalId },
+    select: { userId: true, members: { select: { userId: true } } },
+  });
+  const ids = [project?.userId, ...(project?.members.map((member) => member.userId) ?? [])].filter(
+    (id): id is string => !!id
+  );
+  return usersByEmail(ids);
+}
+
+async function usersByEmail(userIds: string[]): Promise<Map<string, string>> {
+  const users = await db.user.findMany({ where: { id: { in: userIds } }, select: { id: true, email: true } });
+  return new Map(users.map((user) => [user.email.toLowerCase(), user.id]));
+}
+
+function splitAssignees(assignees: ImportAssignee[] | undefined, assignable: Map<string, string>) {
+  const userIds = new Set<string>();
+  const unmatched: ImportAssignee[] = [];
+  for (const assignee of assignees ?? []) {
+    const userId = assignee.email ? assignable.get(assignee.email.toLowerCase()) : undefined;
+    if (userId) userIds.add(userId);
+    else unmatched.push(assignee);
+  }
+  return { userIds: [...userIds], unmatched };
+}
+
+function attachmentTooLargeError(filename: string): string {
+  return `Attachment "${filename}" is over the ${Math.floor(MAX_ATTACHMENT_BYTES / (1024 * 1024))}MB attachment size limit`;
+}
+
+async function storeImportedAttachment(attachment: ImportAttachment, cardLocalId: string): Promise<string> {
+  if (attachment.size !== undefined && attachment.size > MAX_ATTACHMENT_BYTES) {
+    throw new Error(attachmentTooLargeError(attachment.filename));
+  }
+  const content = await attachment.download();
+  if (content.length > MAX_ATTACHMENT_BYTES) throw new Error(attachmentTooLargeError(attachment.filename));
+
+  const storageKey = writeAttachmentFile(attachment.filename, content);
+  try {
+    return await db.$transaction(async (tx) => {
+      const created = await tx.attachment.create({
+        data: {
+          cardId: cardLocalId,
+          filename: attachment.filename,
+          storageKey,
+          url: "",
+          size: content.length,
+          mimeType: attachment.mimeType ?? null,
+          uploadedBy: attachment.uploadedBy ?? null,
+          ...(attachment.createdAt ? { createdAt: new Date(attachment.createdAt) } : {}),
+        },
+      });
+      await tx.attachment.update({ where: { id: created.id }, data: { url: `/api/v1/attachments/${created.id}` } });
+      return created.id;
+    });
+  } catch (err) {
+    await removeAttachmentFiles([storageKey]);
+    throw err;
+  }
+}
+
+async function importCardAttachments(
+  ctx: RunCtx,
+  cardSourceId: string,
+  cardLocalId: string,
+  records: ImportRecordResult[]
+) {
+  if (!ctx.importer.fetchAttachments) return;
+  try {
+    for await (const attachment of ctx.importer.fetchAttachments(cardSourceId)) {
+      const { result } = await createOrSkip(ctx, "attachment", attachment.sourceId, () =>
+        storeImportedAttachment(attachment, cardLocalId)
+      );
+      records.push(result);
+    }
+  } catch (err) {
+    records.push({
+      entityType: "attachment",
+      sourceId: `${cardSourceId}:attachments`,
+      status: "failed",
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 async function findExistingMapping(userId: string, source: string, entityType: ImportEntityType, sourceId: string) {
@@ -141,6 +247,8 @@ async function rowStillExists(entityType: ImportEntityType, localId: string): Pr
       return !!(await db.card.findUnique({ where: { id: localId }, select: { id: true } }));
     case "comment":
       return !!(await db.comment.findUnique({ where: { id: localId }, select: { id: true } }));
+    case "attachment":
+      return !!(await db.attachment.findUnique({ where: { id: localId }, select: { id: true } }));
   }
 }
 
@@ -164,6 +272,11 @@ async function deleteImportedRow(entityType: ImportEntityType, localId: string):
     case "comment":
       await db.comment.delete({ where: { id: localId } });
       return;
+    case "attachment": {
+      const { storageKey } = await db.attachment.delete({ where: { id: localId } });
+      await removeAttachmentFiles([storageKey]);
+      return;
+    }
   }
 }
 
@@ -336,7 +449,12 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
               lbl.sourceId,
               async () => {
                 const created = await db.label.create({
-                  data: { projectId: projectLocalId, name: lbl.name, color: lbl.color || "#3b82f6" },
+                  data: {
+                    projectId: projectLocalId,
+                    name: lbl.name,
+                    color: lbl.color || "#3b82f6",
+                    description: lbl.description ?? null,
+                  },
                 });
                 return created.id;
               },
@@ -391,9 +509,11 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
         const cardMap = new Map<string, string>();
         const pendingParents: Array<{ cardLocalId: string; cardSourceId: string; parentSourceId: string }> = [];
         const pendingRelations: Array<{ cardLocalId: string; cardSourceId: string; relations: ImportCardRelation[] }> = [];
+        const assignable = await assignableUsersByEmail(projectLocalId);
 
         try {
           for (const card of cards) {
+            const assignees = splitAssignees(card.assignees, assignable);
             const columnLocalId = columnMap.get(card.columnSourceId);
             if (!columnLocalId) {
               records.push({
@@ -459,7 +579,11 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
                 description,
                 priority: card.priority || "NONE",
                 points: card.points ?? null,
-                owner: card.owner ?? null,
+                owner: [card.owner, ...assignees.unmatched.map((a) => a.name)].filter(Boolean).join(", ") || null,
+                assignees:
+                  assignees.userIds.length > 0
+                    ? { create: assignees.userIds.map((userId) => ({ userId })) }
+                    : undefined,
                 dueDate: parseDueDate(card.dueDate),
                 completedAt: card.completedAt ? new Date(card.completedAt) : null,
                 createdAt: card.createdAt ? new Date(card.createdAt) : undefined,
@@ -503,6 +627,7 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
 
             cardMap.set(card.sourceId, cardLocalId);
             if (cardResult.status === "created") {
+              ctx.tally.unmatchedAssignees += assignees.unmatched.length;
               if (card.parentSourceId) {
                 pendingParents.push({ cardLocalId, cardSourceId: card.sourceId, parentSourceId: card.parentSourceId });
               }
@@ -534,6 +659,8 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
                 error: err instanceof Error ? err.message : String(err),
               });
             }
+
+            await importCardAttachments(ctx, card.sourceId, cardLocalId, records);
           }
 
           for (const { cardLocalId, cardSourceId, parentSourceId } of pendingParents) {
@@ -694,7 +821,8 @@ async function classifyForDryRun(
   importer: Importer,
   userId: string,
   source: string,
-  records: ImportDryRunRecordResult[]
+  records: ImportDryRunRecordResult[],
+  tally: DroppedTally
 ) {
   async function liveMapping(entityType: ImportEntityType, mappingKey: string) {
     const existing = await findExistingMapping(userId, source, entityType, mappingKey);
@@ -798,6 +926,9 @@ async function classifyForDryRun(
           if (cards.length === 0) continue;
         }
 
+        const assignable = projectMapping
+          ? await assignableUsersByEmail(projectMapping.localId)
+          : await usersByEmail([userId]);
         const validCardSourceIds = new Set<string>();
         const batchParents = new Map<string, string>();
         for (const card of cards) {
@@ -862,6 +993,9 @@ async function classifyForDryRun(
 
             validCardSourceIds.add(card.sourceId);
             await classify("card", card.sourceId);
+            if (card.assignees?.length && !(await liveMapping("card", card.sourceId))) {
+              tally.unmatchedAssignees += splitAssignees(card.assignees, assignable).unmatched.length;
+            }
 
             if (card.parentSourceId) {
               if (card.parentSourceId === card.sourceId) {
@@ -967,6 +1101,30 @@ async function classifyForDryRun(
                 error: err instanceof Error ? err.message : String(err),
               });
             }
+
+            if (importer.fetchAttachments) {
+              try {
+                for await (const attachment of importer.fetchAttachments(card.sourceId)) {
+                  if (attachment.size !== undefined && attachment.size > MAX_ATTACHMENT_BYTES) {
+                    records.push({
+                      entityType: "attachment",
+                      sourceId: attachment.sourceId,
+                      status: "would_fail",
+                      error: attachmentTooLargeError(attachment.filename),
+                    });
+                  } else {
+                    await classify("attachment", attachment.sourceId);
+                  }
+                }
+              } catch (err) {
+                records.push({
+                  entityType: "attachment",
+                  sourceId: `${card.sourceId}:attachments`,
+                  status: "would_fail",
+                  error: err instanceof Error ? err.message : String(err),
+                });
+              }
+            }
           }
         } catch (err) {
           records.push({
@@ -1001,21 +1159,34 @@ export async function runImport(
   options: RunImportOptions = {}
 ): Promise<ImportSummary | ImportDryRunSummary> {
   const importRunId = options.importRunId ?? randomUUID();
+  const tally: DroppedTally = { unmatchedAssignees: 0 };
 
   if (options.dryRun) {
     const records: ImportDryRunRecordResult[] = [];
-    await classifyForDryRun(importer, userId, importer.name, records);
+    await classifyForDryRun(importer, userId, importer.name, records, tally);
     const wouldCreate = records.filter((r) => r.status === "would_create").length;
     const wouldSkip = records.filter((r) => r.status === "would_skip").length;
     const wouldFail = records.filter((r) => r.status === "would_fail").length;
-    return { mode: "dry-run", importRunId, totals: { wouldCreate, wouldSkip, wouldFail }, records };
+    return {
+      mode: "dry-run",
+      importRunId,
+      totals: { wouldCreate, wouldSkip, wouldFail },
+      records,
+      dropped: droppedReport(importer, tally),
+    };
   }
 
   const records: ImportRecordResult[] = [];
-  await importProject({ importer, userId, source: importer.name, importRunId }, records);
+  await importProject({ importer, userId, source: importer.name, importRunId, tally }, records);
 
   const created = records.filter((r) => r.status === "created").length;
   const skipped = records.filter((r) => r.status === "skipped").length;
   const failed = records.filter((r) => r.status === "failed").length;
-  return { mode: "live", importRunId, totals: { created, skipped, failed }, records };
+  return {
+    mode: "live",
+    importRunId,
+    totals: { created, skipped, failed },
+    records,
+    dropped: droppedReport(importer, tally),
+  };
 }

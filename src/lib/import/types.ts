@@ -27,6 +27,7 @@ export interface ImportLabel {
   sourceId: string;
   name: string;
   color?: string;
+  description?: string;
 }
 
 export interface ImportCardRelation {
@@ -39,6 +40,11 @@ export interface ImportCardLink {
   title?: string;
 }
 
+export interface ImportAssignee {
+  email?: string;
+  name?: string;
+}
+
 export interface ImportCard {
   sourceId: string;
   columnSourceId: string;
@@ -49,6 +55,8 @@ export interface ImportCard {
   priority?: string;
   points?: number;
   owner?: string;
+  /** Matched by email to the project's owner or members. The name of anyone else is added to `owner`. */
+  assignees?: ImportAssignee[];
   dueDate?: string;
   /** When the source marked the card finished. Imported cards keep their original completion time. */
   completedAt?: string;
@@ -69,6 +77,23 @@ export interface ImportComment {
   createdAt?: string;
 }
 
+export interface ImportAttachment {
+  sourceId: string;
+  filename: string;
+  mimeType?: string;
+  /** Size reported by the source, checked before downloading. */
+  size?: number;
+  uploadedBy?: string;
+  createdAt?: string;
+  /** Called only on a live run, so a dry run transfers no files. */
+  download(): Promise<Buffer>;
+}
+
+export interface ImportDroppedField {
+  field: string;
+  count: number;
+}
+
 export interface Importer {
   /** Adapter name, e.g. "plane" — used as ImportRecord.source. */
   name: string;
@@ -78,9 +103,12 @@ export interface Importer {
   fetchLabels(projectSourceId: string): AsyncGenerator<ImportLabel>;
   fetchCards(projectSourceId: string): AsyncGenerator<ImportCard>;
   fetchComments(cardSourceId: string): AsyncGenerator<ImportComment>;
+  fetchAttachments?(cardSourceId: string): AsyncGenerator<ImportAttachment>;
+  /** Source data this adapter read but could not carry over. Read after the run finishes. */
+  droppedFields?(): ImportDroppedField[];
 }
 
-export type ImportEntityType = "project" | "column" | "cardType" | "label" | "card" | "comment";
+export type ImportEntityType = "project" | "column" | "cardType" | "label" | "card" | "comment" | "attachment";
 
 export interface ImportRecordResult {
   entityType: ImportEntityType;
@@ -102,6 +130,7 @@ export interface ImportSummary {
   importRunId: string;
   totals: { created: number; skipped: number; failed: number };
   records: ImportRecordResult[];
+  dropped: ImportDroppedField[];
 }
 
 export interface ImportDryRunSummary {
@@ -109,6 +138,7 @@ export interface ImportDryRunSummary {
   importRunId: string;
   totals: { wouldCreate: number; wouldSkip: number; wouldFail: number };
   records: ImportDryRunRecordResult[];
+  dropped: ImportDroppedField[];
 }
 
 export interface RunImportOptions {

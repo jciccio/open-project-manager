@@ -391,12 +391,15 @@ PLANE_API_KEY=… npx tsx scripts/import-plane.ts \
 Set `PLANE_URL` for a self-hosted instance (the default is `https://api.plane.so`).
 Omit `--project` to include every project the key can see.
 
+Pass `--map-email plane@example.com=opm@example.com` (repeatable) when someone's email
+differs between the two, for example when OPM signs them in through SSO.
+
 | Plane | OPM |
 |---|---|
 | Project identifier | Project key, so `ABC-123` references keep working |
 | Work item `sequence_id` | Card number |
 | State, with group, color and description | Column |
-| Label, with color | Label |
+| Label, with color and description | Label |
 | Description and comments (HTML) | Markdown |
 | Parent | Parent card |
 | Links | Card links |
@@ -404,11 +407,16 @@ Omit `--project` to include every project the key can see.
 | `relates_to`, `duplicate` | `RELATES_TO` relation |
 | `created_at`, `completed_at`, `target_date` | Same dates on the card |
 | Integer estimates | Points |
-| Assignee names | Card owner text |
+| Attachments | Card attachments, up to `MAX_ATTACHMENT_BYTES` each |
+| Assignees | Card assignees, matched by email |
 
-**Not imported yet:** attachments, assignee accounts, label descriptions, start dates,
-cycles, modules, label parents, non-integer estimates and the `start_before`,
-`start_after`, `finish_before` and `finish_after` relations.
+**Assignees:** an assignee is matched only to the project's owner or an existing member.
+The import doesn't add anyone to a project, so anyone else's name goes in the card owner
+text. A re-run doesn't update cards that are already imported.
+
+**Not imported:** start dates, cycles, modules, label parents, non-integer estimates and
+the `start_before`, `start_after`, `finish_before` and `finish_after` relations. Dry and
+live runs both list what they found of these, with counts, under "Not carried over".
 
 **Project keys:** OPM keys are limited to 6 characters, and a key that's taken gets a
 suffix, which would break references. A live run refuses to start if any new project has
@@ -418,12 +426,14 @@ a longer key or one this account already uses. A dry run lists the same problems
 on the parent link, and the card itself still imports.
 
 **Time:** Plane allows 60 requests per minute per key, and each work item takes about
-four requests (links, relations, comments, and the page it's listed on). A few thousand
+five requests (links, relations, comments, attachments, and the page it's listed on), plus
+two for each attachment file on a live run. A few thousand
 items takes several hours, and a dry run about the same. Cards are read before any of
 them are written, so a large project writes nothing for a while. The adapter waits for
 the rate limit window to reset and retries 429 and 5xx responses.
 
-**Re-running:** a re-run skips what's already imported and adds new comments. It reads
+**Re-running:** a re-run skips what's already imported and adds new comments and
+attachments. It reads
 everything from Plane again, so it takes about as long. Use `--project` to limit it.
 
 **Relations across projects:** projects import one at a time, and a relation is created

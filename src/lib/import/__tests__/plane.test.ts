@@ -1,5 +1,13 @@
+import { createServer, type IncomingHttpHeaders, type Server } from "http";
+import type { AddressInfo } from "net";
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { PlaneImporter, commentSourceId, labelSourceId, mapPriority, projectSourceId, stateSourceId, workItemSourceId } from "../plane";
+import { PlaneImporter, attachmentSourceId, commentSourceId, labelSourceId, mapPriority, projectSourceId, stateSourceId, workItemSourceId } from "../plane";
+
+function listen(server: Server): Promise<string> {
+  return new Promise((resolve) => {
+    server.listen(0, "127.0.0.1", () => resolve(`http://127.0.0.1:${(server.address() as AddressInfo).port}`));
+  });
+}
 
 const API = "http://plane.test/api/v1";
 const WORKSPACE = "/workspaces/my-team";
@@ -25,6 +33,7 @@ function stubRoutes(routes: Record<string, () => Response>) {
     if (route) return route();
     if (path.endsWith("/links/")) return respond(page([]));
     if (path.endsWith("/relations/")) return respond({});
+    if (path.endsWith("/cycles/") || path.endsWith("/modules/")) return respond(page([]));
     throw new Error(`unexpected fetch: ${key}`);
   });
   vi.stubGlobal("fetch", stub);
@@ -215,7 +224,7 @@ describe("PlaneImporter", () => {
       description: "The **bug**",
       priority: "HIGH",
       points: 5,
-      owner: "ada, Grace Hopper",
+      assignees: [{ name: "ada" }, { name: "Grace Hopper" }],
       dueDate: "2026-12-01",
       completedAt: "2026-11-01T10:00:00Z",
       createdAt: "2026-10-01T09:00:00Z",
@@ -227,8 +236,243 @@ describe("PlaneImporter", () => {
     expect(nonNumeric.links).toBeUndefined();
     expect(nonNumeric.relations).toBeUndefined();
     expect(nonNumeric.points).toBeUndefined();
-    expect(nonNumeric.owner).toBeUndefined();
+    expect(nonNumeric.assignees).toBeUndefined();
     expect(fractional.points).toBeUndefined();
+  });
+
+  it("sends each assignee's email, applying the email map without regard to case", async () => {
+    stubRoutes({
+      [`${WORKSPACE}/members/`]: () =>
+        respond([
+          { id: "u1", display_name: "ada", email: "Ada@Plane.test" },
+          { id: "u2", display_name: "grace", email: "grace@plane.test" },
+          { id: "u3", display_name: "no email", email: null },
+        ]),
+      [`${PROJECT_PATH}/estimates/`]: NO_ESTIMATE,
+      [`${PROJECT_PATH}/work-items/`]: () =>
+        respond(page([{ id: "w1", name: "A", state: "s1", assignees: ["u1", "u2", "u3"] }])),
+    });
+
+    const { instance } = importer({ emailMap: { "ADA@plane.test": "ada@opm.test" } });
+    const [card] = await collect(instance.fetchCards(PROJECT_SID));
+
+    expect(card.assignees).toEqual([
+      { name: "ada", email: "ada@opm.test" },
+      { name: "grace", email: "grace@plane.test" },
+      { name: "no email" },
+    ]);
+  });
+
+  it("carries label descriptions", async () => {
+    stubRoutes({
+      [`${PROJECT_PATH}/labels/`]: () => respond(page([{ id: "l1", name: "bug", description: "Broken things" }])),
+    });
+
+    const [label] = await collect(importer().instance.fetchLabels(PROJECT_SID));
+
+    expect(label.description).toBe("Broken things");
+  });
+
+  describe("dropped data", () => {
+    it("reports nothing when nothing was dropped", async () => {
+      stubRoutes({
+        [`${WORKSPACE}/members/`]: MEMBERS,
+        [`${PROJECT_PATH}/estimates/`]: NO_ESTIMATE,
+        [`${PROJECT_PATH}/work-items/`]: () => respond(page([{ id: "w1", name: "A", state: "s1" }])),
+      });
+      const { instance } = importer();
+
+      await collect(instance.fetchCards(PROJECT_SID));
+
+      expect(instance.droppedFields()).toEqual([]);
+    });
+
+    it("counts each kind of data the import can't carry", async () => {
+      stubRoutes({
+        [`${WORKSPACE}/members/`]: MEMBERS,
+        [`${PROJECT_PATH}/estimates/`]: () => respond({ id: "e1" }),
+        [`${PROJECT_PATH}/estimates/e1/estimate-points/`]: () => respond([{ id: "ep1", value: "L" }]),
+        [`${PROJECT_PATH}/cycles/`]: () => respond(page([{ id: "c1" }, { id: "c2" }])),
+        [`${PROJECT_PATH}/modules/`]: () => respond(page([{ id: "m1" }])),
+        [`${PROJECT_PATH}/labels/`]: () => respond(page([{ id: "l1", name: "child", parent: "l0" }, { id: "l2", name: "top" }])),
+        [`${PROJECT_PATH}/work-items/`]: () =>
+          respond(page([{ id: "w1", name: "A", state: "s1", start_date: "2026-01-01", estimate_point: "ep1" }])),
+        [`${PROJECT_PATH}/work-items/w1/relations/`]: () =>
+          respond({
+            start_before: [{ project_id: PROJECT, issue_id: "x" }],
+            finish_after: [{ project_id: PROJECT, issue_id: "y" }],
+          }),
+      });
+      const { instance } = importer();
+
+      await collect(instance.fetchLabels(PROJECT_SID));
+      await collect(instance.fetchCards(PROJECT_SID));
+
+      expect(instance.droppedFields()).toEqual([
+        { field: "Start dates", count: 1 },
+        { field: "Non-integer estimates", count: 1 },
+        { field: "Label parents", count: 1 },
+        { field: "Start/finish relation sides", count: 2 },
+        { field: "Cycles", count: 2 },
+        { field: "Modules", count: 1 },
+      ]);
+    });
+
+    it("reports a cycle or module list it couldn't read and still imports the cards", async () => {
+      stubRoutes({
+        [`${WORKSPACE}/members/`]: MEMBERS,
+        [`${PROJECT_PATH}/estimates/`]: NO_ESTIMATE,
+        [`${PROJECT_PATH}/cycles/`]: () => respond({ error: "Not found" }, 404),
+        [`${PROJECT_PATH}/work-items/`]: () => respond(page([{ id: "w1", name: "A", state: "s1" }])),
+      });
+      const { instance } = importer();
+
+      const cards = await collect(instance.fetchCards(PROJECT_SID));
+
+      expect(cards).toHaveLength(1);
+      expect(instance.droppedFields()).toEqual([{ field: "Cycle or module lists that could not be read", count: 1 }]);
+    });
+  });
+
+  describe("attachments", () => {
+    const CARD_SID = workItemSourceId(PROJECT, "w1");
+    const LIST = `${PROJECT_PATH}/work-items/w1/attachments/`;
+    const DETAIL = `${LIST}a1/`;
+    const STORAGE_URL = "http://storage.test/bucket/file.png?X-Amz-Signature=signature-value";
+
+    function stubDownload(storage: () => Response, detail: () => Response) {
+      const stub = vi.fn<FetchStub>(async (url) => {
+        const target = String(url);
+        if (target.startsWith("http://storage.test/")) return storage();
+        const path = target.slice(API.length);
+        if (path === `${WORKSPACE}/members/`) return MEMBERS();
+        if (path === LIST) {
+          return respond([
+            {
+              id: "a1",
+              attributes: { name: "shot.png", type: "image/png", size: 3 },
+              created_by: "u1",
+              created_at: "2026-10-01T09:00:00Z",
+            },
+          ]);
+        }
+        if (path === DETAIL) return detail();
+        throw new Error(`unexpected fetch: ${target}`);
+      });
+      vi.stubGlobal("fetch", stub);
+      return stub;
+    }
+
+    const redirectToStorage = () => new Response(null, { status: 302, headers: { location: STORAGE_URL } });
+
+    it("maps attachment metadata without downloading the file", async () => {
+      const stub = stubDownload(() => new Response("abc"), redirectToStorage);
+
+      const [attachment] = await collect(importer().instance.fetchAttachments(CARD_SID));
+
+      expect(attachment).toMatchObject({
+        sourceId: attachmentSourceId("a1"),
+        filename: "shot.png",
+        mimeType: "image/png",
+        size: 3,
+        uploadedBy: "ada",
+        createdAt: "2026-10-01T09:00:00Z",
+      });
+      const urls = stub.mock.calls.map(([url]) => String(url));
+      expect(urls.some((url) => url.includes(DETAIL) || url.includes("storage.test"))).toBe(false);
+    });
+
+    it("reads the redirect by hand and never sends the API key to the storage host", async () => {
+      const stub = stubDownload(() => new Response("abc"), redirectToStorage);
+
+      const [attachment] = await collect(importer().instance.fetchAttachments(CARD_SID));
+      const content = await attachment.download();
+
+      expect(content.toString()).toBe("abc");
+      const detailCall = stub.mock.calls.find(([url]) => String(url).endsWith(DETAIL))!;
+      expect(detailCall[1]?.redirect).toBe("manual");
+      expect(new Headers(detailCall[1]?.headers).get("x-api-key")).toBe("secret-key");
+      const storageCall = stub.mock.calls.find(([url]) => String(url).startsWith("http://storage.test/"))!;
+      expect(new Headers(storageCall[1]?.headers).has("x-api-key")).toBe(false);
+    });
+
+    it("keeps the API key off a real cross-origin redirect", async () => {
+      const storageHeaders: IncomingHttpHeaders[] = [];
+      const storage = createServer((req, res) => {
+        storageHeaders.push(req.headers);
+        res.end("file-bytes");
+      });
+      const storageUrl = await listen(storage);
+      const plane = createServer((req, res) => {
+        if (req.url === `/api/v1${DETAIL}`) {
+          res.writeHead(302, { location: `${storageUrl}/bucket/file?X-Amz-Signature=sig` });
+          res.end();
+        } else if (req.url === `/api/v1${LIST}`) {
+          res.end(JSON.stringify([{ id: "a1", attributes: { name: "file.bin" } }]));
+        } else {
+          res.end(JSON.stringify([]));
+        }
+      });
+      const planeUrl = await listen(plane);
+
+      try {
+        const [attachment] = await collect(importer({ baseUrl: planeUrl }).instance.fetchAttachments(CARD_SID));
+
+        expect((await attachment.download()).toString()).toBe("file-bytes");
+        expect(storageHeaders).toHaveLength(1);
+        expect(storageHeaders[0]["x-api-key"]).toBeUndefined();
+      } finally {
+        storage.close();
+        plane.close();
+      }
+    });
+
+    it("fails when Plane doesn't redirect to a download URL", async () => {
+      stubDownload(() => new Response("abc"), () => new Response(null, { status: 302 }));
+
+      const [attachment] = await collect(importer().instance.fetchAttachments(CARD_SID));
+
+      await expect(attachment.download()).rejects.toThrow("did not redirect to a download URL");
+    });
+
+    it("keeps the presigned signature out of a download error", async () => {
+      stubDownload(() => new Response("denied", { status: 403, statusText: "Forbidden" }), redirectToStorage);
+
+      const [attachment] = await collect(importer().instance.fetchAttachments(CARD_SID));
+      const error: Error = await attachment.download().then(
+        () => new Error("expected a failure"),
+        (err) => err
+      );
+
+      expect(error.message).toContain("storage.test");
+      expect(error.message).toContain("403");
+      expect(error.message).not.toContain("signature-value");
+    });
+
+    it("keeps the presigned signature out of a network error after retrying", async () => {
+      const storage = vi.fn<() => Response>(() => {
+        throw new TypeError(`fetch failed for ${STORAGE_URL}`);
+      });
+      stubDownload(storage, redirectToStorage);
+
+      const [attachment] = await collect(importer({ maxRetries: 1 }).instance.fetchAttachments(CARD_SID));
+
+      await expect(attachment.download()).rejects.toThrow("Attachment download from storage.test failed");
+      expect(storage).toHaveBeenCalledTimes(2);
+    });
+
+    it("retries a storage 5xx and then succeeds", async () => {
+      const storage = vi
+        .fn<() => Response>()
+        .mockReturnValueOnce(new Response("busy", { status: 503 }))
+        .mockReturnValueOnce(new Response("abc"));
+      stubDownload(storage, redirectToStorage);
+
+      const [attachment] = await collect(importer().instance.fetchAttachments(CARD_SID));
+
+      expect((await attachment.download()).toString()).toBe("abc");
+      expect(storage).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe("links and relations", () => {

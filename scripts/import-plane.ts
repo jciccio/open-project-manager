@@ -9,7 +9,7 @@
 import { db } from "../src/lib/db";
 import { ImportInProgressError, runImportJob } from "../src/lib/import/jobs";
 import { PlaneImporter } from "../src/lib/import/plane";
-import type { ImportDryRunSummary, ImportProject, ImportSummary } from "../src/lib/import/types";
+import type { ImportDroppedField, ImportDryRunSummary, ImportProject, ImportSummary } from "../src/lib/import/types";
 import { parseImportPlaneArgs, type ImportPlaneArgs } from "./import-plane-args";
 import { projectKeyProblems } from "./import-plane-preflight";
 import { resolveImportUserId } from "./resolve-import-user";
@@ -46,6 +46,12 @@ function printRecordCounts(records: Array<{ entityType: string }>) {
   console.log([...byType].map(([type, count]) => `${type}: ${count}`).join("  "));
 }
 
+function printDropped(dropped: ImportDroppedField[]) {
+  if (dropped.length === 0) return;
+  console.log("Not carried over:");
+  for (const { field, count } of dropped) console.log(`  ${field}: ${count}`);
+}
+
 function printDryRun(summary: ImportDryRunSummary, importer: PlaneImporter) {
   const { wouldCreate, wouldSkip, wouldFail } = summary.totals;
   console.log(`\nWould create ${wouldCreate}, would skip ${wouldSkip}, would fail ${wouldFail} (nothing was written).`);
@@ -53,6 +59,7 @@ function printDryRun(summary: ImportDryRunSummary, importer: PlaneImporter) {
     console.error(`  WOULD FAIL ${record.entityType} ${record.sourceId}: ${record.error}`);
   }
   printRecordCounts(summary.records);
+  printDropped(summary.dropped);
   if (importer.crossProjectRelationsSkipped > 0) {
     console.log(`Not checked: ${importer.crossProjectRelationsSkipped} relation sides pointing at another project.`);
   }
@@ -65,6 +72,7 @@ function printLive(summary: ImportSummary) {
     console.error(`  FAILED ${record.entityType} ${record.sourceId}: ${record.error}`);
   }
   printRecordCounts(summary.records);
+  printDropped(summary.dropped);
   if (failed > 0) process.exitCode = 1;
 }
 
@@ -82,6 +90,7 @@ async function main() {
     workspaceSlug: args.workspace,
     projectIdentifiers: args.projectIdentifiers,
     skipCrossProjectRelations: args.dryRun,
+    emailMap: args.emailMap,
   });
 
   console.log(
@@ -89,10 +98,6 @@ async function main() {
       (args.projectIdentifiers.length ? ` (projects ${args.projectIdentifiers.join(", ")})` : " (all visible projects)")
   );
   console.log("Plane's public API does not return archived work items, drafts or intake items, so they are not included.");
-  console.log(
-    "Not imported yet: attachments, assignee accounts (names go to the card owner), label descriptions, start dates, " +
-      "cycles, modules, label parents and start/finish relations."
-  );
 
   const keyProblems = await findKeyProblems(importer, userId);
   for (const problem of keyProblems) console.error(`  KEY ${problem}`);
