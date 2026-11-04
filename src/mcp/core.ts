@@ -16,16 +16,14 @@ import { assertHexColor } from "@/lib/colors";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { deleteRowsAndAttachmentFiles } from "@/lib/attachmentCleanup";
-import { validateParentCard } from "@/lib/cardParent";
 import { lastColumnError } from "@/lib/columnGuards";
 import { DEFAULT_CARD_TYPES } from "@/lib/cardTypeDefaults";
-import { nextCardNumber, withCardNumberRetry } from "@/lib/cardNumbering";
 import { cardPage, cardPageQuery, decodeCardCursor, fetchCardsByPriority } from "@/lib/cardPagination";
 import { generateProjectKey } from "@/lib/projectKey";
 import { createScopedLabel } from "@/lib/scopedLabels";
 import { verifyProjectAccess } from "@/lib/permissions";
 import { deriveCompletedAt } from "@/lib/cardCompletion";
-import { DEFAULT_PROJECT_COLUMNS, isClosedColumn, parseColumnGroupFilter } from "@/lib/columnGroups";
+import { DEFAULT_PROJECT_COLUMNS, isClosedColumn } from "@/lib/columnGroups";
 import { parseColumnCreate, parseColumnUpdate } from "@/lib/validation/columns";
 import { CardCreateSchema, CardReorderSchema, CardUpdateSchema } from "@/lib/validation/cards";
 import { CardTypeCreateSchema, CardTypeUpdateSchema } from "@/lib/validation/cardTypes";
@@ -33,10 +31,9 @@ import { parseInput } from "@/lib/validation/errors";
 import { ProjectNameSchema } from "@/lib/validation/projects";
 import { INVALID_LINK_URL_ERROR, SafeUrlSchema } from "@/lib/validation/safeUrl";
 import { SavedViewCreateSchema, SavedViewUpdateSchema } from "@/lib/validation/views";
-import { createCard, updateCard, validateReferencedIds } from "@/lib/services/cards";
+import { createCard, updateCard } from "@/lib/services/cards";
 import type { z } from "zod";
-import { cardTextSearch } from "@/lib/cardSearch";
-import { buildCardWhere, parseCardOrderBy, countCards, validateCardGroupBy, PRIORITY_RANK } from "@/lib/cardFilters";
+import { buildCardWhere, parseCardOrderBy, countCards, validateCardGroupBy } from "@/lib/cardFilters";
 
 const DEFAULT_LIST_CARDS_LIMIT = 100;
 
@@ -1249,8 +1246,7 @@ export async function executeMcpTool(
       const res = await createCard(input, userId);
       if (!res.success) {
         if (res.error === "Unauthorized" || res.error === "Access denied") {
-          const project = await db.project.findUnique({ where: { id: input.projectId } });
-          if (!project) throw new Error(`Project with ID ${input.projectId} not found.`);
+          throw new Error(`Project with ID ${input.projectId} not found.`);
         }
         throw new Error(res.error);
       }
@@ -1262,8 +1258,7 @@ export async function executeMcpTool(
       const res = await updateCard(args.id, input, userId);
       if (!res.success) {
         if (res.error === "Unauthorized" || res.error === "Card not found" || res.error === "Access denied") {
-          const card = await db.card.findUnique({ where: { id: args.id } });
-          if (!card) throw new Error(`Card with ID ${args.id} not found.`);
+          throw new Error(`Card with ID ${args.id} not found.`);
         }
         throw new Error(res.error);
       }
