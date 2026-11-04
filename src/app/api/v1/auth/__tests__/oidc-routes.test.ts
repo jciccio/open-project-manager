@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import { createSession, destroySession } from "@/lib/auth";
 import { JWT_SECRET } from "@/lib/env";
 import { OIDC_FLOW_AUDIENCE, TOKEN_ISSUER } from "@/lib/tokenClaims";
-import { middleware } from "@/middleware";
+import { proxy } from "@/proxy";
 import { cleanupTestUser } from "@/test/helpers";
 
 const idTokenClaims = vi.hoisted(() => ({ current: {} as Record<string, unknown> }));
@@ -145,27 +145,27 @@ describe("OIDC routes", () => {
     expect(flowCookie).toBeDefined();
     const flowJwt = flowCookie!.value;
 
-    // Test proxy/middleware with Bearer token
+    // Test proxy with Bearer token
     const reqWithBearer = new NextRequest("https://opm.example.com/api/v1/projects", {
       headers: { authorization: `Bearer ${flowJwt}` },
     });
-    const middlewareRes1 = await middleware(reqWithBearer);
-    expect(middlewareRes1.status).toBe(401);
+    const proxyRes1 = await proxy(reqWithBearer);
+    expect(proxyRes1.status).toBe(401);
 
-    // Test proxy/middleware with opm_session cookie
+    // Test proxy with opm_session cookie
     const reqWithCookie = new NextRequest("https://opm.example.com/api/v1/projects", {
       headers: { cookie: `opm_session=${flowJwt}` },
     });
-    const middlewareRes2 = await middleware(reqWithCookie);
-    expect(middlewareRes2.status).toBe(401);
+    const proxyRes2 = await proxy(reqWithCookie);
+    expect(proxyRes2.status).toBe(401);
 
     // Test page route redirects to login, not allowed through
     const reqPage = new NextRequest("https://opm.example.com/", {
       headers: { cookie: `opm_session=${flowJwt}` },
     });
-    const middlewareRes3 = await middleware(reqPage);
-    expect(middlewareRes3.status).toBe(307);
-    expect(middlewareRes3.headers.get("location")).toContain("/login");
+    const proxyRes3 = await proxy(reqPage);
+    expect(proxyRes3.status).toBe(307);
+    expect(proxyRes3.headers.get("location")).toContain("/login");
   });
 
   it("rejects forged, tampered, or missing flow cookies without falling back to legacy cookies", async () => {
