@@ -29,6 +29,7 @@ import { DEFAULT_PROJECT_COLUMNS, isClosedColumn, parseColumnGroupFilter } from 
 import { parseColumnCreate, parseColumnUpdate } from "@/lib/validation/columns";
 import { CardCreateSchema, CardReorderSchema, CardUpdateSchema } from "@/lib/validation/cards";
 import { CardTypeCreateSchema, CardTypeUpdateSchema } from "@/lib/validation/cardTypes";
+import { CommentContentSchema } from "@/lib/validation/comments";
 import { parseInput } from "@/lib/validation/errors";
 import { ProjectNameSchema } from "@/lib/validation/projects";
 import { INVALID_LINK_URL_ERROR, SafeUrlSchema } from "@/lib/validation/safeUrl";
@@ -1386,6 +1387,8 @@ export async function executeMcpTool(
     }
 
     case "update_comment": {
+      const parsedContent = parseInput(CommentContentSchema, args.content);
+      if (!parsedContent.success) throw new Error(parsedContent.error);
       const existingComment = await db.comment.findUnique({
         where: { id: args.commentId },
         include: { card: { select: { projectId: true } } },
@@ -1393,7 +1396,7 @@ export async function executeMcpTool(
       if (!existingComment || !(await verifyProjectAccess(existingComment.card.projectId, userId, "MEMBER"))) throw new Error(`Comment with ID ${args.commentId} not found.`);
       const comment = await db.comment.update({
         where: { id: args.commentId },
-        data: { content: args.content.trim() },
+        data: { content: parsedContent.data },
       });
       return { success: true, comment };
     }
