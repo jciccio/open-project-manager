@@ -696,7 +696,7 @@ describe("runImport", () => {
     expect(liveRec?.error).toContain("Invalid link URL");
   });
 
-  it("rejects self-relations and invalid relation types", async () => {
+  it("rejects self-relations and invalid relation types in both dry run and live run", async () => {
     const fixture = baseFixture();
     fixture.cards["proj-1"] = [
       {
@@ -718,7 +718,16 @@ describe("runImport", () => {
       },
     ];
 
+    const dry = (await runImport(makeFakeImporter(fixture), userId, { dryRun: true })) as ImportDryRunSummary;
+    const drySelfRel = dry.records.find((r) => r.sourceId === "card-self-rel:relation:card-self-rel");
+    expect(drySelfRel?.status).toBe("would_fail");
+    expect(drySelfRel?.error).toContain("A card cannot relate to itself");
+    const dryInvalidRel = dry.records.find((r) => r.sourceId === "card-invalid-rel:relation:card-target");
+    expect(dryInvalidRel?.status).toBe("would_fail");
+    expect(dryInvalidRel?.error).toContain("Invalid relation type");
+
     const live = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
+    expect(dry.totals.wouldFail).toBe(live.totals.failed);
     const selfRelRec = live.records.find((r) => r.sourceId === "card-self-rel:relation:card-self-rel");
     expect(selfRelRec?.status).toBe("failed");
     expect(selfRelRec?.error).toContain("A card cannot relate to itself");
@@ -791,6 +800,7 @@ describe("runImport", () => {
         columnSourceId: "col-todo",
         title: "Child",
         parentSourceId: "parent-card",
+        relations: [{ targetCardSourceId: "parent-card", type: "BLOCKS" }],
       },
     ];
 
@@ -798,18 +808,21 @@ describe("runImport", () => {
 
     const childInDb = await db.card.findFirst({ where: { project: { userId }, title: "Child" } });
     expect(childInDb?.parentId).not.toBeNull();
+    expect(await db.cardRelation.count({ where: { sourceCardId: childInDb!.id } })).toBe(1);
 
-    // User manually un-parents the card in OPM UI
+    // User manually un-parents the card and removes the relation in OPM UI
     await db.card.update({ where: { id: childInDb!.id }, data: { parentId: null } });
+    await db.cardRelation.deleteMany({ where: { sourceCardId: childInDb!.id } });
 
     // Re-run import
     const live2 = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
     const childRec = live2.records.find((r) => r.sourceId === "child-card");
     expect(childRec?.status).toBe("skipped");
 
-    // ParentId should still be null (not overwritten!)
+    // ParentId and deleted relation should still be absent (not overwritten!)
     const childAfterReimport = await db.card.findUnique({ where: { id: childInDb!.id } });
     expect(childAfterReimport?.parentId).toBeNull();
+    expect(await db.cardRelation.count({ where: { sourceCardId: childInDb!.id } })).toBe(0);
   });
 
   it("retries missing relations/parents on subsequent import if skipped card was previously missing them", async () => {
