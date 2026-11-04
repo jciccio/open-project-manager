@@ -5,7 +5,6 @@ import { UserPlus, Key, Mail, User } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
 import { registerUser } from "@/actions/auth";
-import { useRouter } from "next/navigation";
 import { useTranslation } from "@/components/LanguageProvider";
 
 export function RegisterForm() {
@@ -16,7 +15,6 @@ export function RegisterForm() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const { t } = useTranslation();
-  const router = useRouter();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -54,7 +52,7 @@ export function RegisterForm() {
         <div className="flex flex-col items-center text-center space-y-3">
           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400 via-indigo-600 to-purple-600 p-0.5 shadow-lg shadow-amber-500/20">
             <div className="flex h-full w-full items-center justify-center rounded-[14px] bg-slate-950 overflow-hidden">
-              <Image src="/logo.png" alt="Nanobanana Logo" width={40} height={40} unoptimized className="h-10 w-10 object-cover rounded-xl" />
+              <Image src="/logo.png" alt="Open Project Manager Logo" width={40} height={40} unoptimized className="h-10 w-10 object-cover rounded-xl" />
             </div>
           </div>
           <div>

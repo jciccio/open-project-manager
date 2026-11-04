@@ -13,7 +13,7 @@ export function MarkdownRenderer({ content, className = "" }: Props) {
   if (!content) return null;
 
   return (
-    <div className={`prose dark:prose-invert max-w-none text-xs leading-relaxed space-y-1.5 ${className}`}>
+    <div className={`max-w-none text-xs leading-relaxed space-y-1.5 ${className}`}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{

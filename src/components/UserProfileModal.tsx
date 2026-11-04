@@ -45,6 +45,7 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
 
   const [tokens, setTokens] = useState<ApiTokenSummary[]>([]);
   const [newTokenName, setNewTokenName] = useState("");
+  const [tokenExpiration, setTokenExpiration] = useState<string>("365");
   const [apiToken, setApiToken] = useState("");
   const [tokenLoading, setTokenLoading] = useState(false);
   const [showToken, setShowToken] = useState(false);
@@ -94,6 +95,7 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
     linkingDisablesPassword: boolean;
   } | null>(null);
 
+  const [currentTime] = useState(() => Date.now());
   const ssoLinkMessageKey = ssoLinkResult
     ? SSO_LINK_MESSAGES[ssoLinkResult as keyof typeof SSO_LINK_MESSAGES] ?? "ssoLinkFailed"
     : null;
@@ -132,18 +134,20 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
     setTokenLoading(true);
     setTokenError("");
     try {
-      const res = await createApiToken(newTokenName.trim());
+      const expiresInDays = tokenExpiration === "never" ? "never" : Number(tokenExpiration);
+      const res = await createApiToken(newTokenName.trim(), expiresInDays);
       if (res.success && res.token) {
         setApiToken(res.token.secret);
         setNewTokenName("");
+        setTokenExpiration("365");
         setShowToken(false);
         const listRes = await listApiTokens();
         if (listRes.success && listRes.tokens) setTokens(listRes.tokens);
       } else {
-        setTokenError(res.error || "Failed to generate token.");
+        setTokenError(res.error || t("profileModal.failedToGenerateToken"));
       }
     } catch {
-      setTokenError("Failed to generate token.");
+      setTokenError(t("profileModal.failedToGenerateToken"));
     } finally {
       setTokenLoading(false);
     }
@@ -158,10 +162,10 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
       if (res.success) {
         setTokens((prev) => prev.filter((t) => t.id !== token.id));
       } else {
-        setTokenError(res.error || "Failed to revoke token.");
+        setTokenError(res.error || t("profileModal.failedToRevokeToken"));
       }
     } catch {
-      setTokenError("Failed to revoke token.");
+      setTokenError(t("profileModal.failedToRevokeToken"));
     } finally {
       setRevokingId(null);
     }
@@ -414,7 +418,7 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
 
             {tokenError && <ErrorBanner message={tokenError} />}
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
               <input
                 type="text"
                 value={newTokenName}
@@ -422,6 +426,18 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
                 placeholder={t("profileModal.tokenNamePlaceholder")}
                 className="flex-1 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
               />
+              <select
+                value={tokenExpiration}
+                onChange={(e) => setTokenExpiration(e.target.value)}
+                className="rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3 py-2 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
+                aria-label={t("profileModal.expirationOption")}
+              >
+                <option value="30">{t("profileModal.expiration30Days")}</option>
+                <option value="60">{t("profileModal.expiration60Days")}</option>
+                <option value="90">{t("profileModal.expiration90Days")}</option>
+                <option value="365">{t("profileModal.expiration1Year")}</option>
+                <option value="never">{t("profileModal.neverExpires")}</option>
+              </select>
               <button
                 type="button"
                 onClick={handleGenerateToken}
@@ -446,7 +462,7 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
                     type="button"
                     onClick={() => setShowToken(!showToken)}
                     className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                    title={showToken ? "Hide Token" : "Reveal Token"}
+                    title={showToken ? t("profileModal.hideToken") : t("profileModal.revealToken")}
                   >
                     {showToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                   </button>
@@ -499,6 +515,21 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
                         </p>
                         <p className="text-[10px] text-slate-500 dark:text-slate-400">
                           {t("profileModal.createdLabel")} {formatDate(token.createdAt, locale)}
+                          {" · "}
+                          {token.expiresAt ? (
+                            new Date(token.expiresAt).getTime() < currentTime ? (
+                              <span className="text-red-500 font-semibold">
+                                {t("profileModal.expired")} ({formatDate(token.expiresAt, locale)})
+                              </span>
+                            ) : (
+                              <>
+                                {t("profileModal.expiresLabel")}{" "}
+                                {formatDate(token.expiresAt, locale)}
+                              </>
+                            )
+                          ) : (
+                            t("profileModal.neverExpires")
+                          )}
                           {" · "}
                           {t("profileModal.lastUsedLabel")}{" "}
                           {token.lastUsedAt

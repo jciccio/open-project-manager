@@ -106,7 +106,7 @@ describe("Labels & Comments Server Actions", () => {
   });
 
   it("adds, updates, and deletes comments on a card", async () => {
-    const addRes = await addComment(cardId, "Tester", "This is a test comment");
+    const addRes = await addComment(cardId, "This is a test comment");
     expect(addRes.success).toBe(true);
     expect(addRes.data?.content).toBe("This is a test comment");
 

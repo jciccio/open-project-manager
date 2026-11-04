@@ -143,7 +143,7 @@ export default function LabelManagerModal({ onClose }: Props) {
       >
         <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-purple-500/10 text-purple-600 dark:purple-400 border border-purple-500/20">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
               <Tag className="h-5 w-5" />
             </div>
             <h3 id="label-modal-title" className="text-lg font-bold text-slate-900 dark:text-white">

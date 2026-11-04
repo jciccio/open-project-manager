@@ -6,7 +6,10 @@ import { moveCard } from "@/actions/cards";
 import { useTranslation } from "../LanguageProvider";
 import { handleRowKeyDown } from "../useModalA11y";
 import { formatDueDate } from "@/lib/formatDate";
+import { priorityLabel } from "@/lib/priority";
 import ErrorBanner from "../ErrorBanner";
+import { getPriorityStyle } from "@/lib/priority";
+import { filterCards } from "@/lib/cardFilter";
 
 interface Props {
   project: any;
@@ -16,13 +19,6 @@ interface Props {
   priorityFilter: string;
   typeFilter?: string;
 }
-
-const PRIORITY_COLORS: Record<string, { bg: string; text: string; border: string }> = {
-  LOW: { bg: "bg-slate-100 dark:bg-slate-500/10", text: "text-slate-600 dark:text-slate-400", border: "border-slate-300 dark:border-slate-500/20" },
-  MEDIUM: { bg: "bg-blue-50 dark:bg-blue-500/10", text: "text-blue-600 dark:text-blue-400", border: "border-blue-200 dark:border-blue-500/20" },
-  HIGH: { bg: "bg-amber-50 dark:bg-amber-500/10", text: "text-amber-700 dark:text-amber-400", border: "border-amber-200 dark:border-amber-500/20" },
-  URGENT: { bg: "bg-red-50 dark:bg-red-500/10", text: "text-red-600 dark:text-red-400", border: "border-red-200 dark:border-red-500/20" },
-};
 
 export default function ListView({
   project,
@@ -61,21 +57,10 @@ export default function ListView({
       {error && <ErrorBanner message={error} />}
 
       {project.columns.map((col: any) => {
-        const filteredCards = (col.cards || []).filter((card: any) => {
-          const matchesSearch =
-            searchQuery === "" ||
-            card.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            (card.description && card.description.toLowerCase().includes(searchQuery.toLowerCase())) ||
-            (card.owner && card.owner.toLowerCase().includes(searchQuery.toLowerCase()));
-
-          const matchesPriority =
-            priorityFilter === "ALL" || card.priority === priorityFilter;
-
-          const matchesType =
-            typeFilter === "ALL" ||
-            (typeFilter === "NONE" ? !card.typeId : card.typeId === typeFilter);
-
-          return matchesSearch && matchesPriority && matchesType;
+        const filteredCards = filterCards(col.cards || [], {
+          searchQuery,
+          priorityFilter,
+          typeFilter,
         });
 
         return (
@@ -98,8 +83,7 @@ export default function ListView({
             {filteredCards.length > 0 ? (
               <div className="divide-y divide-slate-200 dark:divide-slate-800/60 overflow-hidden">
                 {filteredCards.map((card: any) => {
-                  const priorityStyle =
-                    PRIORITY_COLORS[card.priority] || PRIORITY_COLORS.MEDIUM;
+                  const priorityStyle = getPriorityStyle(card.priority);
 
                   return (
                     <div
@@ -162,7 +146,7 @@ export default function ListView({
                         <span
                           className={`inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider border ${priorityStyle.bg} ${priorityStyle.text} ${priorityStyle.border}`}
                         >
-                          {card.priority}
+                          {priorityLabel(t, card.priority)}
                         </span>
 
                         {/* Points */}
@@ -180,7 +164,7 @@ export default function ListView({
                             <span>{card.owner}</span>
                           </div>
                         ) : (
-                          <span className="text-slate-400 dark:text-slate-500 text-[11px] italic">Unassigned</span>
+                          <span className="text-slate-400 dark:text-slate-500 text-[11px] italic">{t("cardModal.unassigned")}</span>
                         )}
 
                         {/* Due Date */}
@@ -206,7 +190,7 @@ export default function ListView({
                 })}
               </div>
             ) : (
-              <p className="text-xs text-slate-400 dark:text-slate-500 italic py-2">No tasks in this column.</p>
+              <p className="text-xs text-slate-400 dark:text-slate-500 italic py-2">{t("kanban.noTasks")}</p>
             )}
           </div>
         );
