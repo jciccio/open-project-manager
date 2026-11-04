@@ -3,12 +3,14 @@
 import { useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Zap } from "lucide-react";
 import { useTranslation } from "../LanguageProvider";
+import { filterCards } from "@/lib/cardFilter";
 
 interface Props {
   project: any;
   onCardClick: (card: any) => void;
   searchQuery: string;
   priorityFilter: string;
+  typeFilter?: string;
 }
 
 export default function CalendarView({
@@ -16,6 +18,7 @@ export default function CalendarView({
   onCardClick,
   searchQuery,
   priorityFilter,
+  typeFilter = "ALL",
 }: Props) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const { t, locale } = useTranslation();
@@ -28,19 +31,8 @@ export default function CalendarView({
         list.push({ ...card, columnStatus: col.name });
       });
     });
-    return list.filter((card) => {
-      const matchesSearch =
-        searchQuery === "" ||
-        card.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (card.description && card.description.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        (card.owner && card.owner.toLowerCase().includes(searchQuery.toLowerCase()));
-
-      const matchesPriority =
-        priorityFilter === "ALL" || card.priority === priorityFilter;
-
-      return matchesSearch && matchesPriority;
-    });
-  }, [project, searchQuery, priorityFilter]);
+    return filterCards(list, { searchQuery, priorityFilter, typeFilter });
+  }, [project, searchQuery, priorityFilter, typeFilter]);
 
   // Separate scheduled vs unscheduled
   const { scheduledMap, unscheduledCards } = useMemo(() => {
@@ -69,6 +61,11 @@ export default function CalendarView({
 
   const firstDayOfMonth = new Date(Date.UTC(year, month, 1)).getUTCDay();
   const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const isEs = locale === "es";
+  const offset = isEs ? (firstDayOfMonth + 6) % 7 : firstDayOfMonth;
+  const weekDays = isEs
+    ? [t("calendar.mon"), t("calendar.tue"), t("calendar.wed"), t("calendar.thu"), t("calendar.fri"), t("calendar.sat"), t("calendar.sun")]
+    : [t("calendar.sun"), t("calendar.mon"), t("calendar.tue"), t("calendar.wed"), t("calendar.thu"), t("calendar.fri"), t("calendar.sat")];
 
   const monthName = currentDate.toLocaleString(locale === "es" ? "es-ES" : "en-US", {
     month: "long",
@@ -120,19 +117,15 @@ export default function CalendarView({
 
         {/* Days of Week Header */}
         <div className="grid grid-cols-7 text-center font-bold text-xs text-slate-500 dark:text-slate-400 py-2 border-b border-slate-200 dark:border-slate-800">
-          <div>{locale === "es" ? "Dom" : "Sun"}</div>
-          <div>{locale === "es" ? "Lun" : "Mon"}</div>
-          <div>{locale === "es" ? "Mar" : "Tue"}</div>
-          <div>{locale === "es" ? "Mié" : "Wed"}</div>
-          <div>{locale === "es" ? "Jue" : "Thu"}</div>
-          <div>{locale === "es" ? "Vie" : "Fri"}</div>
-          <div>{locale === "es" ? "Sáb" : "Sat"}</div>
+          {weekDays.map((dayName, idx) => (
+            <div key={idx}>{dayName}</div>
+          ))}
         </div>
 
         {/* Grid Cells */}
         <div className="grid grid-cols-7 gap-1.5">
           {/* Leading empty cells */}
-          {Array.from({ length: firstDayOfMonth }).map((_, i) => (
+          {Array.from({ length: offset }).map((_, i) => (
             <div key={`empty-${i}`} className="h-28 rounded-xl bg-slate-100/50 dark:bg-slate-900/20 border border-slate-200/60 dark:border-slate-800/40" />
           ))}
 

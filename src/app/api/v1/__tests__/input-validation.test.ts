@@ -7,6 +7,8 @@ import { POST as createViewRoute } from "../views/route";
 import { PUT as updateViewRoute } from "../views/[id]/route";
 import { POST as createCardTypeRoute } from "../card-types/route";
 import { PUT as updateCardTypeRoute } from "../card-types/[id]/route";
+import { POST as createProjectRoute } from "../projects/route";
+import { PUT as updateProjectRoute } from "../projects/[id]/route";
 import {
   cleanupTestUser,
   createTestCard,
@@ -64,6 +66,27 @@ describe("REST API input validation", () => {
     );
     expect(status).toBe(400);
     expect(body.error).toMatch(/^points: /);
+  });
+
+  it("PUT /cards/:id returns 400 for fractional points", async () => {
+    const card = await createTestCard(projectId, columnId);
+    const { status, body } = await read(
+      await updateCardRoute(jsonRequest(`/cards/${card.id}`, "PUT", { points: 1.5 }), params(card.id))
+    );
+    expect(status).toBe(400);
+    expect(body.error).toMatch(/^points: /);
+  });
+
+  it("POST /projects and PUT /projects/:id return 400 for a non-string or blank name", async () => {
+    const created = await read(await createProjectRoute(jsonRequest("/projects", "POST", { name: 42 })));
+    expect(created.status).toBe(400);
+    expect(created.body.error).toBe("Project name is required");
+
+    const updated = await read(
+      await updateProjectRoute(jsonRequest(`/projects/${projectId}`, "PUT", { name: "  " }), params(projectId))
+    );
+    expect(updated.status).toBe(400);
+    expect(updated.body.error).toBe("Project name is required");
   });
 
   it("POST /cards/reorder returns 400 for a bad item or an unknown body key", async () => {

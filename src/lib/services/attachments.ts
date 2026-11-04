@@ -65,7 +65,7 @@ export async function uploadAttachment(
             url: "",
             size: data.contentBuffer.length,
             mimeType: data.mimeType || null,
-            uploadedBy: data.uploadedBy || userId,
+            uploadedBy: userId,
           },
         });
 
