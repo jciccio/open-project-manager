@@ -4,6 +4,7 @@ import { jwtVerify } from "jose";
 import { createSession, getSession } from "@/lib/auth";
 import { JWT_SECRET } from "@/lib/env";
 import { getOidcConfig, getOidcRedirectUri, isOidcConfigured, resolveOidcUser } from "@/lib/oidc";
+import { OIDC_FLOW_AUDIENCE, TOKEN_ISSUER } from "@/lib/tokenClaims";
 
 const OIDC_COOKIE_NAMES = ["opm_oidc_verifier", "opm_oidc_state", "opm_oidc_nonce", "opm_oidc_link"] as const;
 const STATE_REGEX = /^[A-Za-z0-9_-]{1,128}$/;
@@ -44,39 +45,35 @@ export async function GET(request: NextRequest) {
   }
 
   const stateCookie = request.cookies.get(`opm_oidc_flow_${returnedState}`)?.value;
+  if (!stateCookie) {
+    return redirectToLogin(publicOrigin, "oidc_session_expired", returnedState);
+  }
 
-  let codeVerifier: string | undefined;
-  let expectedState: string | undefined;
-  let expectedNonce: string | undefined;
+  let codeVerifier: string;
+  let expectedState: string;
+  let expectedNonce: string;
   let linkMode = false;
 
-  if (stateCookie) {
-    try {
-      const { payload } = await jwtVerify(stateCookie, JWT_SECRET);
-      if (
-        typeof payload.verifier === "string" &&
-        typeof payload.state === "string" &&
-        typeof payload.nonce === "string" &&
-        typeof payload.link === "number"
-      ) {
-        codeVerifier = payload.verifier;
-        expectedState = payload.state;
-        expectedNonce = payload.nonce;
-        linkMode = payload.link === 1;
-      }
-    } catch {
-      // Fallback to legacy cookies on parse/verify error
+  try {
+    const { payload } = await jwtVerify(stateCookie, JWT_SECRET, {
+      algorithms: ["HS256"],
+      issuer: TOKEN_ISSUER,
+      audience: OIDC_FLOW_AUDIENCE,
+    });
+    if (
+      typeof payload.verifier !== "string" ||
+      typeof payload.state !== "string" ||
+      typeof payload.nonce !== "string" ||
+      typeof payload.link !== "number" ||
+      payload.state !== returnedState
+    ) {
+      return redirectToLogin(publicOrigin, "oidc_session_expired", returnedState);
     }
-  }
-
-  if (!codeVerifier) {
-    codeVerifier = request.cookies.get("opm_oidc_verifier")?.value;
-    expectedState = request.cookies.get("opm_oidc_state")?.value;
-    expectedNonce = request.cookies.get("opm_oidc_nonce")?.value;
-    linkMode = request.cookies.get("opm_oidc_link")?.value === "1";
-  }
-
-  if (!codeVerifier || !expectedState || !expectedNonce) {
+    codeVerifier = payload.verifier;
+    expectedState = payload.state;
+    expectedNonce = payload.nonce;
+    linkMode = payload.link === 1;
+  } catch {
     return redirectToLogin(publicOrigin, "oidc_session_expired", returnedState);
   }
 

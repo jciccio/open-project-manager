@@ -4,6 +4,7 @@ import { SignJWT } from "jose";
 import { getOidcConfig, getOidcRedirectUri, isOidcConfigured } from "@/lib/oidc";
 import { determineCookieSecurity, getSession } from "@/lib/auth";
 import { JWT_SECRET } from "@/lib/env";
+import { OIDC_FLOW_AUDIENCE, TOKEN_ISSUER } from "@/lib/tokenClaims";
 
 const OIDC_COOKIE_MAX_AGE = 600; // 10 minutes — long enough to complete a login redirect
 
@@ -37,13 +38,6 @@ export async function GET(request: NextRequest) {
 
     const response = NextResponse.redirect(authorizationUrl);
     const isSecure = await determineCookieSecurity();
-    const legacyCookieOptions = {
-      httpOnly: true,
-      secure: isSecure,
-      sameSite: "lax" as const,
-      path: "/",
-      maxAge: OIDC_COOKIE_MAX_AGE,
-    };
     const flowCookieOptions = {
       httpOnly: true,
       secure: isSecure,
@@ -59,19 +53,13 @@ export async function GET(request: NextRequest) {
       link: linkMode ? 1 : 0,
     })
       .setProtectedHeader({ alg: "HS256" })
+      .setIssuer(TOKEN_ISSUER)
+      .setAudience(OIDC_FLOW_AUDIENCE)
       .setIssuedAt()
       .setExpirationTime(`${OIDC_COOKIE_MAX_AGE}s`)
       .sign(JWT_SECRET);
 
     response.cookies.set(`opm_oidc_flow_${state}`, signedFlow, flowCookieOptions);
-    response.cookies.set("opm_oidc_verifier", codeVerifier, legacyCookieOptions);
-    response.cookies.set("opm_oidc_state", state, legacyCookieOptions);
-    response.cookies.set("opm_oidc_nonce", nonce, legacyCookieOptions);
-    if (linkMode) {
-      response.cookies.set("opm_oidc_link", "1", legacyCookieOptions);
-    } else {
-      response.cookies.delete("opm_oidc_link");
-    }
 
     return response;
   } catch (error) {
