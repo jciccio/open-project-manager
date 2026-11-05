@@ -983,7 +983,7 @@ export default function CardDetailModal({
                     </button>
                   </div>
                   {subtaskError && (
-                    <p className="text-[11px] text-rose-500 font-semibold">{subtaskError}</p>
+                    <p role="alert" className="text-[11px] text-rose-500 font-semibold">{subtaskError}</p>
                   )}
                 </form>
               )}
@@ -1137,7 +1137,7 @@ export default function CardDetailModal({
                 </div>
 
                 {relationError && (
-                  <p className="text-[11px] text-red-500 font-semibold">{relationError}</p>
+                  <p role="alert" className="text-[11px] text-red-500 font-semibold">{relationError}</p>
                 )}
               </form>
             )}
@@ -1301,7 +1301,7 @@ export default function CardDetailModal({
             </div>
 
             {attachmentError && (
-              <p className="text-xs text-rose-600 dark:text-rose-400">{attachmentError}</p>
+              <p role="alert" className="text-xs text-rose-600 dark:text-rose-400">{attachmentError}</p>
             )}
 
             <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
