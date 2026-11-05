@@ -302,7 +302,7 @@ export default function KanbanColumn({
             placeholder={t("kanban.taskTitlePlaceholder")}
             value={newTitle}
             onChange={(e) => setNewTitle(e.target.value)}
-            className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none"
+            className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
             autoFocus
           />
 
@@ -310,7 +310,7 @@ export default function KanbanColumn({
             <select
               value={newPriority}
               onChange={(e) => setNewPriority(e.target.value)}
-              className="flex-1 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2 py-1 text-[11px] text-slate-900 dark:text-white focus:outline-none"
+              className="flex-1 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2 py-1 text-[11px] text-slate-900 dark:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
             >
               <option value="NONE">{t("cardModal.priorityNone")}</option>
               <option value="LOW">{t("cardModal.priorityLow")}</option>
@@ -324,7 +324,7 @@ export default function KanbanColumn({
               placeholder={t("kanban.pts")}
               value={newPoints}
               onChange={(e) => setNewPoints(e.target.value === "" ? "" : Number(e.target.value))}
-              className="w-16 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2 py-1 text-[11px] text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none"
+              className="w-16 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2 py-1 text-[11px] text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
             />
           </div>
 
@@ -333,7 +333,7 @@ export default function KanbanColumn({
             placeholder={t("kanban.assigneePlaceholder")}
             value={newOwner}
             onChange={(e) => setNewOwner(e.target.value)}
-            className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none"
+            className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
           />
 
           <div className="flex items-center justify-end gap-2 pt-1">
