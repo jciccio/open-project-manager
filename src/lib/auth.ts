@@ -193,6 +193,12 @@ export async function getSession(): Promise<UserSession | null> {
   }
 }
 
+export async function authenticateBearerToken(token: string): Promise<UserSession | null> {
+  const session = await verifyBearerToken(token);
+  if (!session) return null;
+  return await currentUserFor(session);
+}
+
 export async function getApiSession(request: NextRequest): Promise<UserSession | null> {
   // 1. Check Authorization Bearer header
   const authHeader = request.headers.get("authorization");

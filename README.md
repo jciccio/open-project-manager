@@ -291,6 +291,30 @@ curl -X GET http://localhost:3000/api/v1/cards/CARD_ID/attachments \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
 ```
 
+### 9. Discord Bot Integration
+Open Project Manager supports Discord Interactions for slash commands and rich card unfurling.
+
+1. **Environment Configuration**:
+   Set `DISCORD_PUBLIC_KEY` with the Ed25519 Public Key from your Discord Developer Portal application settings:
+   ```bash
+   DISCORD_PUBLIC_KEY=your_discord_application_public_key_hex
+   ```
+2. **Discord Interactions Endpoint**:
+   Point your Discord Application's **Interactions Endpoint URL** to:
+   ```text
+   https://your-domain.com/api/v1/integrations/discord/interactions
+   ```
+3. **Usage**:
+   - `/opm link <token>`: Link your Discord account to your OPM user using an API token generated in User Profile.
+   - `/opm whoami`: Check which OPM user is linked to your Discord account.
+   - `/opm unlink`: Unlink your Discord account.
+   - `/opm list <key>`: List open cards in a project grouped by column with copyable IDs.
+   - `/opm columns <key>`: List available columns in a project.
+   - `/opm get <KEY-123>`: Inspect a card's status, priority, points, assignee, and project.
+   - `/opm move <KEY-123> <column>`: Move a card to a designated column.
+   - `/opm create <key> <title>`: Create a card in the specified project.
+   - `/opm new <title>`: Quick-create a card in your oldest active writable project.
+
 ---
 
 ## 📥 Importing an Existing Board (Vikunja)
