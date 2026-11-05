@@ -142,6 +142,8 @@ export const es: TranslationKeys = {
     moveLeft: "Mover columna a la izquierda",
     moveRight: "Mover columna a la derecha",
     editColumn: "Editar columna",
+    expandColumn: "Mostrar las tarjetas de esta columna",
+    collapseColumn: "Ocultar las tarjetas de esta columna",
     columnName: "Nombre",
     columnGroup: "Grupo de estado",
     columnColor: "Color",

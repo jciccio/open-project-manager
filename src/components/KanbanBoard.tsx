@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useDeferredValue, useMemo } from "react";
 import {
   Plus,
   ArrowLeft,
@@ -40,7 +40,7 @@ import { unarchiveProject } from "@/actions/projects";
 import { createSavedView, deleteSavedView } from "@/actions/views";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "./LanguageProvider";
-import { COLUMN_GROUPS, DEFAULT_COLUMN_GROUP, type ColumnGroup } from "@/lib/columnGroups";
+import { COLUMN_GROUPS, DEFAULT_COLUMN_GROUP, isClosedColumn, type ColumnGroup } from "@/lib/columnGroups";
 import { filterCards } from "@/lib/cardFilter";
 
 interface Props {
@@ -58,6 +58,8 @@ export default function KanbanBoard({ project }: Props) {
   const [loadingCol, setLoadingCol] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+  const [expandedClosedColumnIds, setExpandedClosedColumnIds] = useState<ReadonlySet<string>>(new Set());
   const [priorityFilter, setPriorityFilter] = useState<string>("ALL");
   const [typeFilter, setTypeFilter] = useState<string>("ALL");
   const [hideSubtasks, setHideSubtasks] = useState(false);
@@ -320,16 +322,29 @@ export default function KanbanBoard({ project }: Props) {
     : null;
 
   // Filter cards by search, priority, type & subtask visibility for Kanban view
-  const columnsWithFilteredCards = project.columns.map((col: any) => {
-    const filteredCards = filterCards(col.cards || [], {
-      searchQuery,
-      priorityFilter,
-      typeFilter,
-      hideSubtasks,
-    });
+  const columnsWithFilteredCards = useMemo(
+    () =>
+      project.columns.map((col: any) => ({
+        ...col,
+        cards: filterCards(col.cards || [], {
+          searchQuery: deferredSearchQuery,
+          priorityFilter,
+          typeFilter,
+          hideSubtasks,
+        }),
+      })),
+    [project.columns, deferredSearchQuery, priorityFilter, typeFilter, hideSubtasks]
+  );
 
-    return { ...col, cards: filteredCards };
-  });
+  const isFiltering = deferredSearchQuery.trim() !== "" || priorityFilter !== "ALL" || typeFilter !== "ALL";
+
+  function toggleClosedColumn(columnId: string) {
+    setExpandedClosedColumnIds((current) => {
+      const next = new Set(current);
+      if (!next.delete(columnId)) next.add(columnId);
+      return next;
+    });
+  }
 
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden bg-slate-100/70 dark:bg-slate-950">
@@ -631,6 +646,10 @@ export default function KanbanBoard({ project }: Props) {
                 canMoveRight={index < columnsWithFilteredCards.length - 1}
                 onMoveLeft={() => handleMoveColumn(column.id, "left")}
                 onMoveRight={() => handleMoveColumn(column.id, "right")}
+                collapsed={isClosedColumn(column) && !isFiltering && !expandedClosedColumnIds.has(column.id)}
+                onToggleCollapsed={
+                  isClosedColumn(column) && !isFiltering ? () => toggleClosedColumn(column.id) : undefined
+                }
               />
             ))}
 
@@ -695,7 +714,7 @@ export default function KanbanBoard({ project }: Props) {
             project={project}
             onCardClick={(card) => setActiveCardId(card.id)}
             onRefresh={() => router.refresh()}
-            searchQuery={searchQuery}
+            searchQuery={deferredSearchQuery}
             priorityFilter={priorityFilter}
             typeFilter={typeFilter}
           />
@@ -707,7 +726,7 @@ export default function KanbanBoard({ project }: Props) {
           <CalendarView
             project={project}
             onCardClick={(card) => setActiveCardId(card.id)}
-            searchQuery={searchQuery}
+            searchQuery={deferredSearchQuery}
             priorityFilter={priorityFilter}
             typeFilter={typeFilter}
           />
