@@ -1404,8 +1404,8 @@ export async function executeMcpTool(
     case "add_card_relation": {
       const sourceCard = await db.card.findUnique({ where: { id: args.sourceCardId } });
       if (!sourceCard || !(await verifyProjectAccess(sourceCard.projectId, userId, "MEMBER"))) throw new Error(`Card with ID ${args.sourceCardId} not found.`);
-      const targetCardExists = await db.card.findUnique({ where: { id: args.targetCardId } });
-      if (!targetCardExists) throw new Error(`Card with ID ${args.targetCardId} not found.`);
+      const targetCard = await db.card.findUnique({ where: { id: args.targetCardId } });
+      if (!targetCard || !(await verifyProjectAccess(targetCard.projectId, userId, "VIEWER"))) throw new Error(`Card with ID ${args.targetCardId} not found.`);
 
       const type = args.type ? args.type.toUpperCase().trim() : "BLOCKS";
       const relation = await db.cardRelation.create({
