@@ -1333,7 +1333,6 @@ export async function executeMcpTool(
     }
 
     case "update_comment": {
-      if (typeof args.content !== "string") throw new Error("Comment content cannot be empty.");
       const comment = unwrapService(
         await commentsService.updateComment(args.commentId, args.content, userId),
         `Comment with ID ${args.commentId} not found.`

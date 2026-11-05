@@ -134,7 +134,7 @@ describe("MCP writes go through the service layer", () => {
 
       await expect(
         executeMcpTool("update_comment", { commentId: comment.id, content: 42 }, { userId })
-      ).rejects.toThrow("Comment content cannot be empty.");
+      ).rejects.toThrow("Comment content cannot be empty");
     });
   });
 
