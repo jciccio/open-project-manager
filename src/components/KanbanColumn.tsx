@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { Plus, Trash2, Layers, ChevronLeft, ChevronRight, Pencil } from "lucide-react";
+import { Plus, Trash2, Layers, ChevronDown, ChevronLeft, ChevronRight, Pencil } from "lucide-react";
 import TaskCard from "./TaskCard";
 import { createCard } from "@/actions/cards";
 import { deleteColumn } from "@/actions/columns";
@@ -35,6 +35,8 @@ interface Props {
   canMoveRight?: boolean;
   onMoveLeft?: () => void;
   onMoveRight?: () => void;
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
 }
 
 export default function KanbanColumn({
@@ -47,6 +49,8 @@ export default function KanbanColumn({
   canMoveRight,
   onMoveLeft,
   onMoveRight,
+  collapsed = false,
+  onToggleCollapsed,
 }: Props) {
   const [isAdding, setIsAdding] = useState(false);
   const [newTitle, setNewTitle] = useState("");
@@ -183,6 +187,17 @@ export default function KanbanColumn({
       {/* Column Header */}
       <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-300 dark:border-slate-800">
         <div className="flex items-center gap-2">
+          {onToggleCollapsed && (
+            <button
+              onClick={onToggleCollapsed}
+              className="-ml-1 rounded-lg p-0.5 text-slate-500 hover:bg-slate-300 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-colors"
+              title={t(collapsed ? "kanban.expandColumn" : "kanban.collapseColumn")}
+              aria-label={t(collapsed ? "kanban.expandColumn" : "kanban.collapseColumn")}
+              aria-expanded={!collapsed}
+            >
+              <ChevronDown className={`h-4 w-4 transition-transform ${collapsed ? "-rotate-90" : ""}`} />
+            </button>
+          )}
           <ColumnGroupIcon
             group={column.group}
             isDone={column.isDone}
@@ -230,13 +245,15 @@ export default function KanbanColumn({
           >
             <Pencil className="h-3.5 w-3.5" />
           </button>
-          <button
-            onClick={() => setIsAdding(true)}
-            className="rounded-lg p-1.5 text-slate-600 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-colors"
-            title={t("kanban.addCard")}
-          >
-            <Plus className="h-4 w-4" />
-          </button>
+          {!collapsed && (
+            <button
+              onClick={() => setIsAdding(true)}
+              className="rounded-lg p-1.5 text-slate-600 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-colors"
+              title={t("kanban.addCard")}
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+          )}
           <button
             onClick={handleDeleteColumn}
             disabled={deletingColumn}
@@ -262,8 +279,8 @@ export default function KanbanColumn({
       {error && <div className="mb-3"><ErrorBanner message={error} /></div>}
 
       {/* Cards List */}
-      <div className="flex-1 space-y-3 min-h-[150px] overflow-y-auto pr-0.5">
-        {column.cards && column.cards.length > 0 ? (
+      <div className={`flex-1 space-y-3 overflow-y-auto pr-0.5 ${collapsed ? "" : "min-h-[150px]"}`}>
+        {collapsed ? null : column.cards && column.cards.length > 0 ? (
           column.cards.map((card) => {
             const isTarget = dragOverCardId === card.id;
             return (
@@ -295,7 +312,7 @@ export default function KanbanColumn({
       </div>
 
       {/* Inline Quick Add Form */}
-      {isAdding ? (
+      {collapsed ? null : isAdding ? (
         <form onSubmit={handleAddCard} className="mt-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-indigo-500/30 p-3 space-y-2.5 shadow-lg">
           <input
             type="text"
