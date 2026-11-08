@@ -30,6 +30,8 @@ export interface PlaneImporterConfig {
   sleep?: (ms: number) => Promise<void>;
   /** Leave out relations that cross projects. A dry run sets this, since it writes nothing for their targets to resolve against. */
   skipCrossProjectRelations?: boolean;
+  /** Whether an earlier run already imported this card, so a relation into a project imported separately can be kept. */
+  isCardImported?: (cardSourceId: string) => Promise<boolean>;
   /** Plane email to OPM email, for accounts whose address differs between the two. */
   emailMap?: Record<string, string>;
 }
@@ -201,6 +203,7 @@ export class PlaneImporter implements Importer {
   private members?: Promise<Map<string, MemberIdentity>>;
   private estimatePoints = new Map<string, Promise<Map<string, number>>>();
   private readonly skipCrossProjectRelations: boolean;
+  private readonly isCardImported?: (cardSourceId: string) => Promise<boolean>;
   private readonly projectsStarted = new Set<string>();
   private crossProjectRelationsSkippedCount = 0;
   private readonly emailMap: Map<string, string>;
@@ -212,6 +215,9 @@ export class PlaneImporter implements Importer {
     cycles: 0,
     modules: 0,
     unreadableLists: 0,
+    unreadableLinks: 0,
+    unreadableRelations: 0,
+    crossProjectRelationsNotYetImported: 0,
   };
 
   constructor(config: PlaneImporterConfig) {
@@ -227,6 +233,7 @@ export class PlaneImporter implements Importer {
     this.timeoutMs = config.timeoutMs ?? 30_000;
     this.sleep = config.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     this.skipCrossProjectRelations = config.skipCrossProjectRelations ?? false;
+    this.isCardImported = config.isCardImported;
     this.emailMap = new Map(Object.entries(config.emailMap ?? {}).map(([from, to]) => [from.toLowerCase(), to]));
     this.name =`plane:${new URL(base).host}/${config.workspaceSlug}`;
   }
@@ -344,6 +351,12 @@ export class PlaneImporter implements Importer {
       { field: "Cycles", count: counts.cycles },
       { field: "Modules", count: counts.modules },
       { field: "Cycle or module lists that could not be read", count: counts.unreadableLists },
+      { field: "Work items whose links could not be read (not added on re-run)", count: counts.unreadableLinks },
+      { field: "Work items whose relations could not be read", count: counts.unreadableRelations },
+      {
+        field: "Relation sides into a project not imported yet (imported with that project)",
+        count: counts.crossProjectRelationsNotYetImported,
+      },
     ].filter(({ count }) => count > 0);
   }
 
@@ -382,29 +395,49 @@ export class PlaneImporter implements Importer {
 
   private async fetchLinks(projectId: string, itemId: string): Promise<ImportCardLink[]> {
     const links: ImportCardLink[] = [];
-    for await (const link of this.paginate<PlaneLink>(`${this.projectPath(projectId)}/work-items/${itemId}/links/`)) {
-      links.push({ url: link.url, title: link.title || undefined });
+    try {
+      for await (const link of this.paginate<PlaneLink>(`${this.projectPath(projectId)}/work-items/${itemId}/links/`)) {
+        links.push({ url: link.url, title: link.title || undefined });
+      }
+    } catch (err) {
+      if (!(err instanceof PlaneApiError)) throw err;
+      this.droppedCounts.unreadableLinks++;
+      return [];
     }
     return links;
   }
 
   private async fetchRelations(projectId: string, itemId: string): Promise<ImportCardRelation[]> {
-    const grouped = await this.get<Record<string, PlaneRelationTarget[] | undefined>>(
-      `${this.projectPath(projectId)}/work-items/${itemId}/relations/`
-    );
+    let grouped: Record<string, PlaneRelationTarget[] | undefined>;
+    try {
+      grouped = await this.get(`${this.projectPath(projectId)}/work-items/${itemId}/relations/`);
+    } catch (err) {
+      if (!(err instanceof PlaneApiError)) throw err;
+      this.droppedCounts.unreadableRelations++;
+      return [];
+    }
     for (const planeType of UNSUPPORTED_RELATION_TYPES) {
       this.droppedCounts.startFinishRelationSides += grouped[planeType]?.length ?? 0;
     }
     const relations: ImportCardRelation[] = [];
     for (const [planeType, type] of Object.entries(RELATION_TYPES)) {
       for (const target of grouped[planeType] ?? []) {
+        const targetCardSourceId = workItemSourceId(target.project_id, target.issue_id);
         if (target.project_id !== projectId) {
-          // Plane returns a relation from both sides, so a target in a project that
-          // hasn't run yet still gets linked when that project's card reports its side.
-          if (this.skipCrossProjectRelations) this.crossProjectRelationsSkippedCount++;
-          if (this.skipCrossProjectRelations || !this.projectsStarted.has(target.project_id)) continue;
+          if (this.skipCrossProjectRelations) {
+            this.crossProjectRelationsSkippedCount++;
+            continue;
+          }
+          // Plane returns a relation from both sides, so a side whose target isn't in OPM
+          // yet is created when the target's project is imported and reports its own side.
+          const targetInOpm =
+            this.projectsStarted.has(target.project_id) || (await this.isCardImported?.(targetCardSourceId));
+          if (!targetInOpm) {
+            this.droppedCounts.crossProjectRelationsNotYetImported++;
+            continue;
+          }
         }
-        relations.push({ targetCardSourceId: workItemSourceId(target.project_id, target.issue_id), type });
+        relations.push({ targetCardSourceId, type });
       }
     }
     return relations;

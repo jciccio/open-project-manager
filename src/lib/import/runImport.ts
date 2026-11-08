@@ -179,7 +179,7 @@ async function importCardAttachments(
   }
 }
 
-async function findExistingMapping(userId: string, source: string, entityType: ImportEntityType, sourceId: string) {
+export async function findExistingMapping(userId: string, source: string, entityType: ImportEntityType, sourceId: string) {
   const exact = await db.importRecord.findUnique({
     where: { userId_source_entityType_sourceId: { userId, source, entityType, sourceId } },
   });

@@ -437,9 +437,14 @@ attachments. It reads
 everything from Plane again, so it takes about as long. Use `--project` to limit it.
 
 **Relations across projects:** projects import one at a time, and a relation is created
-when the second of its two projects runs. If you pass `--project`, a relation into a
-project you left out isn't created. A dry run doesn't check these relations, and prints
-how many it left out.
+when the second of its two projects runs. That holds across separate `--project` runs too:
+importing `ABC` and later `XYZ` creates the relations between them on the second run. A
+relation into a project you never import isn't created. A dry run doesn't check these
+relations, and prints how many it left out.
+
+If Plane fails to return a work item's links or relations, the import carries on and the
+summary counts the work items affected. Re-running restores missing relations, but not
+links, because links are only written when a card is first created.
 
 Plane's public API does not return archived work items, drafts or intake items, so an
 import does not include them. Unarchive anything you need in Plane first.

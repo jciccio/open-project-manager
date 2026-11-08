@@ -544,6 +544,78 @@ describe("PlaneImporter", () => {
       expect(card.relations).toEqual([{ targetCardSourceId: workItemSourceId(OTHER, "x1"), type: "BLOCKS" }]);
     });
 
+    it("keeps a relation into a project an earlier run imported", async () => {
+      stubRoutes(cardRoutes(crossProject));
+      const isCardImported = vi.fn(async (sid: string) => sid === workItemSourceId(OTHER, "x1"));
+      const { instance } = importer({ isCardImported });
+
+      const [card] = await collect(instance.fetchCards(PROJECT_SID));
+
+      expect(card.relations).toEqual([{ targetCardSourceId: workItemSourceId(OTHER, "x1"), type: "BLOCKS" }]);
+      expect(isCardImported).toHaveBeenCalledWith(workItemSourceId(OTHER, "x1"));
+      expect(instance.droppedFields()).toEqual([]);
+    });
+
+    it("counts a relation into a project that isn't imported yet", async () => {
+      stubRoutes(cardRoutes(crossProject));
+      const { instance } = importer({ isCardImported: async () => false });
+
+      const [card] = await collect(instance.fetchCards(PROJECT_SID));
+
+      expect(card.relations).toBeUndefined();
+      expect(instance.droppedFields()).toEqual([
+        { field: "Relation sides into a project not imported yet (imported with that project)", count: 1 },
+      ]);
+    });
+
+    const twoItemRoutes = (failing: "links" | "relations") => ({
+      [`${WORKSPACE}/members/`]: MEMBERS,
+      [`${PROJECT_PATH}/estimates/`]: NO_ESTIMATE,
+      [`${PROJECT_PATH}/work-items/`]: () =>
+        respond(page([{ id: "w1", name: "A", state: "s1" }, { id: "w2", name: "B", state: "s1" }])),
+      [`${PROJECT_PATH}/work-items/w1/links/`]: () =>
+        failing === "links" ? respond({}, 500) : respond(page([{ url: "https://a.example", title: "Docs" }])),
+      [`${PROJECT_PATH}/work-items/w1/relations/`]: () =>
+        failing === "relations" ? respond({}, 500) : respond({ blocking: [{ project_id: PROJECT, issue_id: "w2" }] }),
+    });
+
+    it("keeps importing when one work item's links can't be read", async () => {
+      stubRoutes(twoItemRoutes("links"));
+      const { instance } = importer();
+
+      const cards = await collect(instance.fetchCards(PROJECT_SID));
+
+      expect(cards.map((c) => c.title)).toEqual(["A", "B"]);
+      expect(cards[0].links).toBeUndefined();
+      expect(cards[0].relations).toEqual([{ targetCardSourceId: workItemSourceId(PROJECT, "w2"), type: "BLOCKS" }]);
+      expect(instance.droppedFields()).toEqual([
+        { field: "Work items whose links could not be read (not added on re-run)", count: 1 },
+      ]);
+    });
+
+    it("keeps importing when one work item's relations can't be read", async () => {
+      stubRoutes(twoItemRoutes("relations"));
+      const { instance } = importer();
+
+      const cards = await collect(instance.fetchCards(PROJECT_SID));
+
+      expect(cards.map((c) => c.title)).toEqual(["A", "B"]);
+      expect(cards[0].relations).toBeUndefined();
+      expect(cards[0].links).toEqual([{ url: "https://a.example", title: "Docs" }]);
+      expect(instance.droppedFields()).toEqual([{ field: "Work items whose relations could not be read", count: 1 }]);
+    });
+
+    it("still stops on a link fetch error that isn't an HTTP error", async () => {
+      stubRoutes({
+        ...twoItemRoutes("links"),
+        [`${PROJECT_PATH}/work-items/w1/links/`]: () => {
+          throw new TypeError("fetch failed");
+        },
+      });
+
+      await expect(collect(importer().instance.fetchCards(PROJECT_SID))).rejects.toThrow("fetch failed");
+    });
+
     it("skips and counts every cross-project relation when asked to", async () => {
       stubRoutes({
         ...cardRoutes(crossProject),

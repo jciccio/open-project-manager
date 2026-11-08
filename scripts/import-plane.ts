@@ -9,6 +9,7 @@
 import { db } from "../src/lib/db";
 import { ImportInProgressError, runImportJob } from "../src/lib/import/jobs";
 import { PlaneImporter } from "../src/lib/import/plane";
+import { findExistingMapping } from "../src/lib/import/runImport";
 import type { ImportDroppedField, ImportDryRunSummary, ImportProject, ImportSummary } from "../src/lib/import/types";
 import { parseImportPlaneArgs, type ImportPlaneArgs } from "./import-plane-args";
 import { projectKeyProblems } from "./import-plane-preflight";
@@ -84,12 +85,13 @@ async function main() {
   const baseUrl = process.env.PLANE_URL || "https://api.plane.so";
 
   const userId = await resolveImportUserId(args.user);
-  const importer = new PlaneImporter({
+  const importer: PlaneImporter = new PlaneImporter({
     baseUrl,
     apiKey,
     workspaceSlug: args.workspace,
     projectIdentifiers: args.projectIdentifiers,
     skipCrossProjectRelations: args.dryRun,
+    isCardImported: async (cardSourceId) => !!(await findExistingMapping(userId, importer.name, "card", cardSourceId)),
     emailMap: args.emailMap,
   });
 
