@@ -129,6 +129,20 @@ describe("Discord Integration", () => {
       expect(embed.fields?.find((f) => f.name === "Priority")?.value).toBe("HIGH");
       expect(embed.fields?.find((f) => f.name === "Points")?.value).toBe("5 pts");
     });
+
+    it("truncates embed titles longer than 256 characters", () => {
+      const longTitle = "x".repeat(300);
+      const embed = formatDiscordCardEmbed({
+        identifier: "ENG-99",
+        title: longTitle,
+        status: "Backlog",
+        projectName: "Core Platform",
+        url: "/projects/p1",
+      });
+
+      expect(embed.title?.length).toBe(256);
+      expect(embed.title?.endsWith("...")).toBe(true);
+    });
   });
 
   describe("handleDiscordInteraction", () => {
@@ -279,6 +293,8 @@ describe("Discord Integration", () => {
 
       expect(resCreate.data?.content).toContain("Created card");
       expect(resCreate.data?.embeds?.[0].title).toContain("Created from Discord");
+      expect(resCreate.data?.flags).toBe(64);
+      expect(resCreate.data?.allowed_mentions).toEqual({ parse: [] });
 
       const resNew = await handleDiscordInteraction({
         id: "i-new",
@@ -292,6 +308,8 @@ describe("Discord Integration", () => {
 
       expect(resNew.data?.content).toContain("Created card");
       expect(resNew.data?.embeds?.[0].title).toContain("Quick Card from Discord");
+      expect(resNew.data?.flags).toBe(64);
+      expect(resNew.data?.allowed_mentions).toEqual({ parse: [] });
     });
 
     it("looks up card via /opm get and rejects unauthorized or invalid lookups", async () => {
@@ -525,10 +543,236 @@ describe("Discord Integration", () => {
 
       expect(res.data?.content).toContain(`Moved **${projectKey}-1** to **Done**:`);
       expect(res.data?.embeds?.[0].fields?.find((f) => f.name === "Status")?.value).toBe("Done");
+      expect(res.data?.flags).toBe(64);
+      expect(res.data?.allowed_mentions).toEqual({ parse: [] });
 
       const updatedCard = await db.card.findUnique({ where: { id: card.id } });
       expect(updatedCard?.columnId).toBe(doneCol.id);
       expect(updatedCard?.completedAt).not.toBeNull();
+    });
+
+    it("automatically unlinks user when underlying API token is deleted", async () => {
+      const user = await db.user.findUnique({ where: { id: userId } });
+      const apiTokenRow = await db.apiToken.create({
+        data: { userId, name: "Discord Ephemeral Token" },
+      });
+      const realApiToken = await signApiToken(
+        { userId, email: user!.email, name: user!.name, tokenVersion: user!.tokenVersion },
+        apiTokenRow.id
+      );
+
+      await handleDiscordInteraction({
+        id: "i-link-del",
+        type: 2,
+        data: {
+          name: "opm",
+          options: [
+            {
+              name: "link",
+              type: 1,
+              options: [{ name: "token", type: 3, value: realApiToken }],
+            },
+          ],
+        },
+        user: { id: "DISCORD_REVOKE_TOKEN_USER", username: "revokee" },
+      });
+
+      const who1 = await handleDiscordInteraction({
+        id: "i-who-del-1",
+        type: 2,
+        data: { name: "opm", options: [{ name: "whoami", type: 1 }] },
+        user: { id: "DISCORD_REVOKE_TOKEN_USER", username: "revokee" },
+      });
+      expect(who1.data?.content).toContain("You are linked as");
+
+      // Delete the underlying API token
+      await db.apiToken.delete({ where: { id: apiTokenRow.id } });
+
+      const who2 = await handleDiscordInteraction({
+        id: "i-who-del-2",
+        type: 2,
+        data: { name: "opm", options: [{ name: "whoami", type: 1 }] },
+        user: { id: "DISCORD_REVOKE_TOKEN_USER", username: "revokee" },
+      });
+      expect(who2.data?.content).toContain("Your Discord account is not linked");
+    });
+
+    it("disambiguates duplicate project keys using owner/KEY syntax", async () => {
+      const otherUserRes = await createTestUser(`discord-other-${Date.now()}`);
+      const otherProj = await createTestProject(otherUserRes.user.id, "Other Discord Project");
+      await db.project.update({
+        where: { id: otherProj.id },
+        data: { key: projectKey },
+      });
+      await db.column.create({
+        data: { projectId: otherProj.id, name: "Backlog", order: 1 },
+      });
+      await db.projectMember.create({
+        data: { projectId: otherProj.id, userId, role: "MEMBER" },
+      });
+
+      const otherUser = otherUserRes.user;
+
+      const resCreateOther = await handleDiscordInteraction({
+        id: "i-create-owner",
+        type: 2,
+        data: {
+          name: "opm",
+          options: [
+            {
+              name: "create",
+              type: 1,
+              options: [
+                { name: "key", type: 3, value: `${otherUser.name}/${projectKey}` },
+                { name: "title", type: 3, value: "Created In Other Project" },
+              ],
+            },
+          ],
+        },
+        user: { id: "DISCORD_TEST_USER_1", username: "tester" },
+      });
+      expect(resCreateOther.data?.content).toContain("Created card");
+      expect(resCreateOther.data?.embeds?.[0].fields?.find((f) => f.name === "Project")?.value).toBe("Other Discord Project");
+
+      await cleanupTestUser(otherUserRes.user.id);
+    });
+
+    it("truncates /opm list output when cards exceed character budget", async () => {
+      const backlogCol = await db.column.findFirstOrThrow({ where: { projectId, name: "Backlog" } });
+      const cardsData = Array.from({ length: 40 }, (_, i) => ({
+        projectId,
+        columnId: backlogCol.id,
+        number: 100 + i,
+        title: `Card with a fairly long descriptive title number ${i + 1} to reach message limit`,
+        order: i + 1,
+      }));
+      await db.card.createMany({ data: cardsData });
+
+      const res = await handleDiscordInteraction({
+        id: "i-list-trunc",
+        type: 2,
+        data: {
+          name: "opm",
+          options: [
+            {
+              name: "list",
+              type: 1,
+              options: [{ name: "key", type: 3, value: projectKey }],
+            },
+          ],
+        },
+        user: { id: "DISCORD_TEST_USER_1", username: "tester" },
+      });
+
+      expect(res.data?.content).toBeDefined();
+      expect(res.data!.content!.length).toBeLessThan(2000);
+      expect(res.data?.content).toContain("more cards");
+    });
+
+    it("allows viewing cards and columns in INTERNAL projects even if user is not a member", async () => {
+      const internalUserRes = await createTestUser(`discord-internal-${Date.now()}`);
+      const internalProj = await createTestProject(internalUserRes.user.id, "Internal Open Project");
+      await db.project.update({
+        where: { id: internalProj.id },
+        data: { visibility: "INTERNAL" },
+      });
+      const col = await db.column.create({
+        data: { projectId: internalProj.id, name: "Triage", order: 1 },
+      });
+      await db.card.create({
+        data: {
+          projectId: internalProj.id,
+          columnId: col.id,
+          number: 1,
+          title: "Internal Card Title",
+          order: 1,
+        },
+      });
+
+      const resGet = await handleDiscordInteraction({
+        id: "i-get-internal",
+        type: 2,
+        data: {
+          name: "opm",
+          options: [{ name: "get", type: 1, options: [{ name: "identifier", type: 3, value: `${internalProj.key}-1` }] }],
+        },
+        user: { id: "DISCORD_TEST_USER_1", username: "tester" },
+      });
+      expect(resGet.data?.embeds?.[0].title).toContain("Internal Card Title");
+
+      const resList = await handleDiscordInteraction({
+        id: "i-list-internal",
+        type: 2,
+        data: {
+          name: "opm",
+          options: [{ name: "list", type: 1, options: [{ name: "key", type: 3, value: internalProj.key }] }],
+        },
+        user: { id: "DISCORD_TEST_USER_1", username: "tester" },
+      });
+      expect(resList.data?.content).toContain("Internal Open Project");
+
+      await cleanupTestUser(internalUserRes.user.id);
+    });
+
+    it("includes card assignees in embed", async () => {
+      const backlogCol = await db.column.findFirstOrThrow({ where: { projectId, name: "Backlog" } });
+      const card = await db.card.create({
+        data: {
+          projectId,
+          columnId: backlogCol.id,
+          number: 55,
+          title: "Assignee Test Card",
+          order: 1,
+        },
+      });
+      await db.cardAssignee.create({
+        data: {
+          cardId: card.id,
+          userId,
+        },
+      });
+
+      const resGet = await handleDiscordInteraction({
+        id: "i-get-assignee",
+        type: 2,
+        data: {
+          name: "opm",
+          options: [{ name: "get", type: 1, options: [{ name: "identifier", type: 3, value: `${projectKey}-55` }] }],
+        },
+        user: { id: "DISCORD_TEST_USER_1", username: "tester" },
+      });
+
+      const assigneeField = resGet.data?.embeds?.[0].fields?.find((f) => f.name === "Assignee");
+      expect(assigneeField).toBeDefined();
+      expect(assigneeField?.value).not.toBe("Unassigned");
+    });
+
+    it("excludes CANCELLED column from candidate backlog/open columns on /opm new", async () => {
+      await db.column.create({
+        data: {
+          projectId,
+          name: "Cancelled",
+          group: "CANCELLED",
+          order: 0,
+        },
+      });
+
+      const resNew = await handleDiscordInteraction({
+        id: "i-new-nocancel",
+        type: 2,
+        data: {
+          name: "opm",
+          options: [{ name: "new", type: 1, options: [{ name: "title", type: 3, value: "Not In Cancelled" }] }],
+        },
+        user: { id: "DISCORD_TEST_USER_1", username: "tester" },
+      });
+
+      expect(resNew.data?.content).toContain("Created card");
+      const createdCard = await db.card.findFirst({
+        where: { projectId, title: "Not In Cancelled" },
+        include: { column: true },
+      });
+      expect(createdCard?.column.group).not.toBe("CANCELLED");
     });
   });
 });

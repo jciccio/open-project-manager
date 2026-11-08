@@ -292,12 +292,13 @@ curl -X GET http://localhost:3000/api/v1/cards/CARD_ID/attachments \
 ```
 
 ### 9. Discord Bot Integration
-Open Project Manager supports Discord Interactions for slash commands and rich card unfurling.
+Open Project Manager supports Discord Interactions for slash commands and rich card unfurling. For setup details, see the official [Discord Developer Documentation](https://docs.discord.com/developers/quick-start/getting-started).
 
 1. **Environment Configuration**:
-   Set `DISCORD_PUBLIC_KEY` with the Ed25519 Public Key from your Discord Developer Portal application settings:
+   Set `DISCORD_PUBLIC_KEY` and `APP_URL` on the server:
    ```bash
    DISCORD_PUBLIC_KEY=your_discord_application_public_key_hex
+   APP_URL=https://your-domain.com
    ```
 2. **Discord Interactions Endpoint**:
    Point your Discord Application's **Interactions Endpoint URL** to:
@@ -305,15 +306,15 @@ Open Project Manager supports Discord Interactions for slash commands and rich c
    https://your-domain.com/api/v1/integrations/discord/interactions
    ```
 3. **Usage**:
-   - `/opm link <token>`: Link your Discord account to your OPM user using an API token generated in User Profile.
+   - `/opm link <token>`: Link your Discord account to your OPM user using an API token generated in User Profile. The link is authenticated and checked against active API tokens.
    - `/opm whoami`: Check which OPM user is linked to your Discord account.
    - `/opm unlink`: Unlink your Discord account.
-   - `/opm list <key>`: List open cards in a project grouped by column with copyable IDs.
-   - `/opm columns <key>`: List available columns in a project.
-   - `/opm get <KEY-123>`: Inspect a card's status, priority, points, assignee, and project.
-   - `/opm move <KEY-123> <column>`: Move a card to a designated column.
-   - `/opm create <key> <title>`: Create a card in the specified project.
-   - `/opm new <title>`: Quick-create a card in your oldest active writable project.
+   - `/opm list <key>` or `/opm list <owner/key>`: List open cards in a project grouped by column with copyable IDs.
+   - `/opm columns <key>` or `/opm columns <owner/key>`: List available columns in a project.
+   - `/opm get <KEY-123>` or `/opm get <owner/KEY-123>`: Inspect a card's status, priority, points, assignee, and project (ephemeral response).
+   - `/opm move <KEY-123> <column>`: Move a card to a designated column (ephemeral response).
+   - `/opm create <key> <title>` or `/opm create <owner/key> <title>`: Create a card in the specified project (ephemeral response).
+   - `/opm new <title>`: Quick-create a card in your default active writable project (ephemeral response).
 
 ---
 

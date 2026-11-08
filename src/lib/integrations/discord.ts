@@ -1,8 +1,9 @@
 import crypto from "crypto";
 import { db } from "@/lib/db";
-import { authenticateBearerToken } from "@/lib/auth";
+import { verifyApiTokenOnly } from "@/lib/auth";
 import { createCard, moveCard } from "@/lib/services/cards";
 import { verifyProjectAccess } from "@/lib/permissions";
+import { isClosedColumn } from "@/lib/columnGroups";
 
 export interface DiscordEmbed {
   title?: string;
@@ -20,6 +21,7 @@ export interface DiscordInteractionResponse {
     content?: string;
     embeds?: DiscordEmbed[];
     flags?: number; // 64 = EPHEMERAL
+    allowed_mentions?: { parse: string[] };
   };
 }
 
@@ -99,27 +101,52 @@ export async function getLinkedOpmUser(discordUserId: string) {
     },
   });
   if (!record) return null;
-  return db.user.findUnique({ where: { id: record.localId } });
+
+  const user = await db.user.findUnique({
+    where: { id: record.localId },
+    select: { id: true, name: true, email: true, tokenVersion: true },
+  });
+  if (!user) {
+    await db.importRecord.deleteMany({ where: { id: record.id } });
+    return null;
+  }
+
+  // Active token verification: ensure the API token used to establish the link
+  // has not been revoked or expired.
+  if (record.importRunId && record.importRunId !== "discord-link") {
+    const apiToken = await db.apiToken.findUnique({
+      where: { id: record.importRunId },
+      select: { id: true, userId: true, expiresAt: true },
+    });
+    if (!apiToken || apiToken.userId !== user.id || (apiToken.expiresAt && apiToken.expiresAt < new Date())) {
+      await db.importRecord.deleteMany({ where: { id: record.id } });
+      return null;
+    }
+  }
+
+  return user;
 }
 
-export async function linkDiscordUser(discordUserId: string, opmUserId: string) {
-  await db.importRecord.deleteMany({
-    where: {
-      source: "discord",
-      entityType: "user",
-      sourceId: discordUserId,
-    },
-  });
+export async function linkDiscordUser(discordUserId: string, opmUserId: string, apiTokenId = "discord-link") {
+  await db.$transaction(async (tx) => {
+    await tx.importRecord.deleteMany({
+      where: {
+        source: "discord",
+        entityType: "user",
+        sourceId: discordUserId,
+      },
+    });
 
-  await db.importRecord.create({
-    data: {
-      userId: opmUserId,
-      source: "discord",
-      entityType: "user",
-      sourceId: discordUserId,
-      localId: opmUserId,
-      importRunId: "discord-link",
-    },
+    await tx.importRecord.create({
+      data: {
+        userId: opmUserId,
+        source: "discord",
+        entityType: "user",
+        sourceId: discordUserId,
+        localId: opmUserId,
+        importRunId: apiTokenId,
+      },
+    });
   });
 }
 
@@ -140,30 +167,266 @@ export function formatDiscordCardEmbed(card: {
   projectName: string;
   priority?: string | null;
   owner?: string | null;
+  assignees?: string | null;
   points?: number | null;
   url: string;
 }): DiscordEmbed {
   const priority = card.priority && card.priority !== "NONE" ? card.priority : "None";
-  const owner = card.owner || "Unassigned";
+  const assignee = card.assignees || card.owner || "Unassigned";
   const points = card.points != null ? `${card.points} pts` : "None";
 
   const fullUrl = card.url.startsWith("http")
     ? card.url
     : `${getAppBaseUrl()}${card.url.startsWith("/") ? "" : "/"}${card.url}`;
 
+  // Discord caps embed titles at 256 characters
+  let title = `${card.identifier}: ${card.title}`;
+  if (title.length > 256) {
+    title = title.slice(0, 253) + "...";
+  }
+
   return {
-    title: `${card.identifier}: ${card.title}`,
+    title,
     url: fullUrl,
     color: 0x5865f2, // Discord Blurple
     fields: [
       { name: "Project", value: card.projectName, inline: true },
       { name: "Status", value: card.status, inline: true },
       { name: "Priority", value: priority, inline: true },
-      { name: "Assignee", value: owner, inline: true },
+      { name: "Assignee", value: assignee, inline: true },
       { name: "Points", value: points, inline: true },
     ],
     footer: { text: "Open Project Manager" },
     timestamp: new Date().toISOString(),
+  };
+}
+
+async function resolveDiscordProject(target: string, opmUserId: string) {
+  let ownerFilter: string | null = null;
+  let keyOrId = target.trim();
+
+  if (target.includes("/")) {
+    const slashIdx = target.indexOf("/");
+    ownerFilter = target.slice(0, slashIdx).trim().toLowerCase();
+    keyOrId = target.slice(slashIdx + 1).trim();
+  }
+
+  // 1. Try resolving by projectId directly
+  const byId = await db.project.findFirst({
+    where: {
+      id: keyOrId,
+      isArchived: false,
+      OR: [
+        { userId: opmUserId },
+        { members: { some: { userId: opmUserId, role: { in: ["OWNER", "ADMIN", "MEMBER"] } } } },
+      ],
+    },
+    include: {
+      columns: { orderBy: { order: "asc" } },
+      user: { select: { id: true, name: true, email: true } },
+    },
+  });
+  if (byId) return { project: byId };
+
+  // 2. Query candidates by key
+  const candidates = await db.project.findMany({
+    where: {
+      key: keyOrId.toUpperCase(),
+      isArchived: false,
+      OR: [
+        { userId: opmUserId },
+        { members: { some: { userId: opmUserId, role: { in: ["OWNER", "ADMIN", "MEMBER"] } } } },
+      ],
+    },
+    include: {
+      columns: { orderBy: { order: "asc" } },
+      user: { select: { id: true, name: true, email: true } },
+    },
+  });
+
+  if (candidates.length === 0) {
+    return { error: `Project "${target}" not found or you do not have permission to create cards in it.` };
+  }
+
+  if (ownerFilter) {
+    const matched = candidates.find(
+      (p) =>
+        p.user.name?.toLowerCase() === ownerFilter ||
+        p.user.email.toLowerCase() === ownerFilter ||
+        p.user.email.toLowerCase().startsWith(ownerFilter)
+    );
+    if (matched) return { project: matched };
+    return { error: `No project with key "${keyOrId.toUpperCase()}" owned by "${ownerFilter}" found.` };
+  }
+
+  // Prefer owned project
+  const owned = candidates.find((p) => p.userId === opmUserId);
+  if (owned) return { project: owned };
+
+  if (candidates.length === 1) return { project: candidates[0] };
+
+  const owners = candidates.map((p) => p.user.name || p.user.email).join(", ");
+  return {
+    error: `Multiple projects match key "${keyOrId.toUpperCase()}" (owned by: ${owners}). Please specify owner (e.g. \`<owner>/${keyOrId.toUpperCase()}\`).`,
+  };
+}
+
+async function resolveDiscordProjectForViewing(target: string, opmUserId: string) {
+  let ownerFilter: string | null = null;
+  let keyOrId = target.trim();
+
+  if (target.includes("/")) {
+    const slashIdx = target.indexOf("/");
+    ownerFilter = target.slice(0, slashIdx).trim().toLowerCase();
+    keyOrId = target.slice(slashIdx + 1).trim();
+  }
+
+  // 1. Try resolving by projectId directly
+  const byId = await db.project.findFirst({
+    where: {
+      id: keyOrId,
+      isArchived: false,
+      OR: [
+        { userId: opmUserId },
+        { members: { some: { userId: opmUserId } } },
+        { visibility: "INTERNAL" },
+      ],
+    },
+    include: {
+      columns: {
+        orderBy: { order: "asc" },
+        include: {
+          cards: {
+            where: { isArchived: false },
+            orderBy: { order: "asc" },
+          },
+        },
+      },
+      user: { select: { id: true, name: true, email: true } },
+    },
+  });
+  if (byId) return { project: byId };
+
+  // 2. Query candidates by key
+  const candidates = await db.project.findMany({
+    where: {
+      key: keyOrId.toUpperCase(),
+      isArchived: false,
+      OR: [
+        { userId: opmUserId },
+        { members: { some: { userId: opmUserId } } },
+        { visibility: "INTERNAL" },
+      ],
+    },
+    include: {
+      columns: {
+        orderBy: { order: "asc" },
+        include: {
+          cards: {
+            where: { isArchived: false },
+            orderBy: { order: "asc" },
+          },
+        },
+      },
+      user: { select: { id: true, name: true, email: true } },
+    },
+  });
+
+  if (candidates.length === 0) {
+    return { error: `Project with key "${target}" not found or you do not have permission to view it.` };
+  }
+
+  if (ownerFilter) {
+    const matched = candidates.find(
+      (p) =>
+        p.user.name?.toLowerCase() === ownerFilter ||
+        p.user.email.toLowerCase() === ownerFilter ||
+        p.user.email.toLowerCase().startsWith(ownerFilter)
+    );
+    if (matched) return { project: matched };
+    return { error: `No project with key "${keyOrId.toUpperCase()}" owned by "${ownerFilter}" found.` };
+  }
+
+  const owned = candidates.find((p) => p.userId === opmUserId);
+  if (owned) return { project: owned };
+
+  if (candidates.length === 1) return { project: candidates[0] };
+
+  const owners = candidates.map((p) => p.user.name || p.user.email).join(", ");
+  return {
+    error: `Multiple projects match key "${keyOrId.toUpperCase()}" (owned by: ${owners}). Please specify owner (e.g. \`<owner>/${keyOrId.toUpperCase()}\`).`,
+  };
+}
+
+async function createCardInDiscordProject(
+  project: {
+    id: string;
+    key: string;
+    name: string;
+    columns: Array<{ id: string; name: string; group?: string | null; isDone?: boolean | null }>;
+  },
+  title: string,
+  opmUser: { id: string; name: string | null; email: string }
+): Promise<DiscordInteractionResponse> {
+  if (project.columns.length === 0) {
+    return {
+      type: 4,
+      data: {
+        content: `Project "${project.name}" has no columns to place the card in.`,
+        flags: 64,
+      },
+    };
+  }
+
+  const targetColumn =
+    project.columns.find((c) => c.group === "BACKLOG") ||
+    project.columns.find((c) => c.group === "UNSTARTED") ||
+    project.columns.find((c) => !isClosedColumn(c)) ||
+    project.columns[0];
+
+  const result = await createCard(
+    {
+      projectId: project.id,
+      columnId: targetColumn.id,
+      title,
+      owner: (opmUser.name || opmUser.email).slice(0, 200),
+      assigneeIds: [opmUser.id],
+    },
+    opmUser.id
+  );
+
+  if (!result.success || !result.data) {
+    return {
+      type: 4,
+      data: {
+        content: `Failed to create card: ${("error" in result ? result.error : undefined) || "Unknown error"}`,
+        flags: 64,
+      },
+    };
+  }
+
+  const createdCard = result.data;
+  const identifier = `${project.key}-${createdCard.number}`;
+  const embed = formatDiscordCardEmbed({
+    identifier,
+    title: createdCard.title,
+    status: targetColumn.name,
+    projectName: project.name,
+    priority: createdCard.priority,
+    owner: createdCard.owner,
+    assignees: opmUser.name || opmUser.email,
+    points: createdCard.points,
+    url: `/projects/${project.id}`,
+  });
+
+  return {
+    type: 4,
+    data: {
+      content: `Created card **${identifier}** in **${project.name}**:`,
+      embeds: [embed],
+      flags: 64, // Ephemeral to protect privacy
+      allowed_mentions: { parse: [] },
+    },
   };
 }
 
@@ -214,12 +477,12 @@ export async function handleDiscordInteraction(
           "• `/opm link <token>`: Link your Discord account to your OPM user using an API token from your profile.\n" +
           "• `/opm whoami`: Check which OPM user is linked to your Discord account.\n" +
           "• `/opm unlink`: Unlink your Discord account.\n" +
-          "• `/opm list <key>`: List open cards in a project grouped by column.\n" +
-          "• `/opm columns <key>`: List available columns in a project.\n" +
-          "• `/opm get <KEY-123>`: Inspect a card's status, priority, and assignment.\n" +
+          "• `/opm list <key>`: List open cards in a project grouped by column (supports `owner/key`).\n" +
+          "• `/opm columns <key>`: List available columns in a project (supports `owner/key`).\n" +
+          "• `/opm get <KEY-123>`: Inspect a card's status, priority, and assignment (supports `owner/KEY-123`).\n" +
           "• `/opm move <KEY-123> <column>`: Move a card to a specified column.\n" +
-          "• `/opm create <key> <title>`: Create a card in a specific project.\n" +
-          "• `/opm new <title>`: Quick-create a card in your oldest active writable project.",
+          "• `/opm create <key> <title>`: Create a card in a specific project (supports `owner/key`).\n" +
+          "• `/opm new <title>`: Quick-create a card in your default active writable project.",
         flags: 64,
       },
     };
@@ -237,8 +500,8 @@ export async function handleDiscordInteraction(
       };
     }
 
-    const session = await authenticateBearerToken(token);
-    if (!session) {
+    const apiTokenAuth = await verifyApiTokenOnly(token);
+    if (!apiTokenAuth) {
       return {
         type: 4,
         data: {
@@ -248,22 +511,11 @@ export async function handleDiscordInteraction(
       };
     }
 
-    const targetUser = await db.user.findUnique({ where: { id: session.userId } });
-    if (!targetUser) {
-      return {
-        type: 4,
-        data: {
-          content: "User account associated with this token could not be found.",
-          flags: 64,
-        },
-      };
-    }
-
-    await linkDiscordUser(discordUser.id, targetUser.id);
+    await linkDiscordUser(discordUser.id, apiTokenAuth.session.userId, apiTokenAuth.apiTokenId);
     return {
       type: 4,
       data: {
-        content: `Successfully linked your Discord account to Open Project Manager as **${targetUser.name}** (${targetUser.email}).`,
+        content: `Successfully linked your Discord account to Open Project Manager as **${apiTokenAuth.session.name}** (${apiTokenAuth.session.email}).`,
         flags: 64,
       },
     };
@@ -303,13 +555,20 @@ export async function handleDiscordInteraction(
   }
 
   if (subCommand === "get") {
-    const rawId = String(subArgs.identifier || "").trim().toUpperCase();
-    const match = rawId.match(/^([A-Z0-9]+)-(\d{1,9})$/);
+    let ownerFilter: string | null = null;
+    let rawId = String(subArgs.identifier || "").trim();
+    if (rawId.includes("/")) {
+      const slashIdx = rawId.indexOf("/");
+      ownerFilter = rawId.slice(0, slashIdx).trim().toLowerCase();
+      rawId = rawId.slice(slashIdx + 1).trim();
+    }
+
+    const match = rawId.toUpperCase().match(/^([A-Z0-9]+)-(\d{1,9})$/);
     if (!match) {
       return {
         type: 4,
         data: {
-          content: `Invalid card identifier format "${rawId}". Expected format like "PROJ-12".`,
+          content: `Invalid card identifier format "${rawId}". Expected format like "PROJ-12" or "owner/PROJ-12".`,
           flags: 64,
         },
       };
@@ -329,22 +588,48 @@ export async function handleDiscordInteraction(
           OR: [
             { userId: opmUser.id },
             { members: { some: { userId: opmUser.id } } },
+            { visibility: "INTERNAL" },
           ],
         },
       },
       include: {
-        project: true,
+        project: {
+          include: {
+            user: { select: { id: true, name: true, email: true } },
+          },
+        },
         column: true,
+        assignees: {
+          include: {
+            user: { select: { id: true, name: true, email: true } },
+          },
+        },
       },
     });
 
-    const card = matchingCards.find((c) => c.project.userId === opmUser.id) || (matchingCards.length === 1 ? matchingCards[0] : null);
+    let card = null;
+    if (ownerFilter) {
+      card =
+        matchingCards.find(
+          (c) =>
+            c.project.user.name?.toLowerCase() === ownerFilter ||
+            c.project.user.email.toLowerCase() === ownerFilter ||
+            c.project.user.email.toLowerCase().startsWith(ownerFilter) ||
+            c.project.id === ownerFilter
+        ) || null;
+    } else {
+      card =
+        matchingCards.find((c) => c.project.userId === opmUser.id) ||
+        (matchingCards.length === 1 ? matchingCards[0] : null);
+    }
+
     if (!card) {
-      if (matchingCards.length > 1) {
+      if (matchingCards.length > 1 && !ownerFilter) {
+        const owners = matchingCards.map((c) => c.project.user.name || c.project.user.email).join(", ");
         return {
           type: 4,
           data: {
-            content: `Multiple active projects match key "${projectKey}". Please contact support to disambiguate.`,
+            content: `Multiple projects match card "${identifier}" (owned by: ${owners}). Please specify owner with \`/opm get <owner>/${identifier}\`.`,
             flags: 64,
           },
         };
@@ -369,6 +654,11 @@ export async function handleDiscordInteraction(
       };
     }
 
+    const assigneesText =
+      card.assignees && card.assignees.length > 0
+        ? card.assignees.map((a) => a.user.name || a.user.email).join(", ")
+        : card.owner || null;
+
     const embed = formatDiscordCardEmbed({
       identifier,
       title: card.title,
@@ -376,8 +666,9 @@ export async function handleDiscordInteraction(
       projectName: card.project.name,
       priority: card.priority,
       owner: card.owner,
+      assignees: assigneesText,
       points: card.points,
-      url: `/projects/${card.projectId}?cardId=${card.id}`,
+      url: `/projects/${card.projectId}`,
     });
 
     return {
@@ -390,8 +681,8 @@ export async function handleDiscordInteraction(
   }
 
   if (subCommand === "columns") {
-    const projectKey = String(subArgs.key || subArgs.project || "").trim().toUpperCase();
-    if (!projectKey) {
+    const rawKey = String(subArgs.key || subArgs.project || "").trim();
+    if (!rawKey) {
       return {
         type: 4,
         data: {
@@ -401,37 +692,18 @@ export async function handleDiscordInteraction(
       };
     }
 
-    const candidates = await db.project.findMany({
-      where: {
-        key: projectKey,
-        isArchived: false,
-        OR: [
-          { userId: opmUser.id },
-          { members: { some: { userId: opmUser.id } } },
-        ],
-      },
-      include: { columns: { orderBy: { order: "asc" } } },
-    });
-
-    const project = candidates.find((p) => p.userId === opmUser.id) || (candidates.length === 1 ? candidates[0] : null);
-    if (!project) {
-      if (candidates.length > 1) {
-        return {
-          type: 4,
-          data: {
-            content: `Multiple active projects match key "${projectKey}". Please contact support to disambiguate.`,
-            flags: 64,
-          },
-        };
-      }
+    const resolution = await resolveDiscordProjectForViewing(rawKey, opmUser.id);
+    if ("error" in resolution && resolution.error) {
       return {
         type: 4,
         data: {
-          content: `Project with key "${projectKey}" not found or you do not have permission to view it.`,
+          content: resolution.error,
           flags: 64,
         },
       };
     }
+
+    const project = resolution.project!;
 
     if (project.columns.length === 0) {
       return {
@@ -443,9 +715,21 @@ export async function handleDiscordInteraction(
       };
     }
 
-    const lines = project.columns.map(
-      (c, idx) => `${idx + 1}. **${c.name}** (\`${c.id}\`)${c.isDone ? " *(Done)*" : ""}`
-    );
+    const lines: string[] = [];
+    let currentLength = 0;
+    const maxDiscordContentLength = 1900;
+
+    for (let idx = 0; idx < project.columns.length; idx++) {
+      const c = project.columns[idx];
+      const line = `${idx + 1}. **${c.name}** (\`${c.id}\`)${c.isDone ? " *(Done)*" : ""}`;
+      if (currentLength + line.length + 50 > maxDiscordContentLength) {
+        lines.push(`_... and ${project.columns.length - idx} more columns_`);
+        break;
+      }
+      lines.push(line);
+      currentLength += line.length + 1;
+    }
+
     return {
       type: 4,
       data: {
@@ -456,8 +740,8 @@ export async function handleDiscordInteraction(
   }
 
   if (subCommand === "list") {
-    const projectKey = String(subArgs.key || subArgs.project || "").trim().toUpperCase();
-    if (!projectKey) {
+    const rawKey = String(subArgs.key || subArgs.project || "").trim();
+    if (!rawKey) {
       return {
         type: 4,
         data: {
@@ -467,61 +751,51 @@ export async function handleDiscordInteraction(
       };
     }
 
-    const candidates = await db.project.findMany({
-      where: {
-        key: projectKey,
-        isArchived: false,
-        OR: [
-          { userId: opmUser.id },
-          { members: { some: { userId: opmUser.id } } },
-        ],
-      },
-      include: {
-        columns: {
-          orderBy: { order: "asc" },
-          include: {
-            cards: {
-              where: { isArchived: false },
-              orderBy: { order: "asc" },
-            },
-          },
-        },
-      },
-    });
-
-    const project = candidates.find((p) => p.userId === opmUser.id) || (candidates.length === 1 ? candidates[0] : null);
-    if (!project) {
-      if (candidates.length > 1) {
-        return {
-          type: 4,
-          data: {
-            content: `Multiple active projects match key "${projectKey}". Please contact support to disambiguate.`,
-            flags: 64,
-          },
-        };
-      }
+    const resolution = await resolveDiscordProjectForViewing(rawKey, opmUser.id);
+    if ("error" in resolution && resolution.error) {
       return {
         type: 4,
         data: {
-          content: `Project with key "${projectKey}" not found or you do not have permission to view it.`,
+          content: resolution.error,
           flags: 64,
         },
       };
     }
 
-    const openColumns = project.columns.filter((c) => !c.isDone);
+    const project = resolution.project!;
+
+    const openColumns = project.columns.filter((c) => !isClosedColumn(c));
     const targetColumns = openColumns.length > 0 ? openColumns : project.columns;
 
     const sections: string[] = [];
     let totalCards = 0;
+    let currentContentLength = 100; // Header estimate
+    const maxDiscordContentLength = 1900;
+    let truncated = false;
+
     for (const col of targetColumns) {
       const colCards = col.cards;
       totalCards += colCards.length;
-      const cardLines =
-        colCards.length > 0
-          ? colCards.map((c) => `• \`${project.key}-${c.number}\` - ${c.title}`).join("\n")
-          : "_No cards_";
-      sections.push(`**${col.name}** (${colCards.length}):\n${cardLines}`);
+
+      const cardLines: string[] = [];
+      for (let i = 0; i < colCards.length; i++) {
+        const c = colCards[i];
+        let cardTitle = c.title;
+        if (cardTitle.length > 60) {
+          cardTitle = cardTitle.slice(0, 57) + "...";
+        }
+        const cardLine = `• \`${project.key}-${c.number}\` - ${cardTitle}`;
+        if (currentContentLength + cardLine.length + 50 > maxDiscordContentLength) {
+          cardLines.push(`_... and ${colCards.length - i} more cards_`);
+          truncated = true;
+          break;
+        }
+        cardLines.push(cardLine);
+        currentContentLength += cardLine.length + 1;
+      }
+
+      sections.push(`**${col.name}** (${colCards.length}):\n${cardLines.length > 0 ? cardLines.join("\n") : "_No cards_"}`);
+      if (truncated) break;
     }
 
     if (totalCards === 0) {
@@ -544,7 +818,14 @@ export async function handleDiscordInteraction(
   }
 
   if (subCommand === "move") {
-    const rawId = String(subArgs.identifier || subArgs.card || "").trim().toUpperCase();
+    let ownerFilter: string | null = null;
+    let rawId = String(subArgs.identifier || subArgs.card || "").trim();
+    if (rawId.includes("/")) {
+      const slashIdx = rawId.indexOf("/");
+      ownerFilter = rawId.slice(0, slashIdx).trim().toLowerCase();
+      rawId = rawId.slice(slashIdx + 1).trim();
+    }
+
     const targetColInput = String(subArgs.column || subArgs.destination || subArgs.to || "").trim();
 
     if (!rawId || !targetColInput) {
@@ -557,12 +838,12 @@ export async function handleDiscordInteraction(
       };
     }
 
-    const match = rawId.match(/^([A-Z0-9]+)-(\d{1,9})$/);
+    const match = rawId.toUpperCase().match(/^([A-Z0-9]+)-(\d{1,9})$/);
     if (!match) {
       return {
         type: 4,
         data: {
-          content: `Invalid card identifier format "${rawId}". Expected format like "PROJ-12".`,
+          content: `Invalid card identifier format "${rawId}". Expected format like "PROJ-12" or "owner/PROJ-12".`,
           flags: 64,
         },
       };
@@ -589,19 +870,41 @@ export async function handleDiscordInteraction(
         project: {
           include: {
             columns: { orderBy: { order: "asc" } },
+            user: { select: { id: true, name: true, email: true } },
           },
         },
         column: true,
+        assignees: {
+          include: {
+            user: { select: { id: true, name: true, email: true } },
+          },
+        },
       },
     });
 
-    const card = matchingCards.find((c) => c.project.userId === opmUser.id) || (matchingCards.length === 1 ? matchingCards[0] : null);
+    let card = null;
+    if (ownerFilter) {
+      card =
+        matchingCards.find(
+          (c) =>
+            c.project.user.name?.toLowerCase() === ownerFilter ||
+            c.project.user.email.toLowerCase() === ownerFilter ||
+            c.project.user.email.toLowerCase().startsWith(ownerFilter) ||
+            c.project.id === ownerFilter
+        ) || null;
+    } else {
+      card =
+        matchingCards.find((c) => c.project.userId === opmUser.id) ||
+        (matchingCards.length === 1 ? matchingCards[0] : null);
+    }
+
     if (!card) {
-      if (matchingCards.length > 1) {
+      if (matchingCards.length > 1 && !ownerFilter) {
+        const owners = matchingCards.map((c) => c.project.user.name || c.project.user.email).join(", ");
         return {
           type: 4,
           data: {
-            content: `Multiple active projects match key "${projectKey}". Please contact support to disambiguate.`,
+            content: `Multiple projects match card "${identifier}" (owned by: ${owners}). Please disambiguate with \`/opm move <owner>/${identifier} <column>\`.`,
             flags: 64,
           },
         };
@@ -669,6 +972,11 @@ export async function handleDiscordInteraction(
       };
     }
 
+    const assigneesText =
+      card.assignees && card.assignees.length > 0
+        ? card.assignees.map((a) => a.user.name || a.user.email).join(", ")
+        : card.owner || null;
+
     const embed = formatDiscordCardEmbed({
       identifier,
       title: card.title,
@@ -676,8 +984,9 @@ export async function handleDiscordInteraction(
       projectName: card.project.name,
       priority: card.priority,
       owner: card.owner,
+      assignees: assigneesText,
       points: card.points,
-      url: `/projects/${card.projectId}?cardId=${card.id}`,
+      url: `/projects/${card.projectId}`,
     });
 
     return {
@@ -685,14 +994,16 @@ export async function handleDiscordInteraction(
       data: {
         content: `Moved **${identifier}** to **${destColumn.name}**:`,
         embeds: [embed],
+        flags: 64, // Ephemeral to protect privacy
+        allowed_mentions: { parse: [] },
       },
     };
   }
 
   if (subCommand === "create") {
-    const projectKey = String(subArgs.key || "").trim().toUpperCase();
+    const rawKey = String(subArgs.key || "").trim();
     const title = String(subArgs.title || "").trim();
-    if (!projectKey || !title) {
+    if (!rawKey || !title) {
       return {
         type: 4,
         data: {
@@ -702,94 +1013,18 @@ export async function handleDiscordInteraction(
       };
     }
 
-    const candidates = await db.project.findMany({
-      where: {
-        key: projectKey,
-        isArchived: false,
-        OR: [
-          { userId: opmUser.id },
-          { members: { some: { userId: opmUser.id, role: { in: ["OWNER", "ADMIN", "MEMBER"] } } } },
-        ],
-      },
-      include: { columns: { orderBy: { order: "asc" } } },
-    });
-
-    const project = candidates.find((p) => p.userId === opmUser.id) || (candidates.length === 1 ? candidates[0] : null);
-    if (!project) {
-      if (candidates.length > 1) {
-        return {
-          type: 4,
-          data: {
-            content: `Multiple active projects match key "${projectKey}". Please specify a unique project.`,
-            flags: 64,
-          },
-        };
-      }
+    const resolution = await resolveDiscordProject(rawKey, opmUser.id);
+    if ("error" in resolution && resolution.error) {
       return {
         type: 4,
         data: {
-          content: `Project with key "${projectKey}" not found or you do not have permission to create cards in it.`,
+          content: resolution.error,
           flags: 64,
         },
       };
     }
 
-    if (project.columns.length === 0) {
-      return {
-        type: 4,
-        data: {
-          content: `Project "${project.name}" has no columns to place the card in.`,
-          flags: 64,
-        },
-      };
-    }
-
-    const targetColumn =
-      project.columns.find((c: any) => c.group === "BACKLOG") ||
-      project.columns.find((c: any) => c.group === "UNSTARTED") ||
-      project.columns.find((c: any) => !c.isDone) ||
-      project.columns[0];
-
-    const result = await createCard(
-      {
-        projectId: project.id,
-        columnId: targetColumn.id,
-        title,
-        owner: opmUser.name || opmUser.email,
-      },
-      opmUser.id
-    );
-
-    if (!result.success || !result.data) {
-      return {
-        type: 4,
-        data: {
-          content: `Failed to create card: ${result.error || "Unknown error"}`,
-          flags: 64,
-        },
-      };
-    }
-
-    const createdCard = result.data;
-    const identifier = `${project.key}-${createdCard.number}`;
-    const embed = formatDiscordCardEmbed({
-      identifier,
-      title: createdCard.title,
-      status: targetColumn.name,
-      projectName: project.name,
-      priority: createdCard.priority,
-      owner: createdCard.owner,
-      points: createdCard.points,
-      url: `/projects/${project.id}?cardId=${createdCard.id}`,
-    });
-
-    return {
-      type: 4,
-      data: {
-        content: `Created card **${identifier}** in **${project.name}**:`,
-        embeds: [embed],
-      },
-    };
+    return await createCardInDiscordProject(resolution.project!, title, opmUser);
   }
 
   if (subCommand === "new") {
@@ -804,7 +1039,7 @@ export async function handleDiscordInteraction(
       };
     }
 
-    const project = await db.project.findFirst({
+    const candidates = await db.project.findMany({
       where: {
         isArchived: false,
         columns: { some: {} },
@@ -817,6 +1052,8 @@ export async function handleDiscordInteraction(
       include: { columns: { orderBy: { order: "asc" } } },
     });
 
+    const project = candidates.find((p) => p.userId === opmUser.id) || candidates[0];
+
     if (!project) {
       return {
         type: 4,
@@ -827,52 +1064,7 @@ export async function handleDiscordInteraction(
       };
     }
 
-    const targetColumn =
-      project.columns.find((c: any) => c.group === "BACKLOG") ||
-      project.columns.find((c: any) => c.group === "UNSTARTED") ||
-      project.columns.find((c: any) => !c.isDone) ||
-      project.columns[0];
-
-    const result = await createCard(
-      {
-        projectId: project.id,
-        columnId: targetColumn.id,
-        title,
-        owner: opmUser.name || opmUser.email,
-      },
-      opmUser.id
-    );
-
-    if (!result.success || !result.data) {
-      return {
-        type: 4,
-        data: {
-          content: `Failed to create card: ${result.error || "Unknown error"}`,
-          flags: 64,
-        },
-      };
-    }
-
-    const createdCard = result.data;
-    const identifier = `${project.key}-${createdCard.number}`;
-    const embed = formatDiscordCardEmbed({
-      identifier,
-      title: createdCard.title,
-      status: targetColumn.name,
-      projectName: project.name,
-      priority: createdCard.priority,
-      owner: createdCard.owner,
-      points: createdCard.points,
-      url: `/projects/${project.id}?cardId=${createdCard.id}`,
-    });
-
-    return {
-      type: 4,
-      data: {
-        content: `Created card **${identifier}** in **${project.name}**:`,
-        embeds: [embed],
-      },
-    };
+    return await createCardInDiscordProject(project, title, opmUser);
   }
 
   return {
