@@ -37,6 +37,7 @@ interface Props {
   onMoveRight?: () => void;
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
+  isFiltered?: boolean;
 }
 
 export default function KanbanColumn({
@@ -51,6 +52,7 @@ export default function KanbanColumn({
   onMoveRight,
   collapsed = false,
   onToggleCollapsed,
+  isFiltered = false,
 }: Props) {
   const [isAdding, setIsAdding] = useState(false);
   const [newTitle, setNewTitle] = useState("");
@@ -306,7 +308,9 @@ export default function KanbanColumn({
         ) : (
           <div className="flex h-32 flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 dark:border-slate-800 p-4 text-center">
             <Layers className="h-6 w-6 text-slate-400 dark:text-slate-600 mb-1.5" />
-            <p className="text-xs text-slate-500 dark:text-slate-500 font-medium">{t("kanban.dropHere")}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-500 font-medium">
+              {isFiltered ? t("kanban.noCardsMatch") : t("kanban.dropHere")}
+            </p>
           </div>
         )}
       </div>

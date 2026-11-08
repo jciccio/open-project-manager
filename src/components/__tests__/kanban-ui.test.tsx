@@ -122,5 +122,53 @@ describe("Kanban & Project UI Components", () => {
     fireEvent.click(rightBtn);
     expect(onMoveRight).toHaveBeenCalledTimes(1);
   });
+
+  it("shows 'Drop cards here' when column is empty and isFiltered is false", () => {
+    const mockColumn = {
+      id: "col1",
+      projectId: "p1",
+      name: "Empty Column",
+      order: 1,
+      cards: [],
+    };
+
+    renderWithProviders(
+      <KanbanColumn
+        column={mockColumn}
+        onCardClick={vi.fn()}
+        onRefresh={vi.fn()}
+        onDragStartCard={vi.fn()}
+        onDropCard={vi.fn()}
+        isFiltered={false}
+      />
+    );
+
+    expect(screen.getByText("Drop cards here")).toBeInTheDocument();
+    expect(screen.queryByText("No cards match")).not.toBeInTheDocument();
+  });
+
+  it("shows 'No cards match' and does not say 'Drop cards here' when isFiltered is true", () => {
+    const mockColumn = {
+      id: "col1",
+      projectId: "p1",
+      name: "Filtered Empty Column",
+      order: 1,
+      cards: [],
+    };
+
+    renderWithProviders(
+      <KanbanColumn
+        column={mockColumn}
+        onCardClick={vi.fn()}
+        onRefresh={vi.fn()}
+        onDragStartCard={vi.fn()}
+        onDropCard={vi.fn()}
+        isFiltered={true}
+      />
+    );
+
+    expect(screen.getByText("No cards match")).toBeInTheDocument();
+    expect(screen.queryByText("Drop cards here")).not.toBeInTheDocument();
+  });
 });
 
