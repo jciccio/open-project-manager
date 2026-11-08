@@ -2,6 +2,8 @@ import { db } from "@/lib/db";
 import { safeRevalidatePath } from "@/lib/revalidate";
 import { createActivities, notifyActivity, type ActivityEntry } from "@/lib/services/activity";
 import { verifyProjectAccess } from "@/lib/permissions";
+import { CommentContentSchema } from "@/lib/validation/comments";
+import { parseInput } from "@/lib/validation/errors";
 
 export async function listComments(cardId: string, userId: string) {
   try {
@@ -33,8 +35,9 @@ export async function listComments(cardId: string, userId: string) {
 
 export async function addComment(cardId: string, content: string, userId: string) {
   try {
-    if (!content.trim()) {
-      return { success: false, error: "Comment content cannot be empty" };
+    const parsedContent = parseInput(CommentContentSchema, content);
+    if (!parsedContent.success) {
+      return { success: false, error: parsedContent.error };
     }
 
     const card = await db.card.findUnique({
@@ -53,7 +56,7 @@ export async function addComment(cardId: string, content: string, userId: string
     const author = user?.name?.trim() || user?.email?.trim() || "Team Member";
 
     const activityEntries: ActivityEntry[] = [
-      { cardId, actorUserId: userId, type: "comment_added", toValue: content.trim().slice(0, 100) },
+      { cardId, actorUserId: userId, type: "comment_added", toValue: parsedContent.data.slice(0, 100) },
     ];
 
     const comment = await db.$transaction(async (tx) => {
@@ -62,7 +65,7 @@ export async function addComment(cardId: string, content: string, userId: string
           cardId,
           author,
           authorUserId: userId,
-          content: content.trim(),
+          content: parsedContent.data,
         },
         include: {
           authorUser: {
@@ -111,8 +114,9 @@ export async function deleteComment(commentId: string, userId: string) {
 
 export async function updateComment(commentId: string, content: string, userId: string) {
   try {
-    if (!content.trim()) {
-      return { success: false, error: "Comment content cannot be empty" };
+    const parsedContent = parseInput(CommentContentSchema, content);
+    if (!parsedContent.success) {
+      return { success: false, error: parsedContent.error };
     }
 
     const comment = await db.comment.findUnique({
@@ -129,7 +133,7 @@ export async function updateComment(commentId: string, content: string, userId: 
     const updatedComment = await db.comment.update({
       where: { id: commentId },
       data: {
-        content: content.trim(),
+        content: parsedContent.data,
       },
       include: {
         authorUser: {
