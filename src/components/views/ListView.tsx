@@ -35,10 +35,10 @@ export default function ListView({
       new Map<string, any[]>(
         project.columns.map((col: any) => [
           col.id,
-          filterCards(col.cards || [], { searchQuery, priorityFilter, typeFilter }),
+          filterCards(col.cards || [], { searchQuery, priorityFilter, typeFilter, projectKey: project.key }),
         ])
       ),
-    [project.columns, searchQuery, priorityFilter, typeFilter]
+    [project.columns, searchQuery, priorityFilter, typeFilter, project.key]
   );
 
   async function handleColumnChange(cardId: string, newColumnId: string) {

@@ -203,6 +203,7 @@ export default function CardDetailModal({
 
   const [isSaving, setIsSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
 
   const [links, setLinks] = useState<Array<any>>((card as any).links || []);
   const [isAddingLink, setIsAddingLink] = useState(false);
@@ -514,6 +515,21 @@ export default function CardDetailModal({
     }
   }
 
+  async function handleCopyLink() {
+    const cardParam = card.project?.key && card.number ? `${card.project.key}-${card.number}` : card.id;
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const url = `${origin}/projects/${card.projectId}?card=${cardParam}`;
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+      }
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2000);
+    } catch (err) {
+      console.error("Failed to copy link:", err);
+    }
+  }
+
   async function handleAddComment(e: React.FormEvent) {
     e.preventDefault();
     if (!commentContent.trim()) return;
@@ -654,6 +670,14 @@ export default function CardDetailModal({
             )}
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={handleCopyLink}
+              className="rounded-lg p-2 text-slate-500 hover:bg-indigo-500/10 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+              title={copiedLink ? t("cardModal.linkCopied") : t("cardModal.copyLink")}
+              aria-label={copiedLink ? t("cardModal.linkCopied") : t("cardModal.copyLink")}
+            >
+              {copiedLink ? <Check className="h-4 w-4 text-emerald-500" /> : <Link2 className="h-4 w-4" />}
+            </button>
             <button
               onClick={handleArchive}
               disabled={archiving}

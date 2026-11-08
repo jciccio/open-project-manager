@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import KanbanBoard from "@/components/KanbanBoard";
 import { getProjectById } from "@/actions/projects";
 import { getSession } from "@/lib/auth";
@@ -9,9 +10,12 @@ interface Props {
   params: Promise<{
     id: string;
   }>;
+  searchParams?: Promise<{
+    [key: string]: string | string[] | undefined;
+  }>;
 }
 
-export default async function ProjectBoardPage({ params }: Props) {
+export default async function ProjectBoardPage({ params, searchParams }: Props) {
   const { id } = await params;
   const session = await getSession();
   if (!session) {
@@ -26,5 +30,17 @@ export default async function ProjectBoardPage({ params }: Props) {
     notFound();
   }
 
-  return <KanbanBoard project={res.data} />;
+  const resolvedSearchParams = searchParams ? await searchParams : {};
+  const cardParam =
+    typeof resolvedSearchParams.card === "string"
+      ? resolvedSearchParams.card
+      : typeof resolvedSearchParams.cardId === "string"
+      ? resolvedSearchParams.cardId
+      : undefined;
+
+  return (
+    <Suspense fallback={null}>
+      <KanbanBoard project={res.data} initialCardParam={cardParam} />
+    </Suspense>
+  );
 }

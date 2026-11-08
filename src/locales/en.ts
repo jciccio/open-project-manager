@@ -279,6 +279,8 @@ export const en = {
     completedCount: "{completed} of {total} completed",
     archiveConfirm: "Are you sure you want to archive this card?",
     archiveTooltip: "Archive task card",
+    copyLink: "Copy card link",
+    linkCopied: "Link copied!",
     deleteTooltip: "Delete task card",
     doneBadge: "Done",
     dependenciesTitle: "Card Dependencies & Relations",

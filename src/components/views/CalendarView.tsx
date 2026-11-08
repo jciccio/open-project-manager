@@ -31,7 +31,7 @@ export default function CalendarView({
         list.push({ ...card, columnStatus: col.name });
       });
     });
-    return filterCards(list, { searchQuery, priorityFilter, typeFilter });
+    return filterCards(list, { searchQuery, priorityFilter, typeFilter, projectKey: project.key });
   }, [project, searchQuery, priorityFilter, typeFilter]);
 
   // Separate scheduled vs unscheduled
