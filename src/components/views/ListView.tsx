@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Zap, Calendar, User, MessageSquare } from "lucide-react";
 import { moveCard } from "@/actions/cards";
 import { useTranslation } from "../LanguageProvider";
@@ -30,6 +30,16 @@ export default function ListView({
   const [movingCardId, setMovingCardId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const { t, locale } = useTranslation();
+  const filteredCardsByColumn = useMemo(
+    () =>
+      new Map<string, any[]>(
+        project.columns.map((col: any) => [
+          col.id,
+          filterCards(col.cards || [], { searchQuery, priorityFilter, typeFilter }),
+        ])
+      ),
+    [project.columns, searchQuery, priorityFilter, typeFilter]
+  );
 
   async function handleColumnChange(cardId: string, newColumnId: string) {
     setMovingCardId(cardId);
@@ -56,11 +66,7 @@ export default function ListView({
       {error && <ErrorBanner message={error} />}
 
       {project.columns.map((col: any) => {
-        const filteredCards = filterCards(col.cards || [], {
-          searchQuery,
-          priorityFilter,
-          typeFilter,
-        });
+        const filteredCards = filteredCardsByColumn.get(col.id) ?? [];
 
         return (
           <div

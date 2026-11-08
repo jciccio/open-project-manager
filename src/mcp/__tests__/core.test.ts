@@ -55,6 +55,9 @@ describe("MCP Server Core Tools", () => {
       points: 5,
     }, { userId });
     expect(cardRes.success).toBe(true);
+    expect(cardRes.card).not.toHaveProperty("comments");
+    expect(cardRes.card).not.toHaveProperty("activities");
+    expect(cardRes.card).not.toHaveProperty("links");
     const cardId = cardRes.card!.id;
 
     // 5. Move Card via MCP tool
@@ -416,6 +419,9 @@ describe("MCP Server Core Tools", () => {
     const updateCardRes = await executeMcpTool("update_card", { id: createCardRes.card!.id, typeId: "" }, { userId });
     expect(updateCardRes.success).toBe(true);
     expect((updateCardRes.card as any).type).toBe(null);
+    expect(updateCardRes.card).not.toHaveProperty("comments");
+    expect(updateCardRes.card).not.toHaveProperty("activities");
+    expect(updateCardRes.card).not.toHaveProperty("links");
 
     const deleteTypeRes = await executeMcpTool("delete_card_type", { id: typeId }, { userId });
     expect(deleteTypeRes.success).toBe(true);

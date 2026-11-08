@@ -196,4 +196,38 @@ describe("MCP tools: cross-user ownership enforcement", () => {
       executeMcpTool("update_card", { id: missingCardId, title: "Probe" }, asIntruder)
     ).rejects.toThrow(`Card with ID ${missingCardId} not found.`);
   });
+
+  describe("add_card_relation target access", () => {
+    const asIntruder = () => ({ userId: intruderId });
+
+    async function createIntruderCard() {
+      const project = await executeMcpTool("create_project", { name: "Intruder Project" }, asIntruder());
+      const column = (project.project as unknown as { columns: { id: string }[] }).columns[0];
+      const card = await executeMcpTool(
+        "create_card",
+        { projectId: project.project!.id, columnId: column.id, title: "Intruder Card" },
+        asIntruder()
+      );
+      return card.card!.id as string;
+    }
+
+    it("reports a target in a project the caller can't view as not found and creates no row", async () => {
+      const sourceCardId = await createIntruderCard();
+
+      await expect(
+        executeMcpTool("add_card_relation", { sourceCardId, targetCardId: cardId }, asIntruder())
+      ).rejects.toThrow(`Card with ID ${cardId} not found.`);
+
+      expect(await db.cardRelation.count({ where: { sourceCardId } })).toBe(0);
+    });
+
+    it("still lets a VIEWER of the target's project relate to its card", async () => {
+      const sourceCardId = await createIntruderCard();
+      await db.projectMember.create({ data: { projectId, userId: intruderId, role: "VIEWER" } });
+
+      const res = await executeMcpTool("add_card_relation", { sourceCardId, targetCardId: cardId }, asIntruder());
+
+      expect(res.relation).toMatchObject({ sourceCardId, targetCardId: cardId, type: "BLOCKS" });
+    });
+  });
 });

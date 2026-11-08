@@ -1,6 +1,8 @@
 import { db } from "@/lib/db";
 import { safeRevalidatePath } from "@/lib/revalidate";
 import { getProjectAccess, ProjectRole } from "@/lib/permissions";
+import { parseInput } from "@/lib/validation/errors";
+import { ProjectRoleSchema } from "@/lib/validation/members";
 
 export async function getProjectMembers(projectId: string, userId: string) {
   try {
@@ -33,6 +35,11 @@ export async function addProjectMember(
   userId: string
 ) {
   try {
+    const parsedRole = parseInput(ProjectRoleSchema, role);
+    if (!parsedRole.success) {
+      return { success: false, error: parsedRole.error };
+    }
+
     const access = await getProjectAccess(projectId, userId, "ADMIN");
     if (!access.hasAccess) {
       return { success: false, error: "Only project admins and owners can add members" };
@@ -92,6 +99,11 @@ export async function updateMemberRole(
   userId: string
 ) {
   try {
+    const parsedRole = parseInput(ProjectRoleSchema, newRole);
+    if (!parsedRole.success) {
+      return { success: false, error: parsedRole.error };
+    }
+
     const access = await getProjectAccess(projectId, userId, "ADMIN");
     if (!access.hasAccess) {
       return { success: false, error: "Only project admins and owners can update roles" };
@@ -109,6 +121,19 @@ export async function updateMemberRole(
     // Cannot demote the original project creator
     if (project.userId === targetUserId && newRole !== "OWNER") {
       return { success: false, error: "Cannot change the role of the project creator" };
+    }
+
+    const targetMember = await db.projectMember.findUnique({
+      where: { projectId_userId: { projectId, userId: targetUserId } },
+      select: { role: true },
+    });
+
+    if (!targetMember) {
+      return { success: false, error: "Member not found in project" };
+    }
+
+    if (targetMember.role === "OWNER" && !access.isOwner) {
+      return { success: false, error: "Only the project owner can change another owner's role" };
     }
 
     // Only owner can assign or demote OWNER role

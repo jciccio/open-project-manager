@@ -163,4 +163,11 @@ describe("POST /api/v1/import", () => {
     expect(JSON.stringify(job.body)).not.toContain("ECONNREFUSED");
     expect((await db.importJob.findUnique({ where: { id: jobId } }))!.lockKey).toBeNull();
   });
+
+  it("rejects an oversized projectIds and starts no job", async () => {
+    const res = await post(owner.token, { source: "vikunja", projectIds: Array.from({ length: 1_001 }, (_, i) => i + 1) });
+
+    expect(res.status).toBe(400);
+    expect(await db.importJob.count({ where: { userId: owner.user.id } })).toBe(0);
+  });
 });

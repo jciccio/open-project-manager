@@ -424,7 +424,7 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
                     type={showToken ? "text" : "password"}
                     readOnly
                     value={apiToken}
-                    className="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 pl-3 pr-10 py-1.5 text-[11px] font-mono text-slate-900 dark:text-white focus:outline-none"
+                    className="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 pl-3 pr-10 py-1.5 text-[11px] font-mono text-slate-900 dark:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
                   />
                   <button
                     type="button"
@@ -559,7 +559,7 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
                     type="button"
                     onClick={handleToggleTelemetry}
                     disabled={telemetryUpdating || Boolean(telemetryInfo.disabledReason && telemetryInfo.disabledReason.includes("environment variable"))}
-                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none disabled:opacity-50 ${
+                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 disabled:opacity-50 ${
                       telemetryInfo.enabled ? "bg-indigo-600" : "bg-slate-300 dark:bg-slate-700"
                     }`}
                   >
