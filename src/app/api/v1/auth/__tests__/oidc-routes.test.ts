@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { createSession, destroySession } from "@/lib/auth";
 import { JWT_SECRET } from "@/lib/env";
 import { OIDC_FLOW_AUDIENCE, TOKEN_ISSUER } from "@/lib/tokenClaims";
+import { getOidcFlowCookiePath, signOidcFlow } from "@/lib/oidc";
 import { proxy } from "@/proxy";
 import { cleanupTestUser } from "@/test/helpers";
 
@@ -132,11 +133,11 @@ describe("OIDC routes", () => {
     expect(res.headers.get("location")).toBe("https://opm.example.com/login?error=oidc_session_expired");
   });
 
-  it("scopes the flow cookie to the callback path", async () => {
+  it("scopes the flow cookie to the OIDC auth path", async () => {
     const res = await oidcLogin(new NextRequest("https://opm.example.com/api/v1/auth/oidc/login"));
     const flowCookie = res.cookies.get("opm_oidc_flow_state");
     expect(flowCookie).toBeDefined();
-    expect(flowCookie?.path).toBe("/api/v1/auth/oidc/callback");
+    expect(flowCookie?.path).toBe(getOidcFlowCookiePath());
   });
 
   it("ensures the flow JWT from login cannot authenticate against proxy/middleware", async () => {
@@ -190,6 +191,38 @@ describe("OIDC routes", () => {
     );
     expect(resForged.headers.get("location")).toBe("https://opm.example.com/login?error=oidc_session_expired");
 
+    // Tampered token (signature modified)
+    const validFlow = await signOidcFlow({ verifier: "v", state: "state", nonce: "n", link: 0 });
+    const tampered = validFlow.slice(0, -5) + "abcde";
+    const resTampered = await oidcCallback(
+      new NextRequest("https://opm.example.com/api/v1/auth/oidc/callback?code=abc&state=state", {
+        headers: { cookie: `opm_oidc_flow_state=${tampered}` },
+      })
+    );
+    expect(resTampered.headers.get("location")).toBe("https://opm.example.com/login?error=oidc_session_expired");
+
+    // Flow token with wrong audience
+    const wrongAudience = await new SignJWT({ verifier: "v", state: "state", nonce: "n", link: 0 })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuer(TOKEN_ISSUER)
+      .setAudience("wrong-audience")
+      .sign(JWT_SECRET);
+    const resWrongAud = await oidcCallback(
+      new NextRequest("https://opm.example.com/api/v1/auth/oidc/callback?code=abc&state=state", {
+        headers: { cookie: `opm_oidc_flow_state=${wrongAudience}` },
+      })
+    );
+    expect(resWrongAud.headers.get("location")).toBe("https://opm.example.com/login?error=oidc_session_expired");
+
+    // Flow token where payload.state differs from cookie name
+    const stateMismatch = await signOidcFlow({ verifier: "v", state: "different-state", nonce: "n", link: 0 });
+    const resMismatch = await oidcCallback(
+      new NextRequest("https://opm.example.com/api/v1/auth/oidc/callback?code=abc&state=state", {
+        headers: { cookie: `opm_oidc_flow_state=${stateMismatch}` },
+      })
+    );
+    expect(resMismatch.headers.get("location")).toBe("https://opm.example.com/login?error=oidc_session_expired");
+
     // Missing flow cookie with legacy cookies present
     const resLegacyOnly = await oidcCallback(
       new NextRequest("https://opm.example.com/api/v1/auth/oidc/callback?code=abc&state=state", {
@@ -230,7 +263,7 @@ describe("OIDC routes", () => {
     const loginRes1 = await oidcLogin(new NextRequest("https://opm.example.com/api/v1/auth/oidc/login?link=1"));
     const cookie1 = loginRes1.cookies.get("opm_oidc_flow_state_1");
     expect(cookie1).toBeDefined();
-    expect(cookie1?.path).toBe("/api/v1/auth/oidc/callback");
+    expect(cookie1?.path).toBe(getOidcFlowCookiePath());
 
     // Destroy session so Tab 2 is an anonymous login
     await destroySession();
@@ -239,7 +272,7 @@ describe("OIDC routes", () => {
     const loginRes2 = await oidcLogin(new NextRequest("https://opm.example.com/api/v1/auth/oidc/login"));
     const cookie2 = loginRes2.cookies.get("opm_oidc_flow_state_2");
     expect(cookie2).toBeDefined();
-    expect(cookie2?.path).toBe("/api/v1/auth/oidc/callback");
+    expect(cookie2?.path).toBe(getOidcFlowCookiePath());
 
     // Replay both Set-Cookie headers into a shared cookie header
     const sharedCookies = [
@@ -269,7 +302,7 @@ describe("OIDC routes", () => {
     const del1 = res1.cookies.get("opm_oidc_flow_state_1");
     expect(del1).toBeDefined();
     expect(del1?.value).toBe("");
-    expect(del1?.path).toBe("/api/v1/auth/oidc/callback");
+    expect(del1?.path).toBe(getOidcFlowCookiePath());
     // Tab 2's cookie should NOT be cleared by Tab 1's callback
     expect(res1.cookies.get("opm_oidc_flow_state_2")).toBeUndefined();
 
@@ -293,10 +326,75 @@ describe("OIDC routes", () => {
     const del2 = res2.cookies.get("opm_oidc_flow_state_2");
     expect(del2).toBeDefined();
     expect(del2?.value).toBe("");
-    expect(del2?.path).toBe("/api/v1/auth/oidc/callback");
+    expect(del2?.path).toBe(getOidcFlowCookiePath());
 
     const user2 = await db.user.findUnique({ where: { email: email2 } });
     expect(user2).not.toBeNull();
     userIds.push(user2!.id);
+  });
+
+  it("rejects link mode when session user does not match the user who initiated the flow", async () => {
+    const userA = await db.user.create({ data: { email: `user-a-${Date.now()}@example.com`, name: "User A" } });
+    const userB = await db.user.create({ data: { email: `user-b-${Date.now()}@example.com`, name: "User B" } });
+    userIds.push(userA.id, userB.id);
+
+    // User A signs in and initiates link
+    await createSession({ userId: userA.id, email: userA.email, name: userA.name });
+    verifierQueue.push("verifier_link");
+    stateQueue.push("state_link");
+    nonceQueue.push("nonce_link");
+
+    const loginRes = await oidcLogin(new NextRequest("https://opm.example.com/api/v1/auth/oidc/login?link=1"));
+    const cookie = loginRes.cookies.get("opm_oidc_flow_state_link")!;
+
+    // Now User B has the session at callback time
+    await createSession({ userId: userB.id, email: userB.email, name: userB.name });
+    idTokenClaims.current = { iss: "https://idp.example.com", sub: "sub-user-a", email: userA.email, email_verified: true };
+
+    const callbackRes = await oidcCallback(
+      new NextRequest("https://opm.example.com/api/v1/auth/oidc/callback?code=linkcode&state=state_link", {
+        headers: { cookie: `opm_oidc_flow_state_link=${cookie.value}` },
+      })
+    );
+
+    // Should redirect to sso_link=failed and NOT link A's IdP to B!
+    expect(callbackRes.headers.get("location")).toBe("https://opm.example.com/?sso_link=failed");
+    const freshUserB = await db.user.findUnique({ where: { id: userB.id } });
+    expect(freshUserB?.oidcSubject).toBeNull();
+  });
+
+  it("redirects to oidc_failed and logs when IdP returns an error without state", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await oidcCallback(
+      new NextRequest("https://opm.example.com/api/v1/auth/oidc/callback?error=access_denied&error_description=User+cancelled")
+    );
+    expect(res.headers.get("location")).toBe("https://opm.example.com/login?error=oidc_failed");
+    expect(errorSpy).toHaveBeenCalledWith("OIDC IdP returned error:", "access_denied", "User cancelled");
+  });
+
+  it("prunes older flow cookies on login when 5 or more exist", async () => {
+    verifierQueue.push("v_new");
+    stateQueue.push("s_new");
+    nonceQueue.push("n_new");
+
+    const existingCookies = [
+      "opm_oidc_flow_1=val1",
+      "opm_oidc_flow_2=val2",
+      "opm_oidc_flow_3=val3",
+      "opm_oidc_flow_4=val4",
+      "opm_oidc_flow_5=val5",
+    ].join("; ");
+
+    const res = await oidcLogin(
+      new NextRequest("https://opm.example.com/api/v1/auth/oidc/login", {
+        headers: { cookie: existingCookies },
+      })
+    );
+
+    // Should delete the oldest flow cookie (opm_oidc_flow_1)
+    const del = res.cookies.get("opm_oidc_flow_1");
+    expect(del).toBeDefined();
+    expect(del?.value).toBe("");
+    expect(del?.path).toBe(getOidcFlowCookiePath());
   });
 });
