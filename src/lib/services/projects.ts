@@ -172,7 +172,7 @@ export async function getProjectById(id: string, userId: string) {
     return { success: true, data: { ...project, currentUserRole: access.role } };
   } catch (error) {
     console.error(`Error fetching project ${id}:`, error);
-    return { success: false, error: "Failed to fetch project details" };
+    return { success: false, error: "Failed to fetch project details", kind: "internal" as const };
   }
 }
 

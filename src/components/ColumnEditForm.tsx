@@ -22,7 +22,7 @@ interface Props {
 }
 
 const inputClass =
-  "w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none";
+  "w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500";
 const labelClass = "block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1";
 
 export default function ColumnEditForm({ column, onSaved, onCancel }: Props) {

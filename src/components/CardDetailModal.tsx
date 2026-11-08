@@ -983,7 +983,7 @@ export default function CardDetailModal({
                     </button>
                   </div>
                   {subtaskError && (
-                    <p className="text-[11px] text-rose-500 font-semibold">{subtaskError}</p>
+                    <p role="alert" className="text-[11px] text-rose-500 font-semibold">{subtaskError}</p>
                   )}
                 </form>
               )}
@@ -1089,7 +1089,7 @@ export default function CardDetailModal({
                   <select
                     value={relationTypeInput}
                     onChange={(e) => setRelationTypeInput(e.target.value)}
-                    className="rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-semibold focus:outline-none shrink-0"
+                    className="rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 shrink-0"
                   >
                     <option value="BLOCKS">{t("cardModal.blocks")}</option>
                     <option value="BLOCKED_BY">{t("cardModal.blockedBy")}</option>
@@ -1103,7 +1103,7 @@ export default function CardDetailModal({
                       setSelectedProjectCardId(e.target.value);
                       if (e.target.value) setTargetIdentifierInput("");
                     }}
-                    className="flex-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none"
+                    className="flex-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
                   >
                     <option value="">-- {t("cardModal.selectCardPlaceholder")} --</option>
                     {projectCards.map((pc) => (
@@ -1132,12 +1132,12 @@ export default function CardDetailModal({
                       setTargetIdentifierInput(e.target.value);
                       if (e.target.value) setSelectedProjectCardId("");
                     }}
-                    className="flex-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-2.5 py-1 text-xs text-slate-900 dark:text-white focus:outline-none"
+                    className="flex-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-2.5 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
                   />
                 </div>
 
                 {relationError && (
-                  <p className="text-[11px] text-red-500 font-semibold">{relationError}</p>
+                  <p role="alert" className="text-[11px] text-red-500 font-semibold">{relationError}</p>
                 )}
               </form>
             )}
@@ -1223,14 +1223,14 @@ export default function CardDetailModal({
                       setNewLinkUrl(e.target.value);
                       setLinkError("");
                     }}
-                    className="flex-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none"
+                    className="flex-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
                   />
                   <input
                     type="text"
                     placeholder={t("cardModal.linkTitlePlaceholder")}
                     value={newLinkTitle}
                     onChange={(e) => setNewLinkTitle(e.target.value)}
-                    className="w-1/3 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none"
+                    className="w-1/3 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
                   />
                   <button
                     type="submit"
@@ -1301,7 +1301,7 @@ export default function CardDetailModal({
             </div>
 
             {attachmentError && (
-              <p className="text-xs text-rose-600 dark:text-rose-400">{attachmentError}</p>
+              <p role="alert" className="text-xs text-rose-600 dark:text-rose-400">{attachmentError}</p>
             )}
 
             <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
@@ -1424,7 +1424,7 @@ export default function CardDetailModal({
                                 type="text"
                                 value={editingCommentText}
                                 onChange={(e) => setEditingCommentText(e.target.value)}
-                                className="flex-1 rounded-lg bg-white dark:bg-slate-900 border border-indigo-500 px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none"
+                                className="flex-1 rounded-lg bg-white dark:bg-slate-900 border border-indigo-500 px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
                                 autoFocus
                               />
                               <button
