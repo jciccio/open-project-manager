@@ -54,6 +54,7 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
 
   const isProfileDirty =
     name.trim() !== (user.name || "").trim() ||
+    email.trim() !== (user.email || "").trim() ||
     currentPassword !== "" ||
     newPassword !== "";
 
@@ -258,7 +259,7 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
   return (
     <div
       {...backdropProps}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4 animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4"
     >
       <div
         ref={modalRef}

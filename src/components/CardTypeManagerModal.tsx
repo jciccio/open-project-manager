@@ -29,8 +29,18 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
   const [icon, setIcon] = useState(CARD_TYPE_ICON_NAMES[0]);
   const [color, setColor] = useState(DEFAULT_PROJECT_COLOR);
   const [loading, setLoading] = useState(false);
-  const modalRef = useModalA11y(onClose);
-  const backdropProps = useBackdropClose(onClose);
+  const handleGuardedClose = () => {
+    if (editingId) {
+      setEditingId(null);
+      return;
+    }
+    if (name.trim() !== "" && !confirm(t("cardModal.confirmDiscard"))) {
+      return;
+    }
+    onClose();
+  };
+  const modalRef = useModalA11y(handleGuardedClose);
+  const backdropProps = useBackdropClose(handleGuardedClose);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -127,7 +137,7 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
   return (
     <div
       {...backdropProps}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
     >
       <div
         ref={modalRef}
@@ -147,7 +157,7 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
             </h3>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleGuardedClose}
             aria-label={t("cardModal.close")}
             className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-colors"
           >

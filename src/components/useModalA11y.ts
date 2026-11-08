@@ -62,7 +62,7 @@ export function useModalA11y(onClose: () => void) {
         const first = focusable[0];
         const last = focusable[focusable.length - 1];
 
-        if (!modalRef.current.contains(document.activeElement)) {
+        if (!modalRef.current.contains(document.activeElement) || document.activeElement === modalRef.current) {
           e.preventDefault();
           if (e.shiftKey) {
             last.focus();

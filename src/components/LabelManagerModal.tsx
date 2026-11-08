@@ -30,6 +30,10 @@ export default function LabelManagerModal({ onClose }: Props) {
   const handleModalClose = () => {
     if (editingId) {
       setEditingId(null);
+      setError("");
+      return;
+    }
+    if ((name.trim() || description.trim()) && !confirm(t("cardModal.confirmDiscard"))) {
       return;
     }
     onClose();
@@ -66,7 +70,6 @@ export default function LabelManagerModal({ onClose }: Props) {
       if (res.success) {
         setName("");
         setDescription("");
-        setColor(DEFAULT_PROJECT_COLOR);
         await fetchLabels();
       } else {
         setError(res.error || "Failed to create label.");
@@ -78,10 +81,11 @@ export default function LabelManagerModal({ onClose }: Props) {
     }
   }
 
-  function startEditing(lbl: any) {
+  function startEditing(lbl: { id: string; color: string; description?: string | null }) {
     setEditingId(lbl.id);
     setEditColor(lbl.color);
     setEditDescription(lbl.description || "");
+    setError("");
   }
 
   async function handleSaveEdit(e: React.FormEvent) {
@@ -94,7 +98,7 @@ export default function LabelManagerModal({ onClose }: Props) {
     try {
       const res = await updateLabel(editingId, {
         color: editColor,
-        description: editDescription.trim() || undefined,
+        description: editDescription.trim() || null,
       });
 
       if (res.success) {
@@ -131,7 +135,7 @@ export default function LabelManagerModal({ onClose }: Props) {
   return (
     <div
       {...backdropProps}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
     >
       <div
         ref={modalRef}

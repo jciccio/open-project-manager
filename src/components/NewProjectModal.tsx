@@ -22,8 +22,15 @@ export default function NewProjectModal({ onClose }: Props) {
   const [error, setError] = useState("");
   const { t } = useTranslation();
   const router = useRouter();
-  const modalRef = useModalA11y(onClose);
-  const backdropProps = useBackdropClose(onClose);
+  const isDirty = name.trim() !== "" || description.trim() !== "";
+  const handleGuardedClose = () => {
+    if (isDirty && !confirm(t("cardModal.confirmDiscard"))) {
+      return;
+    }
+    onClose();
+  };
+  const modalRef = useModalA11y(handleGuardedClose);
+  const backdropProps = useBackdropClose(handleGuardedClose);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -58,7 +65,7 @@ export default function NewProjectModal({ onClose }: Props) {
   return (
     <div
       {...backdropProps}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
     >
       <div
         ref={modalRef}
@@ -78,7 +85,7 @@ export default function NewProjectModal({ onClose }: Props) {
             </h3>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleGuardedClose}
             aria-label={t("cardModal.close")}
             className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-colors"
           >
@@ -127,7 +134,7 @@ export default function NewProjectModal({ onClose }: Props) {
           <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleGuardedClose}
               className="rounded-lg px-4 py-2 text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-colors"
             >
               {t("kanban.cancel")}

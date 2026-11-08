@@ -138,6 +138,43 @@ interface Props {
   onOpenCard?: (cardId: string) => void;
 }
 
+interface CardSavedSnapshot {
+  title: string;
+  description: string;
+  columnId: string;
+  priority: string;
+  points: string;
+  owner: string;
+  selectedAssigneeId: string;
+  dueDate: string;
+  typeId: string;
+  labels: string;
+}
+
+function getCardSnapshot(card: Props["card"]): CardSavedSnapshot {
+  const pts = card.points !== null && card.points !== undefined ? String(card.points) : "";
+  const due = card.dueDate ? new Date(card.dueDate).toISOString().split("T")[0] : "";
+  const tid = card.typeId || card.type?.id || "";
+  const lbls = (card.labels ? card.labels.map((l) => l.label.id) : []).sort().join(",");
+  const own = card.owner || "";
+  let ass = "";
+  if (card.assignees && card.assignees.length > 0) {
+    ass = card.assignees[0].user?.id || (card.assignees[0] as any).userId || "";
+  }
+  return {
+    title: (card.title || "").trim(),
+    description: (card.description || "").trim(),
+    columnId: card.columnId,
+    priority: card.priority,
+    points: pts.trim(),
+    owner: own.trim(),
+    selectedAssigneeId: ass,
+    dueDate: due,
+    typeId: tid,
+    labels: lbls,
+  };
+}
+
 export default function CardDetailModal({
   card,
   columns,
@@ -202,51 +239,7 @@ export default function CardDetailModal({
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editingCommentText, setEditingCommentText] = useState("");
 
-  const initialPoints = card.points !== null && card.points !== undefined ? String(card.points) : "";
-  const initialDueDate = card.dueDate ? new Date(card.dueDate).toISOString().split("T")[0] : "";
-  const initialType = card.typeId || card.type?.id || "";
-  const initialLabels = (card.labels ? card.labels.map((l) => l.label.id) : []).sort().join(",");
-  const currentLabels = [...selectedLabelIds].sort().join(",");
-  const initialOwner = card.owner || "";
-  const initialAssignee = (() => {
-    if (card.assignees && card.assignees.length > 0) {
-      return card.assignees[0].user?.id || (card.assignees[0] as any).userId || "";
-    }
-    return "";
-  })();
-
   const { t, locale } = useTranslation();
-
-  const isDirty =
-    title.trim() !== card.title.trim() ||
-    description.trim() !== (card.description || "").trim() ||
-    columnId !== card.columnId ||
-    priority !== card.priority ||
-    points.trim() !== initialPoints ||
-    owner.trim() !== initialOwner.trim() ||
-    selectedAssigneeId !== initialAssignee ||
-    dueDate !== initialDueDate ||
-    typeId !== initialType ||
-    currentLabels !== initialLabels ||
-    commentContent.trim() !== "" ||
-    editingCommentId !== null;
-
-  const handleGuardedClose = () => {
-    if (editingCommentId !== null) {
-      setEditingCommentId(null);
-      setEditingCommentText("");
-      return;
-    }
-    if (isDirty) {
-      if (!confirm(t("cardModal.confirmDiscard"))) {
-        return;
-      }
-    }
-    onClose();
-  };
-
-  const modalRef = useModalA11y(handleGuardedClose);
-  const backdropProps = useBackdropClose(handleGuardedClose);
 
   const [isSaving, setIsSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -263,6 +256,87 @@ export default function CardDetailModal({
 
   const [activities, setActivities] = useState<Array<any>>(card.activities || []);
   const [comments, setComments] = useState<Props["card"]["comments"]>(card.comments || []);
+
+  const [savedSnapshot, setSavedSnapshot] = useState<CardSavedSnapshot>(() => getCardSnapshot(card));
+
+  const currentLabels = [...selectedLabelIds].sort().join(",");
+  const isFormDirty =
+    title.trim() !== savedSnapshot.title ||
+    description.trim() !== savedSnapshot.description ||
+    columnId !== savedSnapshot.columnId ||
+    priority !== savedSnapshot.priority ||
+    points.trim() !== savedSnapshot.points ||
+    owner.trim() !== savedSnapshot.owner ||
+    selectedAssigneeId !== savedSnapshot.selectedAssigneeId ||
+    dueDate !== savedSnapshot.dueDate ||
+    typeId !== savedSnapshot.typeId ||
+    currentLabels !== savedSnapshot.labels;
+
+  const hasInlineDraft =
+    commentContent.trim() !== "" ||
+    newSubtaskTitle.trim() !== "" ||
+    newLinkUrl.trim() !== "" ||
+    newLinkTitle.trim() !== "" ||
+    targetIdentifierInput.trim() !== "" ||
+    (editingCommentId !== null &&
+      editingCommentText.trim() !==
+        (comments.find((c) => c.id === editingCommentId)?.content || "").trim());
+
+  const isDirty = isFormDirty || hasInlineDraft;
+
+  const handleEscape = () => {
+    if (editingCommentId !== null) {
+      const orig = (comments.find((c) => c.id === editingCommentId)?.content || "").trim();
+      if (editingCommentText.trim() !== orig && !confirm(t("cardModal.confirmDiscard"))) {
+        return;
+      }
+      setEditingCommentId(null);
+      setEditingCommentText("");
+      return;
+    }
+    if (isAddingSubtask) {
+      if (newSubtaskTitle.trim() !== "" && !confirm(t("cardModal.confirmDiscard"))) {
+        return;
+      }
+      setIsAddingSubtask(false);
+      setNewSubtaskTitle("");
+      setSubtaskError("");
+      return;
+    }
+    if (isAddingLink) {
+      if ((newLinkUrl.trim() !== "" || newLinkTitle.trim() !== "") && !confirm(t("cardModal.confirmDiscard"))) {
+        return;
+      }
+      setIsAddingLink(false);
+      setNewLinkUrl("");
+      setNewLinkTitle("");
+      setLinkError("");
+      return;
+    }
+    if (isAddingRelation) {
+      if (targetIdentifierInput.trim() !== "" && !confirm(t("cardModal.confirmDiscard"))) {
+        return;
+      }
+      setIsAddingRelation(false);
+      setTargetIdentifierInput("");
+      setRelationError("");
+      return;
+    }
+    if (isDirty && !confirm(t("cardModal.confirmDiscard"))) {
+      return;
+    }
+    onClose();
+  };
+
+  const handleGuardedClose = () => {
+    if (isDirty && !confirm(t("cardModal.confirmDiscard"))) {
+      return;
+    }
+    onClose();
+  };
+
+  const modalRef = useModalA11y(handleEscape);
+  const backdropProps = useBackdropClose(handleGuardedClose);
   const [feedTab, setFeedTab] = useState<"comments" | "activity">("comments");
   const [isLoadingActivities, setIsLoadingActivities] = useState(false);
 
@@ -393,6 +467,7 @@ export default function CardDetailModal({
     setIsAddingSubtask(false);
     setNewSubtaskTitle("");
     setSubtaskError("");
+    setSavedSnapshot(getCardSnapshot(card));
     // Only reset form state when opening a different card; keep in-progress edits on background refresh
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [card.id]);
@@ -529,6 +604,22 @@ export default function CardDetailModal({
     setIsSaving(false);
 
     if (res.success) {
+      const normalizedPoints = isNaN(parsedPoints as number) || parsedPoints === null ? "" : String(parsedPoints);
+      const normalizedOwner = (computedOwner || "").trim();
+      setPoints(normalizedPoints);
+      setOwner(normalizedOwner);
+      setSavedSnapshot({
+        title: title.trim(),
+        description: description.trim(),
+        columnId,
+        priority,
+        points: normalizedPoints,
+        owner: normalizedOwner,
+        selectedAssigneeId,
+        dueDate,
+        typeId,
+        labels: [...selectedLabelIds].sort().join(","),
+      });
       onRefresh();
     }
   }
@@ -680,7 +771,7 @@ export default function CardDetailModal({
   return (
     <div
       {...backdropProps}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
     >
       <div
         ref={modalRef}

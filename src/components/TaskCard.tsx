@@ -83,17 +83,14 @@ export default function TaskCard({ card, onClick }: Props) {
 
   return (
     <div
-      role="button"
-      tabIndex={0}
       onClick={(e) => {
         const target = e.target as HTMLElement | null;
-        if (target && target.closest("a")) {
+        if (target && target.closest("a, button")) {
           return;
         }
         onClick();
       }}
-      onKeyDown={(e) => handleRowKeyDown(e, onClick)}
-      className="group cursor-pointer rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 shadow-xs hover:border-indigo-500/50 dark:hover:border-indigo-500/40 hover:shadow-md hover:shadow-indigo-500/10 transition-all select-none focus:outline-none focus:ring-2 focus:ring-indigo-500"
+      className="group cursor-pointer rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 shadow-xs hover:border-indigo-500/50 dark:hover:border-indigo-500/40 hover:shadow-md hover:shadow-indigo-500/10 transition-all select-none"
     >
       {/* Identifier & Label Chips */}
       <div className="flex flex-wrap items-center gap-1.5 mb-2.5">
@@ -126,8 +123,19 @@ export default function TaskCard({ card, onClick }: Props) {
       </div>
 
       {/* Card Title */}
-      <h4 className="font-bold text-sm text-slate-900 dark:text-slate-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition-colors leading-snug">
-        {card.title}
+      <h4 className="leading-snug">
+        <button
+          type="button"
+          tabIndex={0}
+          onClick={(e) => {
+            e.stopPropagation();
+            onClick();
+          }}
+          onKeyDown={(e) => handleRowKeyDown(e, onClick)}
+          className="text-left font-bold text-sm text-slate-900 dark:text-slate-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
+        >
+          {card.title}
+        </button>
       </h4>
 
       {/* Description Snippet */}

@@ -149,6 +149,12 @@ describe("Accessibility (Issue #113)", () => {
       fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
       expect(document.activeElement).toBe(last);
 
+      // Shift+Tab when dialog container itself is focused wraps to last
+      dialog.focus();
+      expect(document.activeElement).toBe(dialog);
+      fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
+      expect(document.activeElement).toBe(last);
+
       // Tab from last wraps to first
       last.focus();
       fireEvent.keyDown(window, { key: "Tab", shiftKey: false });
@@ -279,6 +285,125 @@ describe("Accessibility (Issue #113)", () => {
       fireEvent.keyDown(window, { key: "Escape" });
       expect(confirmSpy).toHaveBeenCalledTimes(2);
       expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it("guards UserProfileModal when email is changed", () => {
+      const onClose = vi.fn();
+      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+      render(
+        <LanguageProvider>
+          <UserProfileModal
+            user={{ userId: "u1", email: "u1@example.com", name: "Alice" }}
+            onClose={onClose}
+          />
+        </LanguageProvider>
+      );
+
+      const emailInput = screen.getByDisplayValue("u1@example.com");
+      fireEvent.change(emailInput, { target: { value: "newemail@example.com" } });
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(confirmSpy).toHaveBeenCalled();
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it("guards CardDetailModal when inline subtask drafts exist and dismisses inline first on Escape", () => {
+      const onClose = vi.fn();
+      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+      const mockCard: any = {
+        id: "card-subtask-draft",
+        projectId: "proj-1",
+        columnId: "col-1",
+        title: "Parent Card",
+        description: "",
+        priority: "MEDIUM",
+        points: null,
+        owner: null,
+        dueDate: null,
+        labels: [],
+        comments: [],
+        activities: [],
+      };
+
+      render(
+        <LanguageProvider>
+          <CardDetailModal
+            card={mockCard}
+            columns={[{ id: "col-1", name: "To Do" }]}
+            onClose={onClose}
+            onRefresh={vi.fn()}
+          />
+        </LanguageProvider>
+      );
+
+      // Open add subtask form
+      const addSubtaskBtn = screen.getByRole("button", { name: /Add subtask/i });
+      fireEvent.click(addSubtaskBtn);
+
+      const subtaskInput = screen.getByPlaceholderText(/What needs to be done/i);
+      fireEvent.change(subtaskInput, { target: { value: "Draft subtask item" } });
+
+      // Press Escape -> prompt discard
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(confirmSpy).toHaveBeenCalled();
+      expect(onClose).not.toHaveBeenCalled();
+
+      // Confirm discard -> dismisses only inline subtask, modal stays open
+      confirmSpy.mockReturnValueOnce(true);
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.queryByPlaceholderText(/What needs to be done/i)).toBeNull();
+    });
+
+    it("does not warn about unsaved changes on Cancel after successful save with parsed points or computed owner", async () => {
+      const onClose = vi.fn();
+      const confirmSpy = vi.spyOn(window, "confirm");
+
+      const mockCard: any = {
+        id: "card-save-clean",
+        projectId: "proj-1",
+        columnId: "col-1",
+        title: "Clean Save Card",
+        description: "",
+        priority: "MEDIUM",
+        points: 5,
+        owner: "Assignee Name",
+        dueDate: null,
+        labels: [],
+        comments: [],
+        activities: [],
+        assignees: [{ user: { id: "user-1", name: "Assignee Name", email: "a@b.com" } }],
+      };
+
+      render(
+        <LanguageProvider>
+          <CardDetailModal
+            card={mockCard}
+            columns={[{ id: "col-1", name: "To Do" }]}
+            members={[{ user: { id: "user-1", name: "Assignee Name", email: "a@b.com" } }]}
+            onClose={onClose}
+            onRefresh={vi.fn()}
+          />
+        </LanguageProvider>
+      );
+
+      // Save without changes (points: 5, owner: Assignee Name)
+      const saveBtn = screen.getByRole("button", { name: /Save changes/i });
+      fireEvent.click(saveBtn);
+
+      await waitFor(() => {
+        expect(saveBtn).not.toBeDisabled();
+      });
+
+      // Click Cancel button
+      const cancelBtn = screen.getByRole("button", { name: /^Cancel$/i });
+      fireEvent.click(cancelBtn);
+
+      // Should close without confirm prompt
+      expect(confirmSpy).not.toHaveBeenCalled();
+      expect(onClose).toHaveBeenCalled();
     });
   });
 
