@@ -432,6 +432,14 @@ export const en = {
     noViews: "No saved views yet",
     viewUpdated: "View updated",
   },
+  errorPage: {
+    boardTitle: "This board couldn't be loaded",
+    boardMessage: "Something went wrong on our side. Your project is unchanged. Try again in a moment.",
+    pageTitle: "This page couldn't be loaded",
+    pageMessage: "Something went wrong on our side. Try again in a moment.",
+    tryAgain: "Try again",
+    backToProjects: "Back to projects",
+  },
   auth: {
     signIn: "Sign In",
     signingIn: "Signing in...",

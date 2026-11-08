@@ -434,6 +434,14 @@ export const es: TranslationKeys = {
     noViews: "No hay vistas guardadas aún",
     viewUpdated: "Vista actualizada",
   },
+  errorPage: {
+    boardTitle: "No se pudo cargar este tablero",
+    boardMessage: "Algo salió mal de nuestro lado. Tu proyecto no cambió. Inténtalo de nuevo en un momento.",
+    pageTitle: "No se pudo cargar esta página",
+    pageMessage: "Algo salió mal de nuestro lado. Inténtalo de nuevo en un momento.",
+    tryAgain: "Intentar de nuevo",
+    backToProjects: "Volver a los proyectos",
+  },
   auth: {
     signIn: "Iniciar Sesión",
     signingIn: "Iniciando sesión...",
