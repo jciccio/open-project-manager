@@ -121,7 +121,7 @@ describe("Labels & Comments Server Actions", () => {
 
   it("rejects non-string and over-limit comment content", async () => {
     const nonString = await addComment(cardId, 42 as unknown as string);
-    expect(nonString).toEqual({ success: false, error: "Comment content cannot be empty" });
+    expect(nonString).toEqual({ success: false, error: "Comment content cannot be empty", kind: "invalid" });
 
     const tooLong = await addComment(cardId, "x".repeat(50_001));
     expect(tooLong.success).toBe(false);
@@ -129,6 +129,6 @@ describe("Labels & Comments Server Actions", () => {
 
     const created = await addComment(cardId, "Original");
     const updateRes = await updateComment(created.data!.id, 42 as unknown as string);
-    expect(updateRes).toEqual({ success: false, error: "Comment content cannot be empty" });
+    expect(updateRes).toEqual({ success: false, error: "Comment content cannot be empty", kind: "invalid" });
   });
 });

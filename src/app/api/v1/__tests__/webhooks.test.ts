@@ -121,7 +121,7 @@ describe("REST API: Webhooks", () => {
       }),
     });
     const createRes = await createWebhookRoute(createReq);
-    expect(createRes.status).toBe(400);
+    expect(createRes.status).toBe(404);
 
     await cleanupTestUser(otherUser.user.id);
   });
