@@ -47,6 +47,7 @@ import MarkdownEditor from "./MarkdownEditor";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import CardTypeManagerModal from "./CardTypeManagerModal";
 import { CardTypeIcon } from "./cardTypeIcons";
+import { chipTextColor } from "@/lib/colors";
 
 interface Props {
   card: {
@@ -887,10 +888,10 @@ export default function CardDetailModal({
                     key={lbl.id}
                     type="button"
                     onClick={() => toggleLabel(lbl.id)}
-                    className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold transition-all ${
+                    className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold transition-all ${chipTextColor(lbl.color)} ${
                       isSelected
-                        ? "ring-2 ring-indigo-500 shadow-xs text-white"
-                        : "opacity-60 hover:opacity-100 text-white"
+                        ? "ring-2 ring-indigo-500 shadow-xs"
+                        : "opacity-60 hover:opacity-100"
                     }`}
                     style={{ backgroundColor: lbl.color }}
                     title={lbl.description || undefined}

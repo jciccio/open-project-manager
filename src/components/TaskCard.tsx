@@ -8,6 +8,7 @@ import { priorityLabel } from "@/lib/priority";
 import { CardTypeIcon } from "./cardTypeIcons";
 import { isClosedColumn } from "@/lib/columnGroups";
 import { getPriorityStyle } from "@/lib/priority";
+import { chipTextColor } from "@/lib/colors";
 
 interface Props {
   card: {
@@ -106,7 +107,7 @@ export default function TaskCard({ card, onClick }: Props) {
           card.labels.map(({ label }) => (
             <span
               key={label.id}
-              className="inline-block rounded-md px-2 py-0.5 text-[10px] font-bold tracking-wide text-white shadow-2xs"
+              className={`inline-block rounded-md px-2 py-0.5 text-[10px] font-bold tracking-wide shadow-2xs ${chipTextColor(label.color)}`}
               style={{ backgroundColor: label.color }}
               title={label.description || undefined}
             >
@@ -162,7 +163,7 @@ export default function TaskCard({ card, onClick }: Props) {
           {/* Type Badge */}
           {card.type && (
             <span
-              className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-bold text-white shadow-2xs"
+              className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-bold shadow-2xs ${chipTextColor(card.type.color)}`}
               style={{ backgroundColor: card.type.color }}
             >
               <CardTypeIcon name={card.type.icon} className="h-2.5 w-2.5" />

@@ -9,6 +9,7 @@ import { priorityLabel } from "@/lib/priority";
 import ErrorBanner from "../ErrorBanner";
 import { getPriorityStyle } from "@/lib/priority";
 import { filterCards } from "@/lib/cardFilter";
+import { chipTextColor } from "@/lib/colors";
 
 interface Props {
   project: any;
@@ -107,7 +108,7 @@ export default function ListView({
                             {card.labels?.map(({ label }: any) => (
                               <span
                                 key={label.id}
-                                className="inline-block rounded-md px-2 py-0.5 text-[10px] font-bold text-white"
+                                className={`inline-block rounded-md px-2 py-0.5 text-[10px] font-bold ${chipTextColor(label.color)}`}
                                 style={{ backgroundColor: label.color }}
                                 title={label.description || undefined}
                               >

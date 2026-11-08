@@ -6,7 +6,7 @@ import { getLabels, createLabel, deleteLabel, updateLabel } from "@/actions/labe
 import { useTranslation } from "./LanguageProvider";
 import ColorPicker from "./ColorPicker";
 import ErrorBanner from "./ErrorBanner";
-import { DEFAULT_PROJECT_COLOR } from "@/lib/colors";
+import { DEFAULT_PROJECT_COLOR, chipTextColor } from "@/lib/colors";
 
 interface Props {
   onClose: () => void;
@@ -180,7 +180,7 @@ export default function LabelManagerModal({ onClose }: Props) {
                     className="space-y-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-indigo-500/40 px-3 py-2 text-xs"
                   >
                     <span
-                      className="inline-block rounded-md px-2.5 py-0.5 font-bold text-white shadow-2xs"
+                      className={`inline-block rounded-md px-2.5 py-0.5 font-bold shadow-2xs ${chipTextColor(editColor)}`}
                       style={{ backgroundColor: editColor }}
                     >
                       {lbl.name}
@@ -219,7 +219,7 @@ export default function LabelManagerModal({ onClose }: Props) {
                   >
                     <div className="min-w-0 space-y-1">
                       <span
-                        className="inline-block rounded-md px-2.5 py-0.5 font-bold text-white shadow-2xs"
+                        className={`inline-block rounded-md px-2.5 py-0.5 font-bold shadow-2xs ${chipTextColor(lbl.color)}`}
                         style={{ backgroundColor: lbl.color }}
                       >
                         {lbl.name}
