@@ -71,7 +71,9 @@ function quickAdd(title: string, assignee: string) {
 }
 
 describe("board quick-add assignee", () => {
-  beforeEach(() => vi.mocked(createCard).mockClear());
+  beforeEach(() => {
+    vi.mocked(createCard).mockClear();
+  });
 
   it("offers the project's members instead of a free-text name", () => {
     quickAdd("x", "");
