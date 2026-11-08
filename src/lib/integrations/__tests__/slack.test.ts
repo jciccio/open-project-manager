@@ -23,7 +23,17 @@ describe("Slack Integration", () => {
   beforeEach(async () => {
     const userRes = await createTestUser(`slack-user-${Date.now()}`);
     userId = userRes.user.id;
-    userToken = userRes.token;
+
+    const apiRow = await db.apiToken.create({
+      data: {
+        userId,
+        name: "Test API Token",
+      },
+    });
+    userToken = await signApiToken(
+      { userId, email: userRes.user.email, name: userRes.user.name, tokenVersion: userRes.user.tokenVersion },
+      apiRow.id
+    );
 
     const project = await createTestProject(userId, "Slack App Test Project");
     projectId = project.id;
@@ -38,7 +48,7 @@ describe("Slack Integration", () => {
       },
     });
 
-    await linkSlackUser("U_TEST_USER", userId);
+    await linkSlackUser("U_TEST_USER", userId, apiRow.id);
   });
 
   afterEach(async () => {
@@ -258,9 +268,19 @@ describe("Slack Integration", () => {
     it("replaces existing link on re-link avoiding duplicate mappings", async () => {
       const user2Res = await createTestUser(`slack-user2-${Date.now()}`);
       try {
+        const apiRow2 = await db.apiToken.create({
+          data: {
+            userId: user2Res.user.id,
+            name: "Test API Token 2",
+          },
+        });
+        const user2ApiToken = await signApiToken(
+          { userId: user2Res.user.id, email: user2Res.user.email, name: user2Res.user.name, tokenVersion: user2Res.user.tokenVersion },
+          apiRow2.id
+        );
         await handleSlackSlashCommand({
           command: "/opm",
-          text: `link ${user2Res.token}`,
+          text: `link ${user2ApiToken}`,
           user_id: "U_TEST_USER",
         });
 
@@ -302,7 +322,7 @@ describe("Slack Integration", () => {
         user_name: "victor",
       });
 
-      expect(res.response_type).toBe("in_channel");
+      expect(res.response_type).toBe("ephemeral");
       expect(res.text).toContain("Created card");
       expect(res.text).toContain("Implement Slack Notifications");
 
@@ -322,7 +342,7 @@ describe("Slack Integration", () => {
         user_name: "jose",
       });
 
-      expect(res.response_type).toBe("in_channel");
+      expect(res.response_type).toBe("ephemeral");
       expect(res.text).toContain("Dedicated Key Card");
 
       const card = await db.card.findFirst({
@@ -387,41 +407,44 @@ describe("Slack Integration", () => {
 
     it("disambiguates identical project keys across different owners", async () => {
       const ownerB = await createTestUser(`slack-owner-b-${Date.now()}`);
-      const projectB = await db.project.create({
-        data: {
-          userId: ownerB.user.id,
-          name: "Project B Same Key",
-          key: projectKey, // Same key as Project A
-          color: "#3b82f6",
-        },
-      });
-      await db.column.create({
-        data: {
-          projectId: projectB.id,
-          name: "Backlog",
-          group: "BACKLOG",
-          order: 1,
-        },
-      });
-      await linkSlackUser("U_OWNER_B", ownerB.user.id);
+      try {
+        const projectB = await db.project.create({
+          data: {
+            userId: ownerB.user.id,
+            name: "Project B Same Key",
+            key: projectKey, // Same key as Project A
+            color: "#3b82f6",
+          },
+        });
+        await db.column.create({
+          data: {
+            projectId: projectB.id,
+            name: "Backlog",
+            group: "BACKLOG",
+            order: 1,
+          },
+        });
+        await linkSlackUser("U_OWNER_B", ownerB.user.id);
 
-      // Owner B creates card with projectKey
-      const res = await handleSlackSlashCommand({
-        command: "/opm",
-        text: `create ${projectKey} Card for Owner B`,
-        user_id: "U_OWNER_B",
-      });
+        const cardTitle = `Card for Owner B ${Date.now()}`;
+        // Owner B creates card with projectKey
+        const res = await handleSlackSlashCommand({
+          command: "/opm",
+          text: `create ${projectKey} ${cardTitle}`,
+          user_id: "U_OWNER_B",
+        });
 
-      expect(res.response_type).toBe("in_channel");
-      expect(res.text).toContain("Project B Same Key");
+        expect(res.response_type).toBe("ephemeral");
+        expect(res.text).toContain("Project B Same Key");
 
-      const card = await db.card.findFirst({
-        where: { title: "Card for Owner B" },
-      });
-      expect(card?.projectId).toBe(projectB.id);
-      expect(card?.projectId).not.toBe(projectId);
-
-      await cleanupTestUser(ownerB.user.id);
+        const card = await db.card.findFirst({
+          where: { projectId: projectB.id, title: cardTitle },
+        });
+        expect(card?.projectId).toBe(projectB.id);
+        expect(card?.projectId).not.toBe(projectId);
+      } finally {
+        await cleanupTestUser(ownerB.user.id);
+      }
     });
 
     it("returns ephemeral error when looking up non-existent card", async () => {
@@ -533,7 +556,7 @@ describe("Slack Integration", () => {
         text: `create ${projectKey} Admin Created Card`,
         user_id: "U_ADMIN",
       });
-      expect(resCreate.response_type).toBe("in_channel");
+      expect(resCreate.response_type).toBe("ephemeral");
       expect(resCreate.text).toContain("Admin Created Card");
 
       const resNew = await handleSlackSlashCommand({
@@ -541,7 +564,7 @@ describe("Slack Integration", () => {
         text: "new Admin New Card",
         user_id: "U_ADMIN",
       });
-      expect(resNew.response_type).toBe("in_channel");
+      expect(resNew.response_type).toBe("ephemeral");
       expect(resNew.text).toContain("Admin New Card");
 
       await cleanupTestUser(adminRes.user.id);
@@ -568,6 +591,157 @@ describe("Slack Integration", () => {
       expect(res.response_type).toBe("ephemeral");
       const blockText = (res.blocks?.[0] as any)?.text?.text;
       expect(blockText).toContain("Slack App Test Project");
+    });
+
+    it("decodes Slack entities when storing card title", async () => {
+      const res = await handleSlackSlashCommand({
+        command: "/opm",
+        text: `create ${projectKey} Fix A &amp; B &lt;feature&gt; <https://example.com|docs>`,
+        user_id: "U_TEST_USER",
+      });
+      expect(res.response_type).toBe("ephemeral");
+
+      const card = await db.card.findFirst({
+        where: { projectId, title: "Fix A & B <feature> docs" },
+      });
+      expect(card).toBeDefined();
+    });
+
+    it("invalidates linked user when the underlying API token is deleted", async () => {
+      const userRes = await createTestUser(`api-token-revoked-${Date.now()}`);
+      try {
+        const apiRow = await db.apiToken.create({
+          data: {
+            userId: userRes.user.id,
+            name: "Revocable Token",
+          },
+        });
+        const apiTok = await signApiToken(
+          { userId: userRes.user.id, email: userRes.user.email, name: userRes.user.name, tokenVersion: userRes.user.tokenVersion },
+          apiRow.id
+        );
+
+        await handleSlackSlashCommand({
+          command: "/opm",
+          text: `link ${apiTok}`,
+          user_id: "U_REVOCABLE_USER",
+        });
+
+        const who1 = await handleSlackSlashCommand({
+          command: "/opm",
+          text: "whoami",
+          user_id: "U_REVOCABLE_USER",
+        });
+        expect(who1.text).toContain(userRes.user.email);
+
+        // Delete ApiToken row (simulating revokeApiToken)
+        await db.apiToken.delete({ where: { id: apiRow.id } });
+
+        const who2 = await handleSlackSlashCommand({
+          command: "/opm",
+          text: "whoami",
+          user_id: "U_REVOCABLE_USER",
+        });
+        expect(who2.text).toContain("Your Slack account is not linked");
+      } finally {
+        await cleanupTestUser(userRes.user.id);
+      }
+    });
+
+    it("disambiguates identical keys across owners using owner/KEY syntax", async () => {
+      const owner2Res = await createTestUser(`owner2-${Date.now()}`);
+      try {
+        const project2 = await db.project.create({
+          data: {
+            userId: owner2Res.user.id,
+            name: "Owner 2 Project",
+            key: projectKey,
+            color: "#10b981",
+          },
+        });
+        await db.column.create({
+          data: {
+            projectId: project2.id,
+            name: "Backlog",
+            group: "BACKLOG",
+            order: 1,
+          },
+        });
+        await db.projectMember.create({
+          data: {
+            projectId: project2.id,
+            userId,
+            role: "MEMBER",
+          },
+        });
+
+        // Create card in owner2's project via owner/KEY syntax
+        const resCreate = await handleSlackSlashCommand({
+          command: "/opm",
+          text: `create ${owner2Res.user.email}/${projectKey} Card in Owner2 Project`,
+          user_id: "U_TEST_USER",
+        });
+        expect(resCreate.response_type).toBe("ephemeral");
+        expect(resCreate.text).toContain("Created card");
+
+        const cardIn2 = await db.card.findFirst({
+          where: { projectId: project2.id, title: "Card in Owner2 Project" },
+        });
+        expect(cardIn2).toBeDefined();
+
+        // Get card using owner/KEY-number syntax
+        const resGet = await handleSlackSlashCommand({
+          command: "/opm",
+          text: `get ${owner2Res.user.email}/${projectKey}-${cardIn2!.number}`,
+          user_id: "U_TEST_USER",
+        });
+        expect(resGet.response_type).toBe("ephemeral");
+        expect(resGet.text).toContain("Card in Owner2 Project");
+      } finally {
+        await cleanupTestUser(owner2Res.user.id);
+      }
+    });
+
+    it("allows viewing cards in INTERNAL visibility projects", async () => {
+      const internalOwner = await createTestUser(`internal-owner-${Date.now()}`);
+      try {
+        const internalProject = await db.project.create({
+          data: {
+            userId: internalOwner.user.id,
+            name: "Internal Company Project",
+            key: "INTRN",
+            color: "#6366f1",
+            visibility: "INTERNAL",
+          },
+        });
+        const col = await db.column.create({
+          data: {
+            projectId: internalProject.id,
+            name: "Backlog",
+            group: "BACKLOG",
+            order: 1,
+          },
+        });
+        const card = await db.card.create({
+          data: {
+            projectId: internalProject.id,
+            columnId: col.id,
+            title: "Internal Visible Card",
+            number: 1,
+            order: 1000,
+          },
+        });
+
+        const resGet = await handleSlackSlashCommand({
+          command: "/opm",
+          text: `get INTRN-1`,
+          user_id: "U_TEST_USER",
+        });
+        expect(resGet.response_type).toBe("ephemeral");
+        expect(resGet.text).toContain("Internal Visible Card");
+      } finally {
+        await cleanupTestUser(internalOwner.user.id);
+      }
     });
   });
 });

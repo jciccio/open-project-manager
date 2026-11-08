@@ -121,7 +121,7 @@ describe("Slack Routes", () => {
     const res = await commandsHandler(req);
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.response_type).toBe("in_channel");
+    expect(body.response_type).toBe("ephemeral");
     expect(body.text).toContain("Created card");
   });
 

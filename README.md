@@ -295,20 +295,21 @@ curl -X GET http://localhost:3000/api/v1/cards/CARD_ID/attachments \
 Open Project Manager provides a Slack app integration supporting `/opm` slash commands and event callbacks.
 
 1. **Environment Configuration**:
-   Set `SLACK_SIGNING_SECRET` on the server with the Signing Secret from your Slack App Basic Information settings:
+   Set `SLACK_SIGNING_SECRET` and `APP_URL` on the server:
    ```bash
    SLACK_SIGNING_SECRET=your_slack_signing_secret_here
+   APP_URL=https://your-domain.com
    ```
 2. **Slack App Settings**:
    - **Slash Commands**: Configure the `/opm` command pointing Request URL to `https://your-domain.com/api/v1/integrations/slack/commands`.
    - **Event Subscriptions**: Point Request URL to `https://your-domain.com/api/v1/integrations/slack/events` for URL verification.
 3. **Usage**:
-   - `/opm link <api-token>`: Link your Slack user to your OPM account using an API token generated in User Profile.
+   - `/opm link <api-token>`: Link your Slack user to your OPM account using an API token generated in User Profile. The link is authenticated and checked against active API tokens.
    - `/opm whoami`: Check which OPM user account is linked to your Slack user.
    - `/opm unlink`: Unlink your Slack account.
-   - `/opm get <KEY-123>`: Inspect a card's status, priority, points, assignee, and project.
-   - `/opm create <KEY> <title>`: Create a card in the specified project.
-   - `/opm new <title>`: Create a card in your oldest active writable project.
+   - `/opm get <KEY-123>` or `/opm get <owner/KEY-123>`: Inspect a card's status, priority, points, assignee, and project (ephemeral response).
+   - `/opm create <KEY> <title>` or `/opm create <owner/KEY> <title>`: Create a card in the specified project.
+   - `/opm new <title>`: Create a card in your default active writable project (ephemeral response).
 
 ---
 
