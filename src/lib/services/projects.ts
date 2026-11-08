@@ -324,7 +324,7 @@ export async function getProjectBoard(id: string, userId: string) {
     return { success: true, data: { ...project, currentUserRole: access.role } };
   } catch (error) {
     console.error(`Error fetching project board ${id}:`, error);
-    return { success: false, error: "Failed to fetch project board details" };
+    return { success: false, error: "Failed to fetch project board details", kind: "internal" as const };
   }
 }
 

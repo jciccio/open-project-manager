@@ -200,9 +200,10 @@ describe("CardDetailModal", () => {
     renderWithProviders(<CardDetailModal card={card} columns={columns} onClose={vi.fn()} onRefresh={vi.fn()} />);
 
     expect(await screen.findByText("Loaded comment 1")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /comments/i })).toHaveTextContent("1");
   });
 
-  it("handles comment loading error gracefully", async () => {
+  it("handles comment loading error gracefully and preserves count badge", async () => {
     vi.mocked(listComments).mockResolvedValueOnce({
       success: false,
       error: "Failed to fetch comments from server",
@@ -211,7 +212,8 @@ describe("CardDetailModal", () => {
     const card = buildCard({ _count: { comments: 3 } });
     renderWithProviders(<CardDetailModal card={card} columns={columns} onClose={vi.fn()} onRefresh={vi.fn()} />);
 
-    expect(await screen.findByText("Failed to fetch comments from server")).toBeInTheDocument();
+    expect(await screen.findByText("Failed to load comments.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /comments/i })).toHaveTextContent("3");
     expect(screen.queryByText("Loading comments...")).not.toBeInTheDocument();
     expect(screen.queryByText("No comments yet.")).not.toBeInTheDocument();
   });

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { getProjectById, getProjectBoard } from "../projects";
 import { createCard, updateCard } from "../cards";
 import { db } from "@/lib/db";
@@ -97,6 +97,8 @@ describe("Project data fetching performance optimizations (Issue #105)", () => {
     const label1 = await db.label.create({ data: { name: "Label 1", color: "#ff0000", projectId, userId } });
     const label2 = await db.label.create({ data: { name: "Label 2", color: "#00ff00", projectId, userId } });
 
+    const findManySpy = vi.spyOn(db.label, "findMany");
+
     // Update title, priority, description, and labels simultaneously
     const updateRes = await updateCard(cardId, {
       title: "Updated Title",
@@ -105,6 +107,14 @@ describe("Project data fetching performance optimizations (Issue #105)", () => {
       labelIds: [label1.id, label2.id],
     }, userId);
     expect(updateRes.success).toBe(true);
+
+    expect(findManySpy).toHaveBeenCalledTimes(1);
+    expect(findManySpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: { in: expect.arrayContaining([label1.id, label2.id]) } },
+      })
+    );
+    findManySpy.mockRestore();
 
     const activities = await db.activity.findMany({
       where: { cardId },

@@ -272,7 +272,7 @@ curl -X GET http://localhost:3000/api/v1/cards/by-identifier/OPM-1 \
 ```
 
 ### 7. Paginated Card Listing
-Pass the `nextCursor` value from the previous response as `cursor` to fetch the next page. `nextCursor` is `null` on the last page.
+Pass the `nextCursor` value from the previous response as `cursor` to fetch the next page. `nextCursor` is `null` on the last page. Note that card listings return `_count.comments` and cap the included inline comments at the 10 most recent comments per card; use `GET /api/v1/cards/:id/comments` to paginate full comment history.
 ```bash
 curl -X GET "http://localhost:3000/api/v1/cards?projectId=PROJECT_ID&limit=10&cursor=NEXT_CURSOR" \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"

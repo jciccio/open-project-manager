@@ -220,12 +220,35 @@ export default function CardDetailModal({
 
   const [activities, setActivities] = useState<Array<any>>([]);
   const [comments, setComments] = useState<Props["card"]["comments"]>(card.comments || []);
+  const [commentsLoaded, setCommentsLoaded] = useState(false);
   const [feedTab, setFeedTab] = useState<"comments" | "activity">("comments");
   const [isLoadingComments, setIsLoadingComments] = useState(false);
   const [commentsError, setCommentsError] = useState<string | null>(null);
   const [isLoadingActivities, setIsLoadingActivities] = useState(false);
 
   const { t, locale } = useTranslation();
+
+  const fetchComments = useCallback(async () => {
+    setIsLoadingComments(true);
+    setCommentsError(null);
+    try {
+      const res = await listComments(card.id);
+      if (res.success && res.data) {
+        setComments((prev) => {
+          const fetchedMap = new Map((res.data || []).map((c: any) => [c.id, c]));
+          const extras = prev.filter((c: any) => !fetchedMap.has(c.id));
+          return [...(res.data || []), ...extras];
+        });
+        setCommentsLoaded(true);
+      } else {
+        setCommentsError(t("cardModal.failedToLoadComments"));
+      }
+    } catch {
+      setCommentsError(t("cardModal.failedToLoadComments"));
+    } finally {
+      setIsLoadingComments(false);
+    }
+  }, [card.id, t]);
 
   const loadActivities = useCallback(async () => {
     setIsLoadingActivities(true);
@@ -247,6 +270,7 @@ export default function CardDetailModal({
     setComments(card.comments || []);
     setActivities([]);
     setCommentsError(null);
+    setCommentsLoaded(false);
 
     async function fetchAttachments() {
       const res = await listAttachments(card.id);
@@ -254,26 +278,10 @@ export default function CardDetailModal({
         setAttachments(res.data);
       }
     }
-    async function fetchComments() {
-      setIsLoadingComments(true);
-      setCommentsError(null);
-      try {
-        const res = await listComments(card.id);
-        if (res.success && res.data) {
-          setComments(res.data);
-        } else {
-          setCommentsError(res.error || "Failed to load comments.");
-        }
-      } catch (err: any) {
-        setCommentsError(err?.message || "Failed to load comments.");
-      } finally {
-        setIsLoadingComments(false);
-      }
-    }
     fetchAttachments();
     fetchComments();
     loadActivities();
-  }, [card.id, loadActivities]);
+  }, [card.id, fetchComments, loadActivities]);
 
   const MAX_ATTACHMENT_MB = 10;
 
@@ -556,6 +564,8 @@ export default function CardDetailModal({
     if (res.success && res.data) {
       setComments((prev) => [res.data, ...prev]);
       setCommentContent("");
+      setCommentsError(null);
+      setCommentsLoaded(true);
       loadActivities();
       onRefresh();
     }
@@ -1386,7 +1396,7 @@ export default function CardDetailModal({
                   <MessageSquare className="h-3.5 w-3.5" />
                   <span>{t("cardModal.tabComments")}</span>
                   <span className="ml-1 rounded-full bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-700 dark:text-slate-300">
-                    {isLoadingComments ? ((card as any)._count?.comments ?? comments.length) : comments.length}
+                    {commentsLoaded ? comments.length : ((card as any)._count?.comments ?? comments.length)}
                   </span>
                 </button>
                 <button
@@ -1433,14 +1443,24 @@ export default function CardDetailModal({
                 <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                   {isLoadingComments ? (
                     <p className="text-xs text-slate-400 italic text-center py-4">
-                      Loading comments...
+                      {t("cardModal.loadingComments")}
                     </p>
-                  ) : commentsError ? (
-                    <p className="text-xs text-red-500 italic text-center py-2">
-                      {commentsError}
-                    </p>
-                  ) : comments.length > 0 ? (
-                    comments.map((c) => (
+                  ) : (
+                    <>
+                      {commentsError && (
+                        <div className="flex items-center justify-center gap-2 py-2 text-xs text-red-500 italic">
+                          <span>{commentsError}</span>
+                          <button
+                            type="button"
+                            onClick={() => fetchComments()}
+                            className="text-xs text-indigo-600 dark:text-indigo-400 underline not-italic hover:text-indigo-500"
+                          >
+                            {t("errorPage.tryAgain")}
+                          </button>
+                        </div>
+                      )}
+                      {comments.length > 0 ? (
+                        comments.map((c) => (
                       <div
                         key={c.id}
                         className="group flex items-start justify-between gap-2 rounded-lg bg-slate-50 dark:bg-slate-800/50 p-2.5 border border-slate-200 dark:border-slate-800"
@@ -1511,10 +1531,12 @@ export default function CardDetailModal({
                         )}
                       </div>
                     ))
-                  ) : (
+                  ) : !commentsError ? (
                     <p className="text-xs text-slate-400 italic text-center py-2">
                       {t("cardModal.noComments")}
                     </p>
+                  ) : null}
+                    </>
                   )}
                 </div>
               </>
