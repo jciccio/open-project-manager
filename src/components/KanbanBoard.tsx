@@ -531,7 +531,7 @@ export default function KanbanBoard({ project }: Props) {
                   <select
                     value={selectedViewId}
                     onChange={(e) => handleSelectView(e.target.value)}
-                    className="bg-transparent text-slate-900 dark:text-white focus:outline-none cursor-pointer max-w-[140px] truncate"
+                    className="bg-transparent text-slate-900 dark:text-white focus:outline-none rounded focus-visible:ring-2 focus-visible:ring-indigo-500 cursor-pointer max-w-[140px] truncate"
                   >
                     <option value="all">{t("savedViews.allCards")}</option>
                     {savedViews.map((view) => (
@@ -571,7 +571,7 @@ export default function KanbanBoard({ project }: Props) {
                     placeholder={t("kanban.searchPlaceholder")}
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-36 rounded-lg bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 pl-8 pr-3 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-indigo-500 focus:outline-none"
+                    className="w-36 rounded-lg bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 pl-8 pr-3 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
                   />
                 </div>
 
@@ -580,7 +580,7 @@ export default function KanbanBoard({ project }: Props) {
                   <select
                     value={priorityFilter}
                     onChange={(e) => setPriorityFilter(e.target.value)}
-                    className="bg-transparent text-slate-900 dark:text-white focus:outline-none cursor-pointer"
+                    className="bg-transparent text-slate-900 dark:text-white focus:outline-none rounded focus-visible:ring-2 focus-visible:ring-indigo-500 cursor-pointer"
                   >
                     <option value="ALL">{t("kanban.allPriorities")}</option>
                     <option value="NONE">{t("cardModal.priorityNone")}</option>
@@ -597,7 +597,7 @@ export default function KanbanBoard({ project }: Props) {
                     <select
                       value={typeFilter}
                       onChange={(e) => setTypeFilter(e.target.value)}
-                      className="bg-transparent text-slate-900 dark:text-white focus:outline-none cursor-pointer max-w-[110px]"
+                      className="bg-transparent text-slate-900 dark:text-white focus:outline-none rounded focus-visible:ring-2 focus-visible:ring-indigo-500 cursor-pointer max-w-[110px]"
                     >
                       <option value="ALL">{t("kanban.allTypes")}</option>
                       <option value="NONE">{t("kanban.noTypeFilter")}</option>
