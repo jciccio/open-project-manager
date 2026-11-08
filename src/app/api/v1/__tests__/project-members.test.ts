@@ -102,4 +102,37 @@ describe("API v1: /projects/[id]/members", () => {
     const delJson = await delRes.json();
     expect(delJson.success).toBe(true);
   });
+
+  const patchRole = (token: string, body: unknown) =>
+    PATCH(
+      new NextRequest(`http://localhost:3000/api/v1/projects/${projectId}/members`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+      { params: Promise.resolve({ id: projectId }) }
+    );
+
+  it("returns 400 for an ADMIN changing a secondary OWNER, and for an unknown role", async () => {
+    const admin = await createTestUser(`api-admin-${Date.now()}`);
+    await db.projectMember.createMany({
+      data: [
+        { projectId, userId: admin.user.id, role: "ADMIN" },
+        { projectId, userId: memberId, role: "OWNER" },
+      ],
+    });
+
+    const demote = await patchRole(admin.token, { userId: memberId, role: "VIEWER" });
+    expect(demote.status).toBe(400);
+    expect((await demote.json()).error).toContain("Only the project owner");
+
+    const unknownRole = await patchRole(ownerToken, { userId: memberId, role: "SUPERUSER" });
+    expect(unknownRole.status).toBe(400);
+
+    expect(
+      (await db.projectMember.findUnique({ where: { projectId_userId: { projectId, userId: memberId } } }))?.role
+    ).toBe("OWNER");
+
+    await cleanupTestUser(admin.user.id);
+  });
 });
