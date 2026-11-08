@@ -210,7 +210,7 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
                             type="text"
                             value={editingName}
                             onChange={(e) => setEditingName(e.target.value)}
-                            className="flex-1 rounded-md bg-white dark:bg-slate-900 border border-indigo-500 px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none"
+                            className="flex-1 rounded-md bg-white dark:bg-slate-900 border border-indigo-500 px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
                             autoFocus
                           />
                           <div className="flex items-center gap-1">

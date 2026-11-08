@@ -1,7 +1,7 @@
 "use client";
 
 import { MessageSquare, Calendar, Zap, ShieldAlert, CheckSquare, CornerDownRight } from "lucide-react";
-import { MarkdownRenderer } from "./MarkdownRenderer";
+import { markdownSnippet } from "@/lib/markdownSnippet";
 import { useTranslation } from "./LanguageProvider";
 import { formatDueDate } from "@/lib/formatDate";
 import { priorityLabel } from "@/lib/priority";
@@ -62,6 +62,7 @@ interface Props {
 export default function TaskCard({ card, onClick }: Props) {
   const priorityStyle = getPriorityStyle(card.priority);
   const { t, locale } = useTranslation();
+  const descriptionSnippet = card.description ? markdownSnippet(card.description) : "";
 
   const activeBlockers = card.incomingRelations
     ? card.incomingRelations.filter(
@@ -123,10 +124,10 @@ export default function TaskCard({ card, onClick }: Props) {
       </h4>
 
       {/* Description Snippet */}
-      {card.description && (
-        <div className="mt-1.5 text-xs text-slate-600 dark:text-slate-400 line-clamp-2 leading-relaxed">
-          <MarkdownRenderer content={card.description} />
-        </div>
+      {descriptionSnippet && (
+        <p className="mt-1.5 text-xs text-slate-600 dark:text-slate-400 line-clamp-2 leading-relaxed">
+          {descriptionSnippet}
+        </p>
       )}
 
       {/* Subtask Progress on Card */}

@@ -8,6 +8,9 @@ const maxAttachmentMb = process.env.MAX_ATTACHMENT_BYTES
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  images: {
+    unoptimized: true,
+  },
   experimental: {
     serverActions: {
       bodySizeLimit: `${maxAttachmentMb + 1}mb`,

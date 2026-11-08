@@ -9,6 +9,8 @@ import { POST as createCardTypeRoute } from "../card-types/route";
 import { PUT as updateCardTypeRoute } from "../card-types/[id]/route";
 import { POST as createProjectRoute } from "../projects/route";
 import { PUT as updateProjectRoute } from "../projects/[id]/route";
+import { POST as createCommentRoute } from "../cards/[id]/comments/route";
+import { PATCH as updateCommentRoute } from "../comments/[id]/route";
 import {
   cleanupTestUser,
   createTestCard,
@@ -18,6 +20,7 @@ import {
   createTestUser,
 } from "@/test/helpers";
 import { db } from "@/lib/db";
+import { MAX_COMMENT_LENGTH } from "@/lib/validation/comments";
 
 describe("REST API input validation", () => {
   let userId: string;
@@ -132,5 +135,33 @@ describe("REST API input validation", () => {
     );
     expect(updated.status).toBe(400);
     expect(updated.body.error).toMatch(/^icon: /);
+  });
+
+  it("rejects blank and over-limit comment content on create and update", async () => {
+    const card = await createTestCard(projectId, columnId);
+    const tooLong = "x".repeat(MAX_COMMENT_LENGTH + 1);
+
+    const blank = await read(await createCommentRoute(jsonRequest(`/cards/${card.id}/comments`, "POST", { content: "   " }), params(card.id)));
+    expect(blank.status).toBe(400);
+    expect(blank.body.error).toBe("Comment content cannot be empty");
+
+    const longCreate = await read(await createCommentRoute(jsonRequest(`/cards/${card.id}/comments`, "POST", { content: tooLong }), params(card.id)));
+    expect(longCreate.status).toBe(400);
+    expect(longCreate.body.error).toMatch(/characters or fewer/);
+    expect(await db.comment.count({ where: { cardId: card.id } })).toBe(0);
+
+    const atLimit = await read(
+      await createCommentRoute(jsonRequest(`/cards/${card.id}/comments`, "POST", { content: "x".repeat(MAX_COMMENT_LENGTH) }), params(card.id))
+    );
+    expect(atLimit.status).toBe(201);
+    const commentId = atLimit.body.data.id;
+
+    const longUpdate = await read(await updateCommentRoute(jsonRequest(`/comments/${commentId}`, "PATCH", { content: tooLong }), params(commentId)));
+    expect(longUpdate.status).toBe(400);
+    expect(longUpdate.body.error).toMatch(/characters or fewer/);
+
+    const trimmed = await read(await updateCommentRoute(jsonRequest(`/comments/${commentId}`, "PATCH", { content: "  Edited  " }), params(commentId)));
+    expect(trimmed.status).toBe(200);
+    expect((await db.comment.findUnique({ where: { id: commentId } }))?.content).toBe("Edited");
   });
 });
