@@ -574,11 +574,11 @@ describe("runImport", () => {
 
     const dryRun = (await runImport(makeFakeImporter(fixture), userId, { dryRun: true })) as ImportDryRunSummary;
     expect(dryRun.records.some((r) => r.sourceId === "card-orphan:parent" && r.status === "would_fail")).toBe(true);
-    expect(dryRun.records.some((r) => r.sourceId === "card-orphan:relation:missing-relation-target" && r.status === "would_fail")).toBe(true);
+    expect(dryRun.records.some((r) => r.sourceId === "card-orphan:relation:BLOCKS:missing-relation-target" && r.status === "would_fail")).toBe(true);
 
     const live = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
     expect(live.records.some((r) => r.sourceId === "card-orphan:parent" && r.status === "failed")).toBe(true);
-    expect(live.records.some((r) => r.sourceId === "card-orphan:relation:missing-relation-target" && r.status === "failed")).toBe(true);
+    expect(live.records.some((r) => r.sourceId === "card-orphan:relation:BLOCKS:missing-relation-target" && r.status === "failed")).toBe(true);
   });
 
   it("validates column group and enforces isDone agreement with resolveColumnGroup", async () => {
@@ -686,14 +686,18 @@ describe("runImport", () => {
     ];
 
     const dry = (await runImport(makeFakeImporter(fixture), userId, { dryRun: true })) as ImportDryRunSummary;
-    const dryRec = dry.records.find((r) => r.sourceId === "card-bad-link");
+    const dryRec = dry.records.find((r) => r.sourceId === "card-bad-link:link:javascript:alert(1)");
     expect(dryRec?.status).toBe("would_fail");
     expect(dryRec?.error).toContain("Invalid link URL");
+    const dryCard = dry.records.find((r) => r.sourceId === "card-bad-link");
+    expect(dryCard?.status).toBe("would_create");
 
     const live = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
-    const liveRec = live.records.find((r) => r.sourceId === "card-bad-link");
+    const liveRec = live.records.find((r) => r.sourceId === "card-bad-link:link:javascript:alert(1)");
     expect(liveRec?.status).toBe("failed");
     expect(liveRec?.error).toContain("Invalid link URL");
+    const liveCard = live.records.find((r) => r.sourceId === "card-bad-link");
+    expect(liveCard?.status).toBe("created");
   });
 
   it("rejects self-relations and invalid relation types in both dry run and live run", async () => {
@@ -719,20 +723,20 @@ describe("runImport", () => {
     ];
 
     const dry = (await runImport(makeFakeImporter(fixture), userId, { dryRun: true })) as ImportDryRunSummary;
-    const drySelfRel = dry.records.find((r) => r.sourceId === "card-self-rel:relation:card-self-rel");
+    const drySelfRel = dry.records.find((r) => r.sourceId === "card-self-rel:relation:BLOCKS:card-self-rel");
     expect(drySelfRel?.status).toBe("would_fail");
     expect(drySelfRel?.error).toContain("A card cannot relate to itself");
-    const dryInvalidRel = dry.records.find((r) => r.sourceId === "card-invalid-rel:relation:card-target");
+    const dryInvalidRel = dry.records.find((r) => r.sourceId === "card-invalid-rel:relation:INVALID_TYPE:card-target");
     expect(dryInvalidRel?.status).toBe("would_fail");
     expect(dryInvalidRel?.error).toContain("Invalid relation type");
 
     const live = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
     expect(dry.totals.wouldFail).toBe(live.totals.failed);
-    const selfRelRec = live.records.find((r) => r.sourceId === "card-self-rel:relation:card-self-rel");
+    const selfRelRec = live.records.find((r) => r.sourceId === "card-self-rel:relation:BLOCKS:card-self-rel");
     expect(selfRelRec?.status).toBe("failed");
     expect(selfRelRec?.error).toContain("A card cannot relate to itself");
 
-    const invalidRelRec = live.records.find((r) => r.sourceId === "card-invalid-rel:relation:card-target");
+    const invalidRelRec = live.records.find((r) => r.sourceId === "card-invalid-rel:relation:INVALID_TYPE:card-target");
     expect(invalidRelRec?.status).toBe("failed");
     expect(invalidRelRec?.error).toContain("Invalid relation type");
   });
@@ -881,5 +885,166 @@ describe("runImport", () => {
     const cardLive = liveRun.records.find((r) => r.sourceId === "card-1");
     expect(colLive?.status).toBe("failed");
     expect(cardLive?.status).toBe("failed");
+  });
+
+  it("records mapping for both sides of bidirectional relation so deleting relation in OPM keeps it deleted on re-run", async () => {
+    const fixture = baseFixture();
+    fixture.cards["proj-1"] = [
+      {
+        sourceId: "card-a",
+        columnSourceId: "col-todo",
+        title: "Card A",
+        relations: [{ targetCardSourceId: "card-b", type: "BLOCKS" }],
+      },
+      {
+        sourceId: "card-b",
+        columnSourceId: "col-todo",
+        title: "Card B",
+        relations: [{ targetCardSourceId: "card-a", type: "BLOCKED_BY" }],
+      },
+    ];
+
+    // Run 1: imports both cards and creates 1 canonical relation (a BLOCKS b)
+    await runImport(makeFakeImporter(fixture), userId);
+    const cardA = await db.card.findFirst({ where: { project: { userId }, title: "Card A" } });
+    const cardB = await db.card.findFirst({ where: { project: { userId }, title: "Card B" } });
+    expect(await db.cardRelation.count({ where: { sourceCardId: cardA!.id, targetCardId: cardB!.id } })).toBe(1);
+
+    // Delete relation in OPM
+    await db.cardRelation.deleteMany({ where: { sourceCardId: cardA!.id, targetCardId: cardB!.id } });
+    expect(await db.cardRelation.count({ where: { sourceCardId: cardA!.id, targetCardId: cardB!.id } })).toBe(0);
+
+    // Run 2: re-run import
+    const run2 = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
+    expect(run2.totals.created).toBe(0);
+
+    // Relation should STILL be deleted
+    expect(await db.cardRelation.count({ where: { sourceCardId: cardA!.id, targetCardId: cardB!.id } })).toBe(0);
+  });
+
+  it("supports multiple relation types between the same two cards and maps them separately", async () => {
+    const fixture1 = baseFixture();
+    fixture1.cards["proj-1"] = [
+      { sourceId: "c1", columnSourceId: "col-todo", title: "C1" },
+      {
+        sourceId: "c2",
+        columnSourceId: "col-todo",
+        title: "C2",
+        relations: [{ targetCardSourceId: "c1", type: "RELATES_TO" }],
+      },
+    ];
+
+    await runImport(makeFakeImporter(fixture1), userId);
+
+    const c1 = await db.card.findFirst({ where: { project: { userId }, title: "C1" } });
+    const c2 = await db.card.findFirst({ where: { project: { userId }, title: "C2" } });
+    expect(await db.cardRelation.count({ where: { type: "RELATES_TO" } })).toBe(1);
+    expect(await db.cardRelation.count({ where: { type: "BLOCKS" } })).toBe(0);
+
+    // Run 2: source now also has c2 BLOCKS c1
+    const fixture2 = baseFixture();
+    fixture2.cards["proj-1"] = [
+      { sourceId: "c1", columnSourceId: "col-todo", title: "C1" },
+      {
+        sourceId: "c2",
+        columnSourceId: "col-todo",
+        title: "C2",
+        relations: [
+          { targetCardSourceId: "c1", type: "RELATES_TO" },
+          { targetCardSourceId: "c1", type: "BLOCKS" },
+        ],
+      },
+    ];
+
+    const run2 = (await runImport(makeFakeImporter(fixture2), userId)) as ImportSummary;
+    expect(run2.records.filter((r) => r.status === "failed")).toHaveLength(0);
+
+    // Both relations now exist
+    expect(await db.cardRelation.count({ where: { type: "RELATES_TO" } })).toBe(1);
+    expect(await db.cardRelation.count({ where: { type: "BLOCKS" } })).toBe(1);
+  });
+
+  it("relinks child when parent is deleted in OPM and re-imported", async () => {
+    const fixture = baseFixture();
+    fixture.cards["proj-1"] = [
+      { sourceId: "p-card", columnSourceId: "col-todo", title: "Parent" },
+      { sourceId: "k-card", columnSourceId: "col-todo", title: "Kid", parentSourceId: "p-card" },
+    ];
+
+    await runImport(makeFakeImporter(fixture), userId);
+    const parent1 = await db.card.findFirst({ where: { project: { userId }, title: "Parent" } });
+    const kid = await db.card.findFirst({ where: { project: { userId }, title: "Kid" } });
+    expect(kid?.parentId).toBe(parent1?.id);
+
+    // Delete parent in OPM (nulls kid.parentId)
+    await db.card.delete({ where: { id: parent1!.id } });
+    const kidAfterDelete = await db.card.findUnique({ where: { id: kid!.id } });
+    expect(kidAfterDelete?.parentId).toBeNull();
+
+    // Re-run import: parent is recreated, kid should relink to the new parent
+    await runImport(makeFakeImporter(fixture), userId);
+    const parent2 = await db.card.findFirst({ where: { project: { userId }, title: "Parent" } });
+    expect(parent2?.id).not.toBe(parent1?.id);
+
+    const kidRelinked = await db.card.findUnique({ where: { id: kid!.id } });
+    expect(kidRelinked?.parentId).toBe(parent2?.id);
+  });
+
+  it("imports card and children even when a link has an unsupported scheme like ftp://, recording failure against link only", async () => {
+    const fixture = baseFixture();
+    fixture.cards["proj-1"] = [
+      {
+        sourceId: "card-with-ftp",
+        columnSourceId: "col-todo",
+        title: "Card With FTP Link",
+        links: [
+          { url: "https://example.com/good", title: "Good" },
+          { url: "ftp://example.com/bad", title: "Bad Scheme" },
+        ],
+      },
+      {
+        sourceId: "child-of-ftp",
+        columnSourceId: "col-todo",
+        title: "Child of FTP Card",
+        parentSourceId: "card-with-ftp",
+      },
+    ];
+
+    const dry = (await runImport(makeFakeImporter(fixture), userId, { dryRun: true })) as ImportDryRunSummary;
+    expect(dry.records.find((r) => r.sourceId === "card-with-ftp")?.status).toBe("would_create");
+    expect(dry.records.find((r) => r.sourceId === "child-of-ftp")?.status).toBe("would_create");
+    expect(dry.records.find((r) => r.sourceId === "card-with-ftp:link:ftp://example.com/bad")?.status).toBe("would_fail");
+
+    const live = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
+    expect(live.records.find((r) => r.sourceId === "card-with-ftp")?.status).toBe("created");
+    expect(live.records.find((r) => r.sourceId === "child-of-ftp")?.status).toBe("created");
+    expect(live.records.find((r) => r.sourceId === "card-with-ftp:link:ftp://example.com/bad")?.status).toBe("failed");
+
+    const parent = await db.card.findFirst({ where: { project: { userId }, title: "Card With FTP Link" }, include: { links: true } });
+    const child = await db.card.findFirst({ where: { project: { userId }, title: "Child of FTP Card" } });
+    expect(parent).not.toBeNull();
+    expect(child?.parentId).toBe(parent?.id);
+    expect(parent?.links).toHaveLength(1);
+    expect(parent?.links[0].url).toBe("https://example.com/good");
+  });
+
+  it("empty link URL fails in both dry-run and live-run while allowing card to import", async () => {
+    const fixture = baseFixture();
+    fixture.cards["proj-1"] = [
+      {
+        sourceId: "card-empty-link",
+        columnSourceId: "col-todo",
+        title: "Card With Empty Link",
+        links: [{ url: "" }],
+      },
+    ];
+
+    const dry = (await runImport(makeFakeImporter(fixture), userId, { dryRun: true })) as ImportDryRunSummary;
+    expect(dry.records.find((r) => r.sourceId === "card-empty-link")?.status).toBe("would_create");
+    expect(dry.records.find((r) => r.sourceId === "card-empty-link:link:")?.status).toBe("would_fail");
+
+    const live = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
+    expect(live.records.find((r) => r.sourceId === "card-empty-link")?.status).toBe("created");
+    expect(live.records.find((r) => r.sourceId === "card-empty-link:link:")?.status).toBe("failed");
   });
 });

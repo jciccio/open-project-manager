@@ -20,6 +20,7 @@ import type {
   ImportDryRunSummary,
   RunImportOptions,
   ImportCardRelation,
+  ImportCardLink,
   ImportCard,
 } from "./types";
 
@@ -64,6 +65,11 @@ function parseDueDate(dueDate: string | undefined): Date | null {
   if (match) return new Date(`${match[1]}T00:00:00Z`);
   const d = new Date(dueDate);
   return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function isValidLinkUrl(url: string | undefined | null): boolean {
+  if (!url || typeof url !== "string") return false;
+  return SafeUrlSchema.safeParse(url.trim()).success;
 }
 
 interface RunCtx {
@@ -400,11 +406,18 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
                 throw new Error(unknownColumnError(card.columnSourceId));
               }
 
+              const validLinks: ImportCardLink[] = [];
               if (card.links && card.links.length > 0) {
                 for (const link of card.links) {
-                  const parsed = SafeUrlSchema.safeParse(link.url ? link.url.trim() : "");
-                  if (!parsed.success) {
-                    throw new Error(`Invalid link URL "${link.url}": must be a valid http, https or mailto URL`);
+                  if (isValidLinkUrl(link.url)) {
+                    validLinks.push(link);
+                  } else {
+                    records.push({
+                      entityType: "card",
+                      sourceId: `${card.sourceId}:link:${link.url ?? ""}`,
+                      status: "failed",
+                      error: `Invalid link URL "${link.url ?? ""}": must be a valid http, https or mailto URL`,
+                    });
                   }
                 }
               }
@@ -457,9 +470,9 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
                 isArchived: !!card.isArchived,
                 typeId: card.typeSourceId ? cardTypeMap.get(card.typeSourceId) ?? null : null,
                 links:
-                  card.links && card.links.length > 0
+                  validLinks.length > 0
                     ? {
-                        create: card.links.map((link) => ({
+                        create: validLinks.map((link) => ({
                           url: link.url.trim(),
                           title: link.title ? link.title.trim() : null,
                         })),
@@ -504,7 +517,7 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
                 pendingParents.push({ cardLocalId, cardSourceId: card.sourceId, parentSourceId: card.parentSourceId });
               } else {
                 const parentRec = await findExistingMapping(ctx.userId, ctx.source, "card", `${card.sourceId}:parent`);
-                if (!parentRec) {
+                if (!parentRec || !(await rowStillExists("card", parentRec.localId))) {
                   pendingParents.push({ cardLocalId, cardSourceId: card.sourceId, parentSourceId: card.parentSourceId });
                 }
               }
@@ -519,7 +532,7 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
                     ctx.userId,
                     ctx.source,
                     "card",
-                    `${card.sourceId}:relation:${rel.targetCardSourceId}`
+                    `${card.sourceId}:relation:${rel.type}:${rel.targetCardSourceId}`
                   );
                   if (!relRec) {
                     neededRelations.push(rel);
@@ -617,7 +630,7 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
               if (rel.targetCardSourceId === cardSourceId) {
                 records.push({
                   entityType: "card",
-                  sourceId: `${cardSourceId}:relation:${rel.targetCardSourceId}`,
+                  sourceId: `${cardSourceId}:relation:${rel.type}:${rel.targetCardSourceId}`,
                   status: "failed",
                   error: "A card cannot relate to itself",
                 });
@@ -634,7 +647,7 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
               if (!targetCardLocalId) {
                 records.push({
                   entityType: "card",
-                  sourceId: `${cardSourceId}:relation:${rel.targetCardSourceId}`,
+                  sourceId: `${cardSourceId}:relation:${rel.type}:${rel.targetCardSourceId}`,
                   status: "failed",
                   error: `Unresolved relation target "${rel.targetCardSourceId}": no matching card found`,
                 });
@@ -645,7 +658,7 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
               if (!norm.valid) {
                 records.push({
                   entityType: "card",
-                  sourceId: `${cardSourceId}:relation:${rel.targetCardSourceId}`,
+                  sourceId: `${cardSourceId}:relation:${rel.type}:${rel.targetCardSourceId}`,
                   status: "failed",
                   error: norm.error,
                 });
@@ -654,6 +667,14 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
 
               const relKey = `${norm.sourceId}:${norm.targetId}:${norm.type}`;
               if (processedRelations.has(relKey)) {
+                await recordMapping(
+                  ctx.userId,
+                  ctx.source,
+                  "card",
+                  `${cardSourceId}:relation:${rel.type}:${rel.targetCardSourceId}`,
+                  `${norm.sourceId}:${norm.targetId}:${norm.type}`,
+                  ctx.importRunId
+                );
                 continue;
               }
               processedRelations.add(relKey);
@@ -678,14 +699,14 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
                   ctx.userId,
                   ctx.source,
                   "card",
-                  `${cardSourceId}:relation:${rel.targetCardSourceId}`,
-                  `${norm.sourceId}:${norm.targetId}`,
+                  `${cardSourceId}:relation:${rel.type}:${rel.targetCardSourceId}`,
+                  `${norm.sourceId}:${norm.targetId}:${norm.type}`,
                   ctx.importRunId
                 );
               } catch (err) {
                 records.push({
                   entityType: "card",
-                  sourceId: `${cardSourceId}:relation:${rel.targetCardSourceId}`,
+                  sourceId: `${cardSourceId}:relation:${rel.type}:${rel.targetCardSourceId}`,
                   status: "failed",
                   error: err instanceof Error ? err.message : String(err),
                 });
@@ -862,22 +883,15 @@ async function classifyForDryRun(
             }
 
             if (card.links && card.links.length > 0) {
-              let invalidLinkUrl: string | undefined;
               for (const link of card.links) {
-                const parsed = SafeUrlSchema.safeParse(link.url ? link.url.trim() : "");
-                if (!parsed.success) {
-                  invalidLinkUrl = link.url;
-                  break;
+                if (!isValidLinkUrl(link.url)) {
+                  records.push({
+                    entityType: "card",
+                    sourceId: `${card.sourceId}:link:${link.url ?? ""}`,
+                    status: "would_fail",
+                    error: `Invalid link URL "${link.url ?? ""}": must be a valid http, https or mailto URL`,
+                  });
                 }
-              }
-              if (invalidLinkUrl) {
-                records.push({
-                  entityType: "card",
-                  sourceId: card.sourceId,
-                  status: "would_fail",
-                  error: `Invalid link URL "${invalidLinkUrl}": must be a valid http, https or mailto URL`,
-                });
-                continue;
               }
             }
 
@@ -971,13 +985,13 @@ async function classifyForDryRun(
 
             if (card.relations && card.relations.length > 0) {
               for (const rel of card.relations) {
-                const alreadyRel = await liveMapping("card", `${card.sourceId}:relation:${rel.targetCardSourceId}`);
+                const alreadyRel = await findExistingMapping(userId, source, "card", `${card.sourceId}:relation:${rel.type}:${rel.targetCardSourceId}`);
                 if (alreadyRel) continue;
 
                 if (rel.targetCardSourceId === card.sourceId) {
                   records.push({
                     entityType: "card",
-                    sourceId: `${card.sourceId}:relation:${rel.targetCardSourceId}`,
+                    sourceId: `${card.sourceId}:relation:${rel.type}:${rel.targetCardSourceId}`,
                     status: "would_fail",
                     error: "A card cannot relate to itself",
                   });
@@ -988,7 +1002,7 @@ async function classifyForDryRun(
                 if (!norm.valid) {
                   records.push({
                     entityType: "card",
-                    sourceId: `${card.sourceId}:relation:${rel.targetCardSourceId}`,
+                    sourceId: `${card.sourceId}:relation:${rel.type}:${rel.targetCardSourceId}`,
                     status: "would_fail",
                     error: norm.error,
                   });
@@ -1001,7 +1015,7 @@ async function classifyForDryRun(
                 if (!targetValid) {
                   records.push({
                     entityType: "card",
-                    sourceId: `${card.sourceId}:relation:${rel.targetCardSourceId}`,
+                    sourceId: `${card.sourceId}:relation:${rel.type}:${rel.targetCardSourceId}`,
                     status: "would_fail",
                     error: `Unresolved relation target "${rel.targetCardSourceId}": no matching card found`,
                   });
