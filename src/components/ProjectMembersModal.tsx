@@ -11,6 +11,7 @@ import {
 import { updateProject } from "@/actions/projects";
 import { ProjectRole } from "@/lib/permissions";
 import { useRouter } from "next/navigation";
+import ErrorBanner from "./ErrorBanner";
 
 interface Props {
   project: {
@@ -169,11 +170,7 @@ export default function ProjectMembersModal({ project, onClose, onMembersChange 
         </div>
 
         {/* Alerts */}
-        {error && (
-          <div className="mt-4 rounded-lg bg-rose-500/10 border border-rose-500/20 p-3 text-xs text-rose-500 font-medium">
-            {error}
-          </div>
-        )}
+        {error && <div className="mt-4"><ErrorBanner message={error} /></div>}
         {successMsg && (
           <div className="mt-4 rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-3 text-xs text-emerald-500 font-medium">
             {successMsg}

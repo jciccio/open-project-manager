@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useTranslation } from "./LanguageProvider";
 import ColorPicker from "./ColorPicker";
 import { DEFAULT_PROJECT_COLOR } from "@/lib/colors";
+import ErrorBanner from "./ErrorBanner";
 
 interface Props {
   onClose: () => void;
@@ -69,11 +70,7 @@ export default function NewProjectModal({ onClose }: Props) {
           </button>
         </div>
 
-        {error && (
-          <div className="mt-4 rounded-lg bg-red-500/10 border border-red-500/20 p-3 text-xs text-red-500 font-medium">
-            {error}
-          </div>
-        )}
+        {error && <div className="mt-4"><ErrorBanner message={error} /></div>}
 
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
           <div>
