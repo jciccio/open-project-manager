@@ -29,9 +29,11 @@ const SOURCES: Record<string, ImportSource> = {
   },
 };
 
+const MAX_IMPORT_PROJECT_IDS = 1_000;
+
 const importBodySchema = z.object({
   source: z.string().min(1),
-  projectIds: z.array(z.number().int().positive()).min(1).optional(),
+  projectIds: z.array(z.number().int().positive()).min(1).max(MAX_IMPORT_PROJECT_IDS).optional(),
   dryRun: z.boolean().optional(),
 });
 
