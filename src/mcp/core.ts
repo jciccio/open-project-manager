@@ -337,6 +337,7 @@ export const MCP_TOOLS = [
         owner: { type: "string", description: "Assignee or owner name" },
         dueDate: { type: "string", description: "ISO date string for deadline (e.g. 2026-09-01)" },
         parentId: { type: "string", description: "Optional parent card ID" },
+        labelIds: { type: "array", items: { type: "string" }, description: "Optional list of label IDs to attach to the card" },
         assigneeIds: { type: "array", items: { type: "string" }, description: "Optional list of assigned user IDs" },
         typeId: { type: "string", description: "Optional card type ID" },
       },
@@ -349,7 +350,7 @@ export const MCP_TOOLS = [
   },
   {
     name: "update_card",
-    description: "Update task card fields (title, description, priority, story points, owner, due date, columnId, parentId, assigneeIds, typeId).",
+    description: "Update task card fields (title, description, priority, story points, owner, due date, columnId, parentId, labelIds, assigneeIds, typeId).",
     inputSchema: {
       type: "object",
       properties: {
@@ -362,6 +363,7 @@ export const MCP_TOOLS = [
         dueDate: { type: "string", description: "Updated ISO due date string or empty string to clear" },
         columnId: { type: "string", description: "Move to a different column ID" },
         parentId: { type: "string", description: "Updated parent card ID or empty string to detach" },
+        labelIds: { type: "array", items: { type: "string" }, description: "Updated list of label IDs (pass [] to clear)" },
         assigneeIds: { type: "array", items: { type: "string" }, description: "Optional list of assigned user IDs" },
         typeId: { type: "string", description: "Updated card type ID or empty string to clear" },
       },
@@ -1155,6 +1157,7 @@ export async function executeMcpTool(
       const referenceError = await validateReferencedIds(input.projectId, userId, {
         columnId: input.columnId,
         typeId: input.typeId,
+        labelIds: input.labelIds,
         assigneeIds: input.assigneeIds,
       });
       if (referenceError) throw new Error(referenceError);
@@ -1192,6 +1195,12 @@ export async function executeMcpTool(
             order,
             parentId: input.parentId || null,
             typeId: input.typeId || null,
+            labels:
+              input.labelIds && input.labelIds.length > 0
+                ? {
+                    create: input.labelIds.map((labelId) => ({ labelId })),
+                  }
+                : undefined,
             assignees:
               input.assigneeIds && input.assigneeIds.length > 0
                 ? {
@@ -1201,6 +1210,7 @@ export async function executeMcpTool(
           },
           include: {
             type: true,
+            labels: { include: { label: true } },
             assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
             parent: { select: { id: true, number: true, title: true } },
             children: { select: { id: true, number: true, title: true, completedAt: true } },
@@ -1218,6 +1228,7 @@ export async function executeMcpTool(
       const referenceError = await validateReferencedIds(existingCard.projectId, userId, {
         columnId: input.columnId,
         typeId: input.typeId,
+        labelIds: input.labelIds,
         assigneeIds: input.assigneeIds,
       });
       if (referenceError) throw new Error(referenceError);
@@ -1247,6 +1258,15 @@ export async function executeMcpTool(
         data.typeId = input.typeId || null;
       }
 
+      if (input.labelIds !== undefined) {
+        await db.cardLabel.deleteMany({ where: { cardId: args.id } });
+        if (input.labelIds.length > 0) {
+          data.labels = {
+            create: input.labelIds.map((labelId) => ({ labelId })),
+          };
+        }
+      }
+
       if (input.assigneeIds !== undefined) {
         await db.cardAssignee.deleteMany({ where: { cardId: args.id } });
         if (input.assigneeIds.length > 0) {
@@ -1261,6 +1281,7 @@ export async function executeMcpTool(
         data,
         include: {
           type: true,
+          labels: { include: { label: true } },
           assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
           parent: { select: { id: true, number: true, title: true } },
           children: { select: { id: true, number: true, title: true, completedAt: true } },

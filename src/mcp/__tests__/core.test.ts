@@ -810,4 +810,101 @@ describe("MCP Server Core Tools", () => {
 
     await executeMcpTool("delete_project", { id: projectId }, { userId });
   });
+
+  it("persists, replaces, clears, and validates labelIds in create_card and update_card", async () => {
+    const projRes = await executeMcpTool("create_project", { name: "MCP Labels Project", userId }, { userId });
+    const projectId = projRes.project!.id;
+    const colId = (projRes.project as any).columns[0].id;
+
+    // Create two labels in this project
+    const l1 = await executeMcpTool("create_label", { name: "Bug", projectId }, { userId });
+    const l2 = await executeMcpTool("create_label", { name: "Frontend", projectId }, { userId });
+
+    // Another project's label
+    const otherProj = await executeMcpTool("create_project", { name: "Other Project", userId }, { userId });
+    const otherLabel = await executeMcpTool("create_label", { name: "OtherLabel", projectId: otherProj.project!.id }, { userId });
+
+    // 1. Unknown label id is rejected in create_card
+    await expect(
+      executeMcpTool("create_card", {
+        projectId,
+        columnId: colId,
+        title: "Bad Label Card",
+        labelIds: ["non-existent-label-id"],
+      }, { userId })
+    ).rejects.toThrow(/Invalid label/);
+
+    // 2. Foreign-project label id is rejected in create_card
+    await expect(
+      executeMcpTool("create_card", {
+        projectId,
+        columnId: colId,
+        title: "Foreign Label Card",
+        labelIds: [otherLabel.label!.id],
+      }, { userId })
+    ).rejects.toThrow(/Invalid label/);
+
+    // 3. create_card with valid labelIds returns a card with those labels
+    const created = await executeMcpTool("create_card", {
+      projectId,
+      columnId: colId,
+      title: "Labeled Card",
+      labelIds: [l1.label!.id, l2.label!.id],
+    }, { userId });
+    expect(created.success).toBe(true);
+    const createdCard = created.card as any;
+    expect(createdCard?.labels?.length).toBe(2);
+    const createdNames = createdCard.labels.map((l: any) => l.label.name).sort();
+    expect(createdNames).toEqual(["Bug", "Frontend"]);
+
+    const cardId = created.card!.id;
+
+    // 4. Unknown label id is rejected in update_card
+    await expect(
+      executeMcpTool("update_card", {
+        id: cardId,
+        labelIds: ["non-existent-label-id"],
+      }, { userId })
+    ).rejects.toThrow(/Invalid label/);
+
+    // 5. Foreign-project label id is rejected in update_card
+    await expect(
+      executeMcpTool("update_card", {
+        id: cardId,
+        labelIds: [otherLabel.label!.id],
+      }, { userId })
+    ).rejects.toThrow(/Invalid label/);
+
+    // 6. update_card replaces labelIds
+    const updated = await executeMcpTool("update_card", {
+      id: cardId,
+      labelIds: [l1.label!.id],
+    }, { userId });
+    expect(updated.success).toBe(true);
+    const updatedCard = updated.card as any;
+    expect(updatedCard?.labels?.length).toBe(1);
+    expect(updatedCard.labels[0].label.name).toBe("Bug");
+
+    // Verify through get_card
+    const fetched = await executeMcpTool("get_card", { id: cardId }, { userId });
+    const fetchedCard = fetched.card as any;
+    expect(fetchedCard?.labels?.length).toBe(1);
+    expect(fetchedCard.labels[0].label.name).toBe("Bug");
+
+    // 7. update_card with labelIds: [] clears them
+    const cleared = await executeMcpTool("update_card", {
+      id: cardId,
+      labelIds: [],
+    }, { userId });
+    expect(cleared.success).toBe(true);
+    const clearedCard = cleared.card as any;
+    expect(clearedCard?.labels?.length).toBe(0);
+
+    const fetchedCleared = await executeMcpTool("get_card", { id: cardId }, { userId });
+    const fetchedClearedCard = fetchedCleared.card as any;
+    expect(fetchedClearedCard?.labels?.length).toBe(0);
+
+    await executeMcpTool("delete_project", { id: otherProj.project!.id }, { userId });
+    await executeMcpTool("delete_project", { id: projectId }, { userId });
+  });
 });
