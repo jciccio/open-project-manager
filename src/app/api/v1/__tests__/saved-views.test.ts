@@ -3,6 +3,7 @@ import { createTestUser, createTestProject, cleanupTestUser } from "@/test/helpe
 import { GET as getViewsRoute, POST as createViewRoute } from "../views/route";
 import { GET as getSingleViewRoute, PUT as updateViewRoute, DELETE as deleteViewRoute } from "../views/[id]/route";
 import { NextRequest } from "next/server";
+import { db } from "@/lib/db";
 
 describe("REST API: Saved Views", () => {
   let userId: string;
@@ -107,5 +108,37 @@ describe("REST API: Saved Views", () => {
     const verifyListRes = await getViewsRoute(listReq);
     const verifyBody = await verifyListRes.json();
     expect(verifyBody.data.length).toBe(0);
+  });
+
+  it("returns a saved view to a MEMBER and a VIEWER, and a 404 to a non-member", async () => {
+    const stamp = `${Date.now()}-${Math.random()}`;
+    const member = await createTestUser(`view-member-${stamp}`);
+    const viewer = await createTestUser(`view-viewer-${stamp}`);
+    const outsider = await createTestUser(`view-outsider-${stamp}`);
+    await db.projectMember.createMany({
+      data: [
+        { projectId, userId: member.user.id, role: "MEMBER" },
+        { projectId, userId: viewer.user.id, role: "VIEWER" },
+      ],
+    });
+    const view = await db.savedView.create({ data: { projectId, name: "Shared view" } });
+
+    const fetchView = (bearer: string) =>
+      getSingleViewRoute(
+        new NextRequest(`http://localhost/api/v1/views/${view.id}`, {
+          headers: { authorization: `Bearer ${bearer}` },
+        }),
+        { params: Promise.resolve({ id: view.id }) }
+      );
+
+    const memberRes = await fetchView(member.token);
+    expect(memberRes.status).toBe(200);
+    expect((await memberRes.json()).data.name).toBe("Shared view");
+    expect((await fetchView(viewer.token)).status).toBe(200);
+    expect((await fetchView(outsider.token)).status).toBe(404);
+
+    await cleanupTestUser(member.user.id);
+    await cleanupTestUser(viewer.user.id);
+    await cleanupTestUser(outsider.user.id);
   });
 });
