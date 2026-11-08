@@ -11,6 +11,8 @@ const globalForPrisma = globalThis as unknown as {
 
 export type DatabaseProvider = "sqlite" | "postgresql";
 
+const SQLITE_MAX_BIND_VALUES = 32766;
+
 export function getDatabaseProvider(): DatabaseProvider {
   const providerEnv = process.env.DATABASE_PROVIDER?.toLowerCase();
   if (providerEnv === "postgresql" || providerEnv === "postgres") {
@@ -52,10 +54,15 @@ export function createPrismaClient(): PrismaClient {
 // Set WAL on the adapter's own connection. Opening the file with any other
 // better-sqlite3 copy (the adapter bundles its own) puts two SQLite libraries in
 // one process, and closing either one drops the other's POSIX locks (#238).
+//
+// The adapter reports no connection info, so Prisma assumes SQLite allows 999
+// bound parameters and throws P2029 for larger queries. The SQLite it bundles is
+// built with MAX_VARIABLE_NUMBER=32766 (#264).
 class WalBetterSqlite3 extends PrismaBetterSqlite3 {
   async connect() {
     const adapter = await super.connect();
     await adapter.executeScript("PRAGMA journal_mode = WAL;");
+    adapter.getConnectionInfo = () => ({ maxBindValues: SQLITE_MAX_BIND_VALUES, supportsRelationJoins: false });
     return adapter;
   }
 }

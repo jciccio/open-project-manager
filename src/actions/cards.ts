@@ -2,10 +2,7 @@
 
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { safeRevalidatePath } from "@/lib/revalidate";
-import { createActivities, notifyActivity, type ActivityEntry } from "@/lib/services/activity";
 import * as cardsService from "@/lib/services/cards";
-import { verifyProjectAccess } from "@/lib/permissions";
 
 export async function createCard(data: {
   projectId: string;
@@ -69,77 +66,15 @@ export async function getCardByIdentifier(identifier: string) {
 }
 
 export async function archiveCard(id: string) {
-  try {
-    const session = await getSession();
-    if (!session) {
-      return { success: false, error: "Unauthorized" };
-    }
-
-    const card = await db.card.findUnique({
-      where: { id },
-      include: { project: true },
-    });
-
-    if (!card || !(await verifyProjectAccess(card.projectId, session.userId, "MEMBER"))) {
-      return { success: false, error: "Card not found or access denied" };
-    }
-
-    const activityEntries: ActivityEntry[] = [{ cardId: id, actorUserId: session.userId, type: "archived" }];
-    const updated = await db.$transaction(async (tx) => {
-      const result = await tx.card.update({
-        where: { id },
-        data: { isArchived: true },
-      });
-      await createActivities(tx, activityEntries);
-      return result;
-    });
-
-    notifyActivity(card.projectId, activityEntries);
-
-    safeRevalidatePath(`/projects/${card.projectId}`);
-    safeRevalidatePath("/archived");
-    return { success: true, data: updated };
-  } catch (error) {
-    console.error(`Error archiving card ${id}:`, error);
-    return { success: false, error: "Failed to archive card" };
-  }
+  const session = await getSession();
+  if (!session) return { success: false as const, error: "Unauthorized" };
+  return cardsService.archiveCard(id, session.userId);
 }
 
 export async function unarchiveCard(id: string) {
-  try {
-    const session = await getSession();
-    if (!session) {
-      return { success: false, error: "Unauthorized" };
-    }
-
-    const card = await db.card.findUnique({
-      where: { id },
-      include: { project: true },
-    });
-
-    if (!card || !(await verifyProjectAccess(card.projectId, session.userId, "MEMBER"))) {
-      return { success: false, error: "Card not found or access denied" };
-    }
-
-    const activityEntries: ActivityEntry[] = [{ cardId: id, actorUserId: session.userId, type: "unarchived" }];
-    const updated = await db.$transaction(async (tx) => {
-      const result = await tx.card.update({
-        where: { id },
-        data: { isArchived: false },
-      });
-      await createActivities(tx, activityEntries);
-      return result;
-    });
-
-    notifyActivity(card.projectId, activityEntries);
-
-    safeRevalidatePath(`/projects/${card.projectId}`);
-    safeRevalidatePath("/archived");
-    return { success: true, data: updated };
-  } catch (error) {
-    console.error(`Error unarchiving card ${id}:`, error);
-    return { success: false, error: "Failed to unarchive card" };
-  }
+  const session = await getSession();
+  if (!session) return { success: false as const, error: "Unauthorized" };
+  return cardsService.unarchiveCard(id, session.userId);
 }
 
 export async function getArchivedCards() {

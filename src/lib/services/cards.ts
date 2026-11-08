@@ -470,6 +470,50 @@ export async function deleteCard(id: string, userId: string) {
   }
 }
 
+async function setCardArchived(id: string, isArchived: boolean, userId: string) {
+  const card = await db.card.findUnique({ where: { id }, select: { projectId: true } });
+
+  if (!card || !(await verifyProjectAccess(card.projectId, userId, "MEMBER"))) {
+    return { success: false, error: "Card not found or access denied" };
+  }
+
+  const activityEntries: ActivityEntry[] = [
+    { cardId: id, actorUserId: userId, type: isArchived ? "archived" : "unarchived" },
+  ];
+  const updated = await db.$transaction(async (tx) => {
+    const result = await tx.card.update({
+      where: { id },
+      data: { isArchived },
+    });
+    await createActivities(tx, activityEntries);
+    return result;
+  });
+
+  notifyActivity(card.projectId, activityEntries);
+
+  safeRevalidatePath(`/projects/${card.projectId}`);
+  safeRevalidatePath("/archived");
+  return { success: true, data: updated };
+}
+
+export async function archiveCard(id: string, userId: string) {
+  try {
+    return await setCardArchived(id, true, userId);
+  } catch (error) {
+    console.error(`Error archiving card ${id}:`, error);
+    return { success: false, error: "Failed to archive card" };
+  }
+}
+
+export async function unarchiveCard(id: string, userId: string) {
+  try {
+    return await setCardArchived(id, false, userId);
+  } catch (error) {
+    console.error(`Error unarchiving card ${id}:`, error);
+    return { success: false, error: "Failed to unarchive card" };
+  }
+}
+
 export async function getCardByIdentifier(identifier: string, userId: string) {
   try {
     const clean = identifier.trim();

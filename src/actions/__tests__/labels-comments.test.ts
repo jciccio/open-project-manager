@@ -118,5 +118,17 @@ describe("Labels & Comments Server Actions", () => {
     const delRes = await deleteComment(commentId);
     expect(delRes.success).toBe(true);
   });
-});
 
+  it("rejects non-string and over-limit comment content", async () => {
+    const nonString = await addComment(cardId, 42 as unknown as string);
+    expect(nonString).toEqual({ success: false, error: "Comment content cannot be empty" });
+
+    const tooLong = await addComment(cardId, "x".repeat(50_001));
+    expect(tooLong.success).toBe(false);
+    expect(tooLong.error).toMatch(/characters or fewer/);
+
+    const created = await addComment(cardId, "Original");
+    const updateRes = await updateComment(created.data!.id, 42 as unknown as string);
+    expect(updateRes).toEqual({ success: false, error: "Comment content cannot be empty" });
+  });
+});
