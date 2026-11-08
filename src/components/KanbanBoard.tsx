@@ -33,6 +33,7 @@ import WebhookManagerModal from "./WebhookManagerModal";
 import ListView from "./views/ListView";
 import AnalyticsView from "./views/AnalyticsView";
 import CalendarView from "./views/CalendarView";
+import ErrorBanner from "./ErrorBanner";
 
 import { createColumn, reorderColumns } from "@/actions/columns";
 import { moveCard, reorderCards } from "@/actions/cards";
@@ -74,8 +75,14 @@ export default function KanbanBoard({ project }: Props) {
   const [isEditProjectOpen, setIsEditProjectOpen] = useState(false);
   const [isMembersModalOpen, setIsMembersModalOpen] = useState(false);
   const [isWebhooksModalOpen, setIsWebhooksModalOpen] = useState(false);
+  const [boardError, setBoardError] = useState("");
 
   const { t } = useTranslation();
+
+  function reportResult(res: { success: boolean; error?: string }) {
+    setBoardError(res.success ? "" : res.error || t("kanban.actionFailed"));
+    return res.success;
+  }
   const router = useRouter();
 
   const applySavedView = useCallback((view: any) => {
@@ -152,7 +159,7 @@ export default function KanbanBoard({ project }: Props) {
     });
     setSavingViewLoading(false);
 
-    if (res.success && res.data) {
+    if (reportResult(res) && res.data) {
       let updated = [...savedViews];
       if (newViewIsDefault) {
         updated = updated.map((v) => ({ ...v, isDefault: false }));
@@ -173,7 +180,7 @@ export default function KanbanBoard({ project }: Props) {
     if (!window.confirm(t("savedViews.confirmDelete", { name: target.name }))) return;
 
     const res = await deleteSavedView(viewId);
-    if (res.success) {
+    if (reportResult(res)) {
       setSavedViews((prev) => prev.filter((v) => v.id !== viewId));
       if (selectedViewId === viewId) {
         handleSelectView("all");
@@ -189,7 +196,7 @@ export default function KanbanBoard({ project }: Props) {
     const res = await createColumn(project.id, newColumnName.trim(), { group: newColumnGroup });
     setLoadingCol(false);
 
-    if (res.success) {
+    if (reportResult(res)) {
       setNewColumnName("");
       setNewColumnGroup(DEFAULT_COLUMN_GROUP);
       setIsAddingColumn(false);
@@ -201,7 +208,7 @@ export default function KanbanBoard({ project }: Props) {
     setRestoring(true);
     const res = await unarchiveProject(project.id);
     setRestoring(false);
-    if (res.success) {
+    if (reportResult(res)) {
       router.push("/");
       router.refresh();
     }
@@ -219,7 +226,7 @@ export default function KanbanBoard({ project }: Props) {
 
     const orderedIds = newColumns.map((c: any) => c.id);
     const res = await reorderColumns(project.id, orderedIds);
-    if (res.success) {
+    if (reportResult(res)) {
       router.refresh();
     }
   }
@@ -280,7 +287,7 @@ export default function KanbanBoard({ project }: Props) {
         }));
 
         const res = await reorderCards(reorderItems);
-        if (res.success) {
+        if (reportResult(res)) {
           router.refresh();
         }
       } else {
@@ -306,12 +313,13 @@ export default function KanbanBoard({ project }: Props) {
         }));
 
         const res = await reorderCards(reorderItems);
-        if (res.success) {
+        if (reportResult(res)) {
           router.refresh();
         }
       }
     } catch (err) {
       console.error("Drop card error:", err);
+      setBoardError(t("kanban.actionFailed"));
     }
   }
 
@@ -363,6 +371,12 @@ export default function KanbanBoard({ project }: Props) {
             <ArchiveRestore className="h-3.5 w-3.5" />
             <span>{restoring ? t("kanban.restoring") : t("kanban.restoreButton")}</span>
           </button>
+        </div>
+      )}
+
+      {boardError && (
+        <div className="px-6 pt-3 shrink-0">
+          <ErrorBanner id="board-error" message={boardError} />
         </div>
       )}
 

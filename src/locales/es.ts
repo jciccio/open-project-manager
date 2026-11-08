@@ -173,6 +173,7 @@ export const es: TranslationKeys = {
     noTasks: "No hay tareas en esta columna.",
     deleteColumnTooltip: "Eliminar columna",
     deleteColumnFailed: "Error al eliminar la columna.",
+    actionFailed: "No se pudo completar la acción. Inténtalo de nuevo.",
     allTypes: "Todos los Tipos",
     noTypeFilter: "Sin Tipo",
     columnGroups: {
@@ -269,6 +270,7 @@ export const es: TranslationKeys = {
     post: "Publicar",
     noComments: "Aún no hay comentarios.",
     saveChanges: "Guardar Cambios",
+    saved: "Guardado",
     saving: "Guardando...",
     deleteConfirm: "¿Estás seguro de que deseas eliminar esta tarjeta?",
     subtasks: "Subtareas",
