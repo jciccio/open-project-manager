@@ -140,6 +140,8 @@ export const en = {
     moveLeft: "Move column left",
     moveRight: "Move column right",
     editColumn: "Edit column",
+    expandColumn: "Show this column's cards",
+    collapseColumn: "Hide this column's cards",
     columnName: "Name",
     columnGroup: "State group",
     columnColor: "Color",
