@@ -169,7 +169,11 @@ Once seeded (via either Docker or Local development), you can log in with the fo
 | **Admin Account** | `admin@example.com` | `password123` | Open Project Manager MVP |
 | **Jose Account** | `jose@example.com` | `password123` | Jose's Autonomous Systems |
 
-> ℹ️ You can also register a brand-new custom account directly from the login page (`/login`).
+> ℹ️ On a fresh instance, the first person to open `/register` creates the first account. After that, registration is closed and an administrator with access to the server creates accounts:
+> ```bash
+> yarn user:create --email jose@example.com --name "Jose"
+> ```
+> It prints a temporary password to share privately, which the new user changes under Profile Settings. Project owners can then add them from the members modal. On an instance with SSO, people sign in through the identity provider instead.
 
 ---
 
