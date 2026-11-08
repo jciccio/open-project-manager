@@ -300,17 +300,20 @@ curl -X POST http://localhost:3000/api/v1/inbound-email \
   -d '{
     "to": "opm+PROJ@inbound.example.com",
     "from": "user@example.com",
+    "cc": "team@example.com",
     "subject": "Task Title",
     "text": "Detailed task description",
     "spf": "pass",
-    "dkim": "pass"
+    "dkim": "pass",
+    "messageId": "<message-id-123@example.com>"
   }'
 ```
 
 - **Authentication**: Set `INBOUND_EMAIL_TOKEN` on the server and pass it via `X-Inbound-Token` or `Authorization: Bearer`.
-- **Relay & Payload Format**: Inbound mail relays must shape payloads into JSON with `to`, `from`, optional `subject`, `text` / `html`, and optional `spf` / `dkim` verdicts. Inbound mail must be authenticated (SPF/DKIM) by the receiving mail relay before forwarding; any email with `spf: "fail"` or `dkim: "fail"` is rejected.
-- **Recipient Routing**: Specify the project key via plus-addressing (e.g. `opm+KEY@domain`, `task+KEY@domain`) or direct address (`KEY@inbound.domain`).
-- **Sender Authorization**: The sender (`from`) must correspond to a registered OPM user with `OWNER`, `ADMIN`, or `MEMBER` permissions on the target project. Unauthenticated, unregistered, or non-member emails are safely rejected without creating cards.
+- **Inbound Domain Configuration**: Set `INBOUND_EMAIL_DOMAIN` (e.g. `inbound.example.com`) to restrict inbound recipient matching strictly to the configured domain and prevent inadvertent cross-domain routing.
+- **Relay & Payload Format**: Inbound mail relays must shape payloads into JSON with `to`, `from`, optional `cc`, optional `subject`, `text` / `html` (capped at 1 MB), optional `messageId` (or `message_id`), and optional `spf` / `dkim` verdicts. Inbound mail relays must authenticate and drop failing mail before forwarding; any payload containing failing SPF or DKIM verdicts (including `softfail`, padded, or composite failure values) is rejected. Retried deliveries sharing the same `messageId` (or identical message payload hash) are deduplicated without creating duplicate cards.
+- **Recipient Routing**: Specify the project key via plus-addressing (e.g. `opm+KEY@inbound.domain`, `task+KEY@inbound.domain`) or direct address (`KEY@inbound.domain` / `KEY+subtag@inbound.domain`) across `to` and `cc` headers.
+- **Sender Authorization**: The sender (`from`) must correspond to a registered OPM user with `OWNER`, `ADMIN`, or `MEMBER` permissions on the target project. Unregistered or non-member emails, or emails with failing authentication verdicts, are safely rejected without creating cards.
 - **Scope**: Email-to-card attachment ingestion is planned for a follow-up PR (part of #169).
 
 ---

@@ -76,6 +76,7 @@ export async function createCard(
     typeId?: string | null;
     labelIds?: string[];
     assigneeIds?: string[];
+    messageId?: string | null;
   },
   userId: string
 ) {
@@ -139,6 +140,7 @@ export async function createCard(
             dueDate: data.dueDate ? new Date(data.dueDate) : null,
             completedAt,
             order: newOrder,
+            messageId: data.messageId || null,
             parentId: data.parentId || null,
             typeId: data.typeId || null,
             labels:

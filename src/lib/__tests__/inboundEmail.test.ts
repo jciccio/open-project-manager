@@ -91,6 +91,31 @@ describe("Inbound Email", () => {
       expect(extractProjectKeyFromRecipient("alice@x.com, PROJ@inbound.example.com")).toBe("PROJ");
       expect(extractProjectKeyFromRecipient('"Smith, John" <PROJ@inbound.example.com>')).toBe("PROJ");
     });
+
+    it("skips malformed mailboxes without dropping remaining valid recipients", () => {
+      expect(extractProjectKeyFromRecipient("Bob :) <bob@x.com>, opm+PROJ@inbound.example.com")).toBe("PROJ");
+      expect(extractProjectKeyFromRecipient("Unbalanced (paren, PROJ@inbound.example.com")).toBe("PROJ");
+    });
+
+    it("strictly isolates matching to configured INBOUND_EMAIL_DOMAIN when set", () => {
+      process.env.INBOUND_EMAIL_DOMAIN = "inbound.example.com";
+      try {
+        // Stray addresses on other domains are ignored even if they have task+/opm+ or direct keys
+        expect(extractProjectKeyFromRecipient("task+personal@gmail.com, PROJ@inbound.example.com")).toBe("PROJ");
+        expect(extractProjectKeyFromRecipient("ops@acme.com, bob+news@gmail.com")).toBeNull();
+        expect(extractProjectKeyFromRecipient("PROJ+urgent@inbound.example.com")).toBe("PROJ");
+        expect(extractProjectKeyFromRecipient("opm+OTHER@inbound.example.com")).toBe("OTHER");
+      } finally {
+        delete process.env.INBOUND_EMAIL_DOMAIN;
+      }
+    });
+
+    it("does not match arbitrary domains or substring 'opm' in domains when INBOUND_EMAIL_DOMAIN is not set", () => {
+      // bob@shopmail.com has 'opm' substring in domain, should NOT match
+      expect(extractProjectKeyFromRecipient("bob@shopmail.com, PROJ@inbound.example.com")).toBe("PROJ");
+      expect(extractProjectKeyFromRecipient("ops@acme.com")).toBeNull();
+      expect(extractProjectKeyFromRecipient("bob+news@gmail.com")).toBeNull();
+    });
   });
 
   describe("processInboundEmail", () => {
@@ -441,6 +466,76 @@ describe("Inbound Email", () => {
       });
       expect(resLong.success).toBe(true);
       expect(resLong.card?.title.length).toBeLessThanOrEqual(500);
+    });
+
+    it("prevents duplicate card creation when same delivery is retried", async () => {
+      const owner = await db.user.findUnique({ where: { id: ownerId } });
+
+      const payload = {
+        to: `opm+${projectKey}@inbound.local`,
+        from: owner!.email,
+        subject: "Idempotent card creation",
+        text: "Relay delivery retry testing",
+        messageId: "<unique-msg-id-123@example.com>",
+      };
+
+      const firstRes = await processInboundEmail(payload);
+      expect(firstRes.success).toBe(true);
+      expect(firstRes.duplicate).toBeUndefined();
+
+      const secondRes = await processInboundEmail(payload);
+      expect(secondRes.success).toBe(true);
+      expect(secondRes.duplicate).toBe(true);
+      expect(secondRes.card?.id).toBe(firstRes.card?.id);
+
+      const count = await db.card.count({ where: { projectId, messageId: "<unique-msg-id-123@example.com>" } });
+      expect(count).toBe(1);
+    });
+
+    it("extracts project key and routes email when destination address is in CC", async () => {
+      const owner = await db.user.findUnique({ where: { id: ownerId } });
+
+      const res = await processInboundEmail({
+        to: "alice@acme.com",
+        cc: `opm+${projectKey}@inbound.local`,
+        from: owner!.email,
+        subject: "Card routed via CC",
+        text: "Target key was present in CC",
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.card?.title).toBe("Card routed via CC");
+    });
+
+    it("rejects payloads exceeding the body size limit", async () => {
+      const owner = await db.user.findUnique({ where: { id: ownerId } });
+
+      const hugeText = "X".repeat(1024 * 1024 + 50);
+      const res = await processInboundEmail({
+        to: `opm+${projectKey}@inbound.local`,
+        from: owner!.email,
+        subject: "Oversized email",
+        text: hugeText,
+      });
+
+      expect(res.success).toBe(false);
+      expect(res.error).toContain("body exceeds maximum size limit");
+    });
+
+    it("creates card using sessionUser without re-parsing from header", async () => {
+      const owner = await db.user.findUnique({ where: { id: ownerId } });
+
+      const res = await processInboundEmail(
+        {
+          to: `opm+${projectKey}@inbound.local`,
+          from: "arbitrary-from-ignored",
+          subject: "Card via sessionUser",
+        },
+        { id: owner!.id, email: owner!.email }
+      );
+
+      expect(res.success).toBe(true);
+      expect(res.card?.title).toBe("Card via sessionUser");
     });
   });
 });

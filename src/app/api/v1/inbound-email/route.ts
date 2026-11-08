@@ -1,18 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { z } from "zod";
-import { processInboundEmail } from "@/lib/inboundEmail";
+import { processInboundEmail, isFailingAuthVerdict, MAX_EMAIL_BODY_BYTES } from "@/lib/inboundEmail";
 import { getApiSession } from "@/lib/auth";
-import { MAX_TITLE_LENGTH } from "@/lib/validation/cards";
 
 const inboundSchema = z.object({
   to: z.string().min(1).max(2000),
   from: z.string().min(1).max(2000),
+  cc: z.string().max(2000).optional(),
   subject: z.string().optional().default(""),
-  text: z.string().optional(),
-  html: z.string().optional(),
+  text: z.string().max(MAX_EMAIL_BODY_BYTES).optional(),
+  html: z.string().max(MAX_EMAIL_BODY_BYTES).optional(),
   spf: z.string().optional(),
   dkim: z.string().optional(),
+  messageId: z.string().max(500).optional(),
+  message_id: z.string().max(500).optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -74,33 +76,31 @@ export async function POST(request: NextRequest) {
     };
   }
 
-  if (payloadData.spf && payloadData.spf.toLowerCase() === "fail") {
+  if (isFailingAuthVerdict(payloadData.spf)) {
     return NextResponse.json(
       { success: false, accepted: false, error: "Inbound email rejected: SPF validation failed" },
       { status: 200 }
     );
   }
 
-  if (payloadData.dkim && payloadData.dkim.toLowerCase() === "fail") {
+  if (isFailingAuthVerdict(payloadData.dkim)) {
     return NextResponse.json(
       { success: false, accepted: false, error: "Inbound email rejected: DKIM validation failed" },
       { status: 200 }
     );
   }
 
-  let title = (payloadData.subject || "").trim();
-  if (!title) {
-    title = "Untitled Email";
-  }
-  if (title.length > MAX_TITLE_LENGTH) {
-    title = title.slice(0, MAX_TITLE_LENGTH);
-  }
-  payloadData.subject = title;
-
   try {
-    const result = await processInboundEmail(payloadData);
+    const result = await processInboundEmail(payloadData, sessionUser);
     if (!result.success) {
       return NextResponse.json({ success: false, error: result.error, accepted: false }, { status: 200 });
+    }
+
+    if (result.duplicate) {
+      return NextResponse.json(
+        { success: true, accepted: true, duplicate: true, data: result.card },
+        { status: 200 }
+      );
     }
 
     return NextResponse.json({ success: true, accepted: true, data: result.card }, { status: 201 });

@@ -183,49 +183,112 @@ describe("POST /api/v1/inbound-email", () => {
     expect(body.success).toBe(true);
   });
 
-  it("rejects email when SPF or DKIM validation indicates failure", async () => {
+  it("rejects email when SPF or DKIM validation indicates failure including padded and composite values", async () => {
     process.env.INBOUND_EMAIL_TOKEN = "secret-webhook-key-123";
     const user = await db.user.findUnique({ where: { id: userId } });
 
-    const reqSpfFail = new NextRequest("http://localhost/api/v1/inbound-email", {
+    const failingCases = [
+      { field: "spf", value: "fail" },
+      { field: "spf", value: " fail " },
+      { field: "spf", value: "softfail" },
+      { field: "dkim", value: "fail" },
+      { field: "dkim", value: "{@evil.com : fail}" },
+    ];
+
+    for (const testCase of failingCases) {
+      const req = new NextRequest("http://localhost/api/v1/inbound-email", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Inbound-Token": "secret-webhook-key-123",
+        },
+        body: JSON.stringify({
+          to: `opm+${projectKey}@opm.local`,
+          from: user!.email,
+          subject: "Auth failing mail",
+          [testCase.field]: testCase.value,
+        }),
+      });
+
+      const res = await POST(req);
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.accepted).toBe(false);
+      expect(body.error).toContain(testCase.field === "spf" ? "SPF validation failed" : "DKIM validation failed");
+    }
+  });
+
+  it("deduplicates retried webhook deliveries and prevents duplicate card creation", async () => {
+    process.env.INBOUND_EMAIL_TOKEN = "secret-webhook-key-123";
+    const user = await db.user.findUnique({ where: { id: userId } });
+
+    const payload = {
+      to: `opm+${projectKey}@opm.local`,
+      from: user!.email,
+      subject: "Webhook retry test",
+      text: "Testing retried deliveries",
+      messageId: "<msg-retry-test-1@domain.com>",
+    };
+
+    const req1 = new NextRequest("http://localhost/api/v1/inbound-email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Inbound-Token": "secret-webhook-key-123",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const res1 = await POST(req1);
+    expect(res1.status).toBe(201);
+    const body1 = await res1.json();
+    expect(body1.success).toBe(true);
+    expect(body1.duplicate).toBeUndefined();
+
+    // Send exact same payload second time
+    const req2 = new NextRequest("http://localhost/api/v1/inbound-email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Inbound-Token": "secret-webhook-key-123",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const res2 = await POST(req2);
+    expect(res2.status).toBe(200);
+    const body2 = await res2.json();
+    expect(body2.success).toBe(true);
+    expect(body2.duplicate).toBe(true);
+    expect(body2.data.id).toBe(body1.data.id);
+
+    const count = await db.card.count({ where: { projectId: body1.data.projectId, messageId: "<msg-retry-test-1@domain.com>" } });
+    expect(count).toBe(1);
+  });
+
+  it("routes card creation when project address is in CC header", async () => {
+    process.env.INBOUND_EMAIL_TOKEN = "secret-webhook-key-123";
+    const user = await db.user.findUnique({ where: { id: userId } });
+
+    const req = new NextRequest("http://localhost/api/v1/inbound-email", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "X-Inbound-Token": "secret-webhook-key-123",
       },
       body: JSON.stringify({
-        to: `opm+${projectKey}@opm.local`,
+        to: "alice@acme.com",
+        cc: `opm+${projectKey}@opm.local`,
         from: user!.email,
-        subject: "SPF failing mail",
-        spf: "fail",
+        subject: "Card from CC route",
       }),
     });
 
-    const resSpf = await POST(reqSpfFail);
-    expect(resSpf.status).toBe(200);
-    const bodySpf = await resSpf.json();
-    expect(bodySpf.accepted).toBe(false);
-    expect(bodySpf.error).toContain("SPF validation failed");
-
-    const reqDkimFail = new NextRequest("http://localhost/api/v1/inbound-email", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Inbound-Token": "secret-webhook-key-123",
-      },
-      body: JSON.stringify({
-        to: `opm+${projectKey}@opm.local`,
-        from: user!.email,
-        subject: "DKIM failing mail",
-        dkim: "fail",
-      }),
-    });
-
-    const resDkim = await POST(reqDkimFail);
-    expect(resDkim.status).toBe(200);
-    const bodyDkim = await resDkim.json();
-    expect(bodyDkim.accepted).toBe(false);
-    expect(bodyDkim.error).toContain("DKIM validation failed");
+    const res = await POST(req);
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.data.title).toBe("Card from CC route");
   });
 
   it("allows unauthenticated requests through proxy for public inbound-email path", async () => {

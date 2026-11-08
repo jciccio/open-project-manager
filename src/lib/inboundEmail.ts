@@ -1,23 +1,29 @@
+import crypto from "crypto";
 import { db } from "@/lib/db";
 import { htmlToMarkdown } from "@/lib/import/htmlToMarkdown";
-import { withCardNumberRetry } from "@/lib/cardNumbering";
-import { createActivities, notifyActivity, type ActivityEntry } from "@/lib/services/activity";
-import { safeRevalidatePath } from "@/lib/revalidate";
+import { createCard } from "@/lib/services/cards";
 import { verifyProjectAccess } from "@/lib/permissions";
 import { MAX_TITLE_LENGTH, MAX_DESCRIPTION_LENGTH } from "@/lib/validation/cards";
+
+export const MAX_EMAIL_BODY_BYTES = 1024 * 1024; // 1 MB cap to protect event loop
 
 export interface InboundEmailPayload {
   to: string;
   from: string;
+  cc?: string;
   subject?: string;
   text?: string;
   html?: string;
   spf?: string;
   dkim?: string;
+  messageId?: string;
+  message_id?: string;
 }
 
 export interface InboundEmailResult {
   success: boolean;
+  accepted?: boolean;
+  duplicate?: boolean;
   error?: string;
   card?: {
     id: string;
@@ -27,6 +33,16 @@ export interface InboundEmailResult {
     columnId: string;
     identifier: string;
   };
+}
+
+/**
+ * Checks whether an SPF or DKIM verdict represents a failure.
+ * Matches exact, padded, and composite values containing 'fail' or 'softfail'
+ * (e.g. "fail", " fail ", "softfail", "{@evil.com : fail}").
+ */
+export function isFailingAuthVerdict(verdict?: string | null): boolean {
+  if (!verdict || typeof verdict !== "string") return false;
+  return /\b(fail|softfail)\b/i.test(verdict);
 }
 
 /**
@@ -205,15 +221,17 @@ function parseMailboxAddress(mailbox: string): string | null {
 export function extractProjectKeyFromRecipient(recipient: string): string | null {
   if (!recipient || typeof recipient !== "string") return null;
 
-  const noComments = stripComments(recipient);
-  if (!noComments) return null;
-
-  const mailboxes = splitMailboxes(noComments);
-  if (!mailboxes || mailboxes.length === 0) return null;
+  // Split raw mailboxes first so one malformed mailbox with bad comments or syntax
+  // does not drop the entire recipient list.
+  const rawMailboxes = splitMailboxes(recipient);
+  if (!rawMailboxes || rawMailboxes.length === 0) return null;
 
   const parsedAddresses: { localPart: string; domain: string }[] = [];
-  for (const mb of mailboxes) {
-    const parsed = parseMailboxAddress(mb);
+  for (const mb of rawMailboxes) {
+    const stripped = stripComments(mb);
+    if (!stripped) continue; // Skip malformed mailbox and continue with remaining
+
+    const parsed = parseMailboxAddress(stripped);
     if (parsed) {
       const atIdx = parsed.lastIndexOf("@");
       parsedAddresses.push({
@@ -221,7 +239,7 @@ export function extractProjectKeyFromRecipient(recipient: string): string | null
         domain: parsed.slice(atIdx + 1),
       });
     } else {
-      const raw = mb.trim();
+      const raw = stripped.trim();
       if (/^[A-Za-z0-9_-]+$/.test(raw)) {
         parsedAddresses.push({ localPart: raw, domain: "" });
       }
@@ -232,24 +250,47 @@ export function extractProjectKeyFromRecipient(recipient: string): string | null
 
   const configuredDomain = (process.env.INBOUND_EMAIL_DOMAIN || "").toLowerCase().trim();
 
-  // 1. Check for standard opm+KEY or task+KEY prefix
+  // If INBOUND_EMAIL_DOMAIN is set, ONLY consider addresses on the configured domain.
+  if (configuredDomain) {
+    for (const addr of parsedAddresses) {
+      if (addr.domain === configuredDomain || addr.domain.endsWith("." + configuredDomain)) {
+        // 1. opm+KEY or task+KEY
+        const plusIdx = addr.localPart.indexOf("+");
+        if (plusIdx !== -1) {
+          const prefix = addr.localPart.slice(0, plusIdx).toLowerCase();
+          const remainder = addr.localPart.slice(plusIdx + 1).trim();
+          if (prefix === "opm" || prefix === "task") {
+            const key = remainder.split("+")[0].trim();
+            if (/^[A-Za-z0-9_-]+$/.test(key)) {
+              return key.toUpperCase();
+            }
+          } else {
+            // E.g. PROJ+urgent@configured.domain -> PROJ
+            const key = prefix;
+            if (/^[A-Za-z0-9_-]+$/.test(key)) {
+              return key.toUpperCase();
+            }
+          }
+        } else {
+          // Direct address: PROJ@configured.domain
+          if (/^[A-Za-z0-9_-]+$/.test(addr.localPart)) {
+            return addr.localPart.toUpperCase();
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  // When INBOUND_EMAIL_DOMAIN is NOT set:
+  // 1. Match explicit opm+KEY or task+KEY
   for (const addr of parsedAddresses) {
     const plusIdx = addr.localPart.indexOf("+");
     if (plusIdx !== -1) {
       const prefix = addr.localPart.slice(0, plusIdx).toLowerCase();
-      const key = addr.localPart.slice(plusIdx + 1).trim();
-      if ((prefix === "opm" || prefix === "task") && /^[A-Za-z0-9_-]+$/.test(key)) {
-        return key.toUpperCase();
-      }
-    }
-  }
-
-  // 2. If configuredDomain is set, look for addresses matching configuredDomain
-  if (configuredDomain) {
-    for (const addr of parsedAddresses) {
-      if (addr.domain === configuredDomain) {
-        const plusIdx = addr.localPart.indexOf("+");
-        const key = plusIdx !== -1 ? addr.localPart.slice(plusIdx + 1).trim() : addr.localPart;
+      const remainder = addr.localPart.slice(plusIdx + 1).trim();
+      if ((prefix === "opm" || prefix === "task") && /^[A-Za-z0-9_-]+$/.test(remainder)) {
+        const key = remainder.split("+")[0].trim();
         if (/^[A-Za-z0-9_-]+$/.test(key)) {
           return key.toUpperCase();
         }
@@ -257,32 +298,31 @@ export function extractProjectKeyFromRecipient(recipient: string): string | null
     }
   }
 
-  // 3. Look for any inbound / opm subdomain address (e.g. KEY@inbound.domain.com or opm+KEY@domain)
+  // 2. Match inbound/opm domain (e.g. KEY@inbound.domain.com, KEY@opm.local, localhost)
   for (const addr of parsedAddresses) {
-    if (addr.domain.startsWith("inbound.") || addr.domain.includes(".inbound.") || addr.domain.includes("opm")) {
+    const isLocalOrInbound =
+      addr.domain === "opm.local" ||
+      addr.domain.endsWith(".opm.local") ||
+      addr.domain === "localhost" ||
+      addr.domain.endsWith(".localhost") ||
+      addr.domain.startsWith("inbound.") ||
+      addr.domain.includes(".inbound.");
+
+    if (isLocalOrInbound) {
       const plusIdx = addr.localPart.indexOf("+");
-      const key = plusIdx !== -1 ? addr.localPart.slice(plusIdx + 1).trim() : addr.localPart;
+      const key = plusIdx !== -1 ? addr.localPart.slice(0, plusIdx).trim() : addr.localPart;
       if (/^[A-Za-z0-9_-]+$/.test(key)) {
         return key.toUpperCase();
       }
     }
   }
 
-  // 4. Any other plus-addressed mailbox
-  for (const addr of parsedAddresses) {
-    const plusIdx = addr.localPart.indexOf("+");
-    if (plusIdx !== -1) {
-      const key = addr.localPart.slice(plusIdx + 1).trim();
-      if (/^[A-Za-z0-9_-]+$/.test(key)) {
-        return key.toUpperCase();
-      }
+  // 3. Fallback for standalone key string without domain (e.g. "PROJ" or "invalid")
+  if (parsedAddresses.length === 1 && parsedAddresses[0].domain === "") {
+    const raw = parsedAddresses[0].localPart;
+    if (/^[A-Za-z0-9_-]+$/.test(raw)) {
+      return raw.toUpperCase();
     }
-  }
-
-  // 5. Fallback: first address localPart if alphanumeric
-  const first = parsedAddresses[0];
-  if (/^[A-Za-z0-9_-]+$/.test(first.localPart)) {
-    return first.localPart.toUpperCase();
   }
 
   return null;
@@ -305,33 +345,57 @@ export function extractSenderEmail(sender: string): string | null {
 }
 
 export async function processInboundEmail(
-  payload: InboundEmailPayload
+  payload: InboundEmailPayload,
+  sessionUser?: { id: string; email: string } | null
 ): Promise<InboundEmailResult> {
-  const projectKey = extractProjectKeyFromRecipient(payload.to);
+  // Reject oversized payloads early to protect event loop
+  if (
+    (payload.text && payload.text.length > MAX_EMAIL_BODY_BYTES) ||
+    (payload.html && payload.html.length > MAX_EMAIL_BODY_BYTES)
+  ) {
+    return {
+      success: false,
+      accepted: false,
+      error: "Inbound email rejected: email body exceeds maximum size limit",
+    };
+  }
+
+  const combinedRecipient = [payload.to, payload.cc].filter(Boolean).join(", ");
+  const projectKey = extractProjectKeyFromRecipient(combinedRecipient);
   if (!projectKey) {
     return {
       success: false,
-      error: `Could not extract project key from recipient address: "${payload.to}"`,
+      accepted: false,
+      error: `Could not extract project key from recipient address: "${combinedRecipient}"`,
     };
   }
 
-  const senderEmail = extractSenderEmail(payload.from);
-  if (!senderEmail) {
-    return {
-      success: false,
-      error: `Invalid or missing sender email address in from: "${payload.from}"`,
-    };
+  let senderUser: { id: string; email: string; name: string | null } | null = null;
+  if (sessionUser) {
+    senderUser = await db.user.findUnique({
+      where: { id: sessionUser.id },
+      select: { id: true, email: true, name: true },
+    });
+  } else {
+    const senderEmail = extractSenderEmail(payload.from);
+    if (!senderEmail) {
+      return {
+        success: false,
+        accepted: false,
+        error: `Invalid or missing sender email address in from: "${payload.from}"`,
+      };
+    }
+    senderUser = await db.user.findUnique({
+      where: { email: senderEmail },
+      select: { id: true, email: true, name: true },
+    });
   }
-
-  // Look up registered sender
-  const senderUser = await db.user.findUnique({
-    where: { email: senderEmail },
-  });
 
   if (!senderUser) {
-    console.warn(`[inbound-email] Sender "${senderEmail}" is not a registered user`);
+    console.warn(`[inbound-email] Sender is not a registered user`);
     return {
       success: false,
+      accepted: false,
       error: "Inbound email rejected: project not found or sender unauthorized",
     };
   }
@@ -354,17 +418,19 @@ export async function processInboundEmail(
   });
 
   if (candidateProjects.length === 0) {
-    console.warn(`[inbound-email] No project with key "${projectKey}" found accessible by sender "${senderEmail}"`);
+    console.warn(`[inbound-email] No project with key "${projectKey}" found accessible by sender "${senderUser.email}"`);
     return {
       success: false,
+      accepted: false,
       error: "Inbound email rejected: project not found or sender unauthorized",
     };
   }
 
   if (candidateProjects.length > 1) {
-    console.warn(`[inbound-email] Ambiguous routing: multiple active projects match key "${projectKey}" for sender "${senderEmail}"`);
+    console.warn(`[inbound-email] Ambiguous routing: multiple active projects match key "${projectKey}" for sender "${senderUser.email}"`);
     return {
       success: false,
+      accepted: false,
       error: `Inbound email rejected: multiple candidate projects found with key "${projectKey}"`,
     };
   }
@@ -374,9 +440,10 @@ export async function processInboundEmail(
   // Verify access: sender must have at least MEMBER access (rejects VIEWERs)
   const hasMemberAccess = await verifyProjectAccess(project.id, senderUser.id, "MEMBER");
   if (!hasMemberAccess) {
-    console.warn(`[inbound-email] Sender "${senderEmail}" does not have MEMBER access to project "${project.id}"`);
+    console.warn(`[inbound-email] Sender "${senderUser.email}" does not have MEMBER access to project "${project.id}"`);
     return {
       success: false,
+      accepted: false,
       error: "Inbound email rejected: project not found or sender unauthorized",
     };
   }
@@ -384,7 +451,45 @@ export async function processInboundEmail(
   if (project.columns.length === 0) {
     return {
       success: false,
+      accepted: false,
       error: `Project "${project.name}" has no columns to place the new card in`,
+    };
+  }
+
+  // Derive unique messageId for duplicate delivery prevention
+  const rawMessageId = (payload.messageId || payload.message_id || "").trim();
+  const messageId =
+    rawMessageId ||
+    crypto
+      .createHash("sha256")
+      .update(`${senderUser.email}:${combinedRecipient}:${payload.subject || ""}:${payload.text || payload.html || ""}`)
+      .digest("hex");
+
+  // Check if this message was already delivered for this project (retried delivery deduplication)
+  const existingCard = await db.card.findFirst({
+    where: { projectId: project.id, messageId },
+    select: {
+      id: true,
+      projectId: true,
+      number: true,
+      title: true,
+      columnId: true,
+    },
+  });
+
+  if (existingCard) {
+    return {
+      success: true,
+      accepted: true,
+      duplicate: true,
+      card: {
+        id: existingCard.id,
+        projectId: existingCard.projectId,
+        number: existingCard.number,
+        title: existingCard.title,
+        columnId: existingCard.columnId,
+        identifier: `${project.key}-${existingCard.number}`,
+      },
     };
   }
 
@@ -400,28 +505,13 @@ export async function processInboundEmail(
   if (payload.text && payload.text.trim()) {
     description = payload.text.trim();
   } else if (payload.html && payload.html.trim()) {
-    description = htmlToMarkdown(payload.html).trim() || null;
+    const boundedHtml = payload.html.slice(0, MAX_EMAIL_BODY_BYTES);
+    description = htmlToMarkdown(boundedHtml).trim() || null;
   }
 
   if (description && description.length > MAX_DESCRIPTION_LENGTH) {
     description = description.slice(0, MAX_DESCRIPTION_LENGTH);
   }
-
-  // Order for new card
-  const lastCard = await db.card.findFirst({
-    where: { columnId: backlogCol.id },
-    orderBy: { order: "desc" },
-    select: { order: true },
-  });
-  const order = (lastCard?.order ?? 0) + 10000;
-
-  // Determine starting card number based on current maximum in project
-  const maxCard = await db.card.findFirst({
-    where: { projectId: project.id },
-    orderBy: { number: "desc" },
-    select: { number: true },
-  });
-  const startingNumber = (maxCard?.number ?? 0) + 1;
 
   // Derive title, falling back to Untitled Email if blank
   let title = (payload.subject || "").trim();
@@ -432,50 +522,40 @@ export async function processInboundEmail(
     title = title.slice(0, MAX_TITLE_LENGTH);
   }
 
-  const completedAt = backlogCol.isDone ? new Date() : null;
+  // Delegate card creation directly to cardsService.createCard to enforce validation,
+  // card numbering, owner limits, activity recording, and revalidation.
+  const createResult = await createCard(
+    {
+      projectId: project.id,
+      columnId: backlogCol.id,
+      title,
+      description,
+      owner: (senderUser.name || senderUser.email).slice(0, 200),
+      messageId,
+    },
+    senderUser.id
+  );
 
-  // Create card with sequence number
-  const createdCard = await withCardNumberRetry(project.id, startingNumber, async (cardNumber) => {
-    return db.$transaction(async (tx) => {
-      const card = await tx.card.create({
-        data: {
-          projectId: project.id,
-          columnId: backlogCol.id,
-          title,
-          description,
-          number: cardNumber,
-          order,
-          owner: senderUser.name || senderUser.email,
-          completedAt,
-        },
-      });
+  if (!createResult.success || !createResult.data) {
+    return {
+      success: false,
+      accepted: false,
+      error: ("error" in createResult ? createResult.error : undefined) || "Failed to create card",
+    };
+  }
 
-      const activity: ActivityEntry[] = [
-        {
-          cardId: card.id,
-          actorUserId: senderUser.id,
-          type: "card_created",
-          toValue: title,
-        },
-      ];
-      await createActivities(tx, activity);
-
-      return { card, activity };
-    });
-  });
-
-  notifyActivity(project.id, createdCard.activity);
-  safeRevalidatePath(`/projects/${project.id}`);
+  const createdCard = createResult.data;
 
   return {
     success: true,
+    accepted: true,
     card: {
-      id: createdCard.card.id,
+      id: createdCard.id,
       projectId: project.id,
-      number: createdCard.card.number,
-      title: createdCard.card.title,
-      columnId: createdCard.card.columnId,
-      identifier: `${project.key}-${createdCard.card.number}`,
+      number: createdCard.number,
+      title: createdCard.title,
+      columnId: createdCard.columnId,
+      identifier: `${project.key}-${createdCard.number}`,
     },
   };
 }

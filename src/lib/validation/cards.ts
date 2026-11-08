@@ -24,6 +24,7 @@ const cardFields = {
   typeId: z.string().nullable(),
   labelIds: z.array(z.string()).max(MAX_CARD_REFERENCE_IDS),
   assigneeIds: z.array(z.string()).max(MAX_CARD_REFERENCE_IDS),
+  messageId: z.string().max(500).nullable(),
 };
 
 export const CardCreateSchema = z.strictObject({
@@ -39,6 +40,7 @@ export const CardCreateSchema = z.strictObject({
   typeId: cardFields.typeId.optional(),
   labelIds: cardFields.labelIds.optional(),
   assigneeIds: cardFields.assigneeIds.optional(),
+  messageId: cardFields.messageId.optional(),
 });
 
 export const CardUpdateSchema = z.strictObject({
