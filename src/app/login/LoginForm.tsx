@@ -8,6 +8,7 @@ import { loginUser } from "@/actions/auth";
 import { useSearchParams } from "next/navigation";
 import { useTranslation } from "@/components/LanguageProvider";
 import type { TranslationKeys } from "@/locales/en";
+import ErrorBanner from "@/components/ErrorBanner";
 
 const LOGIN_ERROR_KEYS: Record<string, keyof TranslationKeys["auth"]> = {
   registration_closed: "registrationClosed",
@@ -96,11 +97,7 @@ export function LoginForm({ oidcEnabled, registrationOpen }: { oidcEnabled: bool
           </div>
         </div>
 
-        {displayedError && (
-          <div className="rounded-xl bg-red-500/10 border border-red-500/20 p-3.5 text-xs font-semibold text-red-600 dark:text-red-400 text-center">
-            {displayedError}
-          </div>
-        )}
+        {displayedError && <ErrorBanner id="login-error" message={displayedError} />}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -117,6 +114,7 @@ export function LoginForm({ oidcEnabled, registrationOpen }: { oidcEnabled: bool
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="admin@example.com"
                 className="w-full rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 pl-10 pr-4 py-2.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-indigo-500 focus:outline-none"
+                aria-describedby={displayedError ? "login-error" : undefined}
               />
             </div>
           </div>
@@ -135,6 +133,7 @@ export function LoginForm({ oidcEnabled, registrationOpen }: { oidcEnabled: bool
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
                 className="w-full rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 pl-10 pr-4 py-2.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-indigo-500 focus:outline-none"
+                aria-describedby={displayedError ? "login-error" : undefined}
               />
             </div>
           </div>

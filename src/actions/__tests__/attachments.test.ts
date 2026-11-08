@@ -7,6 +7,7 @@ import { executeMcpTool } from "@/mcp/core";
 import { GET as getAttachmentsRoute, POST as postAttachmentRoute } from "@/app/api/v1/cards/[id]/attachments/route";
 import { GET as getAttachmentFileRoute, DELETE as deleteAttachmentRoute } from "@/app/api/v1/attachments/[id]/route";
 import { NextRequest } from "next/server";
+import { db } from "@/lib/db";
 
 describe("Card Attachments", () => {
   let userId: string;
@@ -240,5 +241,51 @@ describe("Card Attachments", () => {
 
     const listRes = await listAttachments(cardId, userId);
     expect(listRes.data?.length).toBe(0);
+  });
+
+  it("serves a download to a MEMBER and a VIEWER, and a 404 to a non-member", async () => {
+    const stamp = `${Date.now()}-${Math.random()}`;
+    const member = await createTestUser(`attach-member-${stamp}`);
+    const viewer = await createTestUser(`attach-viewer-${stamp}`);
+    const outsider = await createTestUser(`attach-outsider-${stamp}`);
+    await db.projectMember.createMany({
+      data: [
+        { projectId, userId: member.user.id, role: "MEMBER" },
+        { projectId, userId: viewer.user.id, role: "VIEWER" },
+      ],
+    });
+
+    const uploadRes = await postAttachmentRoute(
+      new NextRequest(`http://localhost/api/v1/cards/${cardId}/attachments`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          filename: "shared.txt",
+          contentBase64: Buffer.from("shared content").toString("base64"),
+          mimeType: "text/plain",
+        }),
+      }),
+      { params: Promise.resolve({ id: cardId }) }
+    );
+    const attachmentId = (await uploadRes.json()).data.id;
+
+    const download = (bearer: string) =>
+      getAttachmentFileRoute(
+        new NextRequest(`http://localhost/api/v1/attachments/${attachmentId}`, {
+          headers: { authorization: `Bearer ${bearer}` },
+        }),
+        { params: Promise.resolve({ id: attachmentId }) }
+      );
+
+    const memberRes = await download(member.token);
+    expect(memberRes.status).toBe(200);
+    expect(await memberRes.text()).toBe("shared content");
+    expect((await download(viewer.token)).status).toBe(200);
+    expect((await download(outsider.token)).status).toBe(404);
+
+    await deleteAttachment(attachmentId, userId);
+    await cleanupTestUser(member.user.id);
+    await cleanupTestUser(viewer.user.id);
+    await cleanupTestUser(outsider.user.id);
   });
 });

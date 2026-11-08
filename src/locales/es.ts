@@ -147,6 +147,8 @@ export const es: TranslationKeys = {
     moveLeft: "Mover columna a la izquierda",
     moveRight: "Mover columna a la derecha",
     editColumn: "Editar columna",
+    expandColumn: "Mostrar las tarjetas de esta columna",
+    collapseColumn: "Ocultar las tarjetas de esta columna",
     columnName: "Nombre",
     columnGroup: "Grupo de estado",
     columnColor: "Color",
@@ -443,6 +445,14 @@ export const es: TranslationKeys = {
     confirmDelete: '¿Eliminar la vista "{name}"?',
     noViews: "No hay vistas guardadas aún",
     viewUpdated: "Vista actualizada",
+  },
+  errorPage: {
+    boardTitle: "No se pudo cargar este tablero",
+    boardMessage: "Algo salió mal de nuestro lado. Tu proyecto no cambió. Inténtalo de nuevo en un momento.",
+    pageTitle: "No se pudo cargar esta página",
+    pageMessage: "Algo salió mal de nuestro lado. Inténtalo de nuevo en un momento.",
+    tryAgain: "Intentar de nuevo",
+    backToProjects: "Volver a los proyectos",
   },
   auth: {
     signIn: "Iniciar Sesión",

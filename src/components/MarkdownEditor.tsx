@@ -153,7 +153,7 @@ export default function MarkdownEditor({
             value={value}
             onChange={(e) => onChange(e.target.value)}
             placeholder={effectivePlaceholder}
-            className="w-full bg-transparent text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none resize-y leading-relaxed font-mono"
+            className="w-full bg-transparent text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 resize-y leading-relaxed font-mono"
           />
         ) : (
           <div className="min-h-[100px] text-xs text-slate-900 dark:text-slate-100 space-y-2 leading-relaxed">

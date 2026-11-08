@@ -15,7 +15,7 @@ export async function GET(request: NextRequest, { params }: Props) {
   const { id } = await params;
   const res = await getProjectById(id, session.userId);
   if (!res.success) {
-    return NextResponse.json({ error: res.error }, { status: 404 });
+    return NextResponse.json({ error: res.error }, { status: res.kind === "internal" ? 500 : 404 });
   }
 
   return NextResponse.json({ success: true, data: res.data });

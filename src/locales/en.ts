@@ -145,6 +145,8 @@ export const en = {
     moveLeft: "Move column left",
     moveRight: "Move column right",
     editColumn: "Edit column",
+    expandColumn: "Show this column's cards",
+    collapseColumn: "Hide this column's cards",
     columnName: "Name",
     columnGroup: "State group",
     columnColor: "Color",
@@ -441,6 +443,14 @@ export const en = {
     confirmDelete: 'Delete view "{name}"?',
     noViews: "No saved views yet",
     viewUpdated: "View updated",
+  },
+  errorPage: {
+    boardTitle: "This board couldn't be loaded",
+    boardMessage: "Something went wrong on our side. Your project is unchanged. Try again in a moment.",
+    pageTitle: "This page couldn't be loaded",
+    pageMessage: "Something went wrong on our side. Try again in a moment.",
+    tryAgain: "Try again",
+    backToProjects: "Back to projects",
   },
   auth: {
     signIn: "Sign In",
