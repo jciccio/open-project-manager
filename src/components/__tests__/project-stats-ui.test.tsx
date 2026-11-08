@@ -104,4 +104,20 @@ describe("DashboardClient workspace totals", () => {
     expect(within(screen.getByTestId("workspace-done")).getByText("6")).toBeInTheDocument();
     expect(within(screen.getByTestId("workspace-overdue")).getByText("3")).toBeInTheDocument();
   });
+
+  it("applies min-w-0 and truncate classes to prevent clipping", () => {
+    const { container } = renderWithProviders(
+      <DashboardClient
+        user={{ name: "Tester", userId: "u1" }}
+        projects={[buildProject("p1")]}
+        stats={{ p1: stats() }}
+      />
+    );
+
+    const bannerFlex = container.querySelector(".lg\\:flex-row");
+    expect(bannerFlex).toBeInTheDocument();
+
+    const overdueLabel = screen.getByText("Overdue");
+    expect(overdueLabel).toHaveClass("truncate");
+  });
 });

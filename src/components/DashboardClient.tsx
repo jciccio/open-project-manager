@@ -31,7 +31,7 @@ export default function DashboardClient({ user, projects, stats }: Props) {
       <div className="rounded-3xl bg-gradient-to-r from-indigo-100 via-purple-50 to-slate-100 dark:from-indigo-900/40 dark:via-purple-900/20 dark:to-slate-900 border border-indigo-200 dark:border-indigo-500/20 p-8 mb-8 shadow-xl relative overflow-hidden">
         <div className="absolute right-0 top-0 translate-x-12 -translate-y-12 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
 
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
           <div>
             <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 text-xs font-semibold uppercase tracking-wider mb-2">
               <Sparkles className="h-4 w-4" />
@@ -47,30 +47,30 @@ export default function DashboardClient({ user, projects, stats }: Props) {
 
           {/* Quick Stats Grid */}
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-x-4 gap-y-4 bg-white/90 dark:bg-slate-900/80 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-sm">
-            <div className="flex items-center gap-3 px-3">
+            <div className="flex items-center gap-3 px-3 min-w-0">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
                 <FolderKanban className="h-5 w-5" />
               </div>
-              <div>
-                <span className="block font-extrabold text-xl text-slate-900 dark:text-white">
+              <div className="min-w-0">
+                <span className="block font-extrabold text-xl text-slate-900 dark:text-white truncate">
                   {projects.length}
                 </span>
-                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase">
+                <span className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase truncate">
                   {t("dashboard.projects")}
                 </span>
               </div>
             </div>
 
 
-            <div className="flex items-center gap-3 px-3">
+            <div className="flex items-center gap-3 px-3 min-w-0">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400">
                 <CreditCard className="h-5 w-5" />
               </div>
-              <div>
-                <span className="block font-extrabold text-xl text-slate-900 dark:text-white">
+              <div className="min-w-0">
+                <span className="block font-extrabold text-xl text-slate-900 dark:text-white truncate">
                   {totalCards}
                 </span>
-                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase">
+                <span className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase truncate">
                   {t("dashboard.cards")}
                 </span>
               </div>
@@ -78,37 +78,37 @@ export default function DashboardClient({ user, projects, stats }: Props) {
 
             {workspaceTotals && (
               <>
-                <div className="flex items-center gap-3 px-3" data-testid="workspace-open">
+                <div className="flex items-center gap-3 px-3 min-w-0" data-testid="workspace-open">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-500/10 text-sky-600 dark:text-sky-400">
                     <CircleDashed className="h-5 w-5" />
                   </div>
-                  <div>
-                    <span className="block font-extrabold text-xl text-slate-900 dark:text-white">{workspaceTotals.open}</span>
-                    <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase">
+                  <div className="min-w-0">
+                    <span className="block font-extrabold text-xl text-slate-900 dark:text-white truncate">{workspaceTotals.open}</span>
+                    <span className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase truncate">
                       {t("dashboard.openCards")}
                     </span>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3 px-3" data-testid="workspace-done">
+                <div className="flex items-center gap-3 px-3 min-w-0" data-testid="workspace-done">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
                     <CheckCircle2 className="h-5 w-5" />
                   </div>
-                  <div>
-                    <span className="block font-extrabold text-xl text-slate-900 dark:text-white">{workspaceTotals.done}</span>
-                    <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase">
+                  <div className="min-w-0">
+                    <span className="block font-extrabold text-xl text-slate-900 dark:text-white truncate">{workspaceTotals.done}</span>
+                    <span className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase truncate">
                       {t("dashboard.doneCards")}
                     </span>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3 px-3" data-testid="workspace-overdue">
+                <div className="flex items-center gap-3 px-3 min-w-0" data-testid="workspace-overdue">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-500/10 text-red-600 dark:text-red-400">
                     <AlarmClock className="h-5 w-5" />
                   </div>
-                  <div>
-                    <span className="block font-extrabold text-xl text-slate-900 dark:text-white">{workspaceTotals.overdue}</span>
-                    <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase">
+                  <div className="min-w-0">
+                    <span className="block font-extrabold text-xl text-slate-900 dark:text-white truncate">{workspaceTotals.overdue}</span>
+                    <span className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase truncate">
                       {t("dashboard.overdueCards")}
                     </span>
                   </div>
