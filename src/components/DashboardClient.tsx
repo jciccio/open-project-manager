@@ -31,8 +31,8 @@ export default function DashboardClient({ user, projects, stats }: Props) {
       <div className="rounded-3xl bg-gradient-to-r from-indigo-100 via-purple-50 to-slate-100 dark:from-indigo-900/40 dark:via-purple-900/20 dark:to-slate-900 border border-indigo-200 dark:border-indigo-500/20 p-8 mb-8 shadow-xl relative overflow-hidden">
         <div className="absolute right-0 top-0 translate-x-12 -translate-y-12 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
 
-        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-          <div>
+        <div className="relative z-10 flex flex-col xl:flex-row xl:items-center justify-between gap-6">
+          <div className="min-w-0">
             <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 text-xs font-semibold uppercase tracking-wider mb-2">
               <Sparkles className="h-4 w-4" />
               <span>{t("dashboard.tagline")}</span>
@@ -46,7 +46,7 @@ export default function DashboardClient({ user, projects, stats }: Props) {
           </div>
 
           {/* Quick Stats Grid */}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-x-4 gap-y-4 bg-white/90 dark:bg-slate-900/80 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-sm">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 xl:shrink-0 gap-x-4 gap-y-4 bg-white/90 dark:bg-slate-900/80 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-sm">
             <div className="flex items-center gap-3 px-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
                 <FolderKanban className="h-5 w-5" />

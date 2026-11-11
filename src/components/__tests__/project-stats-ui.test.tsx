@@ -114,10 +114,10 @@ describe("DashboardClient workspace totals", () => {
       />
     );
 
-    const bannerFlex = container.querySelector(".lg\\:flex-row");
+    const bannerFlex = container.querySelector(".xl\\:flex-row");
     expect(bannerFlex).toBeInTheDocument();
 
-    const statsGrid = container.querySelector(".grid-cols-2.md\\:grid-cols-3.lg\\:grid-cols-5");
+    const statsGrid = container.querySelector(".grid-cols-2.md\\:grid-cols-3.lg\\:grid-cols-5.xl\\:shrink-0");
     expect(statsGrid).toBeInTheDocument();
 
     const overdueLabel = screen.getByText("Overdue");
