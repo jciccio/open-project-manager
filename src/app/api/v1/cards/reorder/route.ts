@@ -3,6 +3,7 @@ import { getApiSession } from "@/lib/auth";
 import { reorderCards } from "@/lib/services/cards";
 import { CardReorderSchema } from "@/lib/validation/cards";
 import { parseInput } from "@/lib/validation/errors";
+import { serviceErrorResponse } from "@/lib/api/serviceErrorResponse";
 
 export async function POST(request: NextRequest) {
   const session = await getApiSession(request);
@@ -18,10 +19,7 @@ export async function POST(request: NextRequest) {
 
     const res = await reorderCards(parsed.data.items, session.userId);
     if (!res.success) {
-      return NextResponse.json(
-        { error: res.error || "Unauthorized or card not found" },
-        { status: 400 }
-      );
+      return serviceErrorResponse(res);
     }
 
     return NextResponse.json({ success: true });

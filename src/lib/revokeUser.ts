@@ -17,7 +17,7 @@ export async function revokeUserAccess(identifier: string) {
     db.importRecord.deleteMany({
       where: {
         source: { in: ["discord", "slack"] },
-        entityType: "user",
+        entityType: { in: ["user", "link_code"] },
         OR: [{ userId: user.id }, { localId: user.id }],
       },
     }),

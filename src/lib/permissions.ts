@@ -111,6 +111,21 @@ export async function verifyProjectAccess(
   return result.hasAccess;
 }
 
+/**
+ * Why a caller can't act on a project: "not_found" when the project is missing or
+ * invisible to them, so its existence isn't revealed, and "forbidden" when they can
+ * see it but their role is below `minimumRole`.
+ */
+export async function accessDenial(
+  projectId: string,
+  userId: string,
+  minimumRole: ProjectRole = "VIEWER"
+): Promise<"not_found" | "forbidden" | null> {
+  const result = await getProjectAccess(projectId, userId, minimumRole);
+  if (result.hasAccess) return null;
+  return result.role ? "forbidden" : "not_found";
+}
+
 export async function canViewProject(projectId: string, userId: string): Promise<boolean> {
   return verifyProjectAccess(projectId, userId, "VIEWER");
 }

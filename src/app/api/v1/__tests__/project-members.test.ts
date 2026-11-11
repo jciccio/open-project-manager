@@ -113,7 +113,7 @@ describe("API v1: /projects/[id]/members", () => {
       { params: Promise.resolve({ id: projectId }) }
     );
 
-  it("returns 400 for an ADMIN changing a secondary OWNER, and for an unknown role", async () => {
+  it("returns 403 for an ADMIN changing a secondary OWNER, and 400 for an unknown role", async () => {
     const admin = await createTestUser(`api-admin-${Date.now()}`);
     await db.projectMember.createMany({
       data: [
@@ -123,7 +123,7 @@ describe("API v1: /projects/[id]/members", () => {
     });
 
     const demote = await patchRole(admin.token, { userId: memberId, role: "VIEWER" });
-    expect(demote.status).toBe(400);
+    expect(demote.status).toBe(403);
     expect((await demote.json()).error).toContain("Only the project owner");
 
     const unknownRole = await patchRole(ownerToken, { userId: memberId, role: "SUPERUSER" });

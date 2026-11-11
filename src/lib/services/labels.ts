@@ -1,15 +1,16 @@
 import { db } from "@/lib/db";
 import type { Prisma } from "@prisma/client";
 import { safeRevalidatePath } from "@/lib/revalidate";
-import { verifyProjectAccess } from "@/lib/permissions";
+import { verifyProjectAccess, accessDenial } from "@/lib/permissions";
 import { parseLabelDetails, type LabelDetailsInput } from "@/lib/validation/labels";
 import { createScopedLabel, LabelExistsError } from "@/lib/scopedLabels";
+import type { ServiceErrorKind } from "@/lib/services/result";
 
 export async function getLabels(projectId: string | undefined, userId: string) {
   try {
     if (projectId) {
       const hasAccess = await verifyProjectAccess(projectId, userId, "VIEWER");
-      if (!hasAccess) return { success: false, error: "Unauthorized" };
+      if (!hasAccess) return { success: false, error: "Unauthorized", kind: "not_found" as ServiceErrorKind };
     }
 
     const where: Prisma.LabelWhereInput = projectId
@@ -23,7 +24,7 @@ export async function getLabels(projectId: string | undefined, userId: string) {
     return { success: true, data: labels };
   } catch (error) {
     console.error("Error fetching labels:", error);
-    return { success: false, error: "Failed to fetch labels" };
+    return { success: false, error: "Failed to fetch labels", kind: "internal" as ServiceErrorKind };
   }
 }
 
@@ -36,17 +37,17 @@ export async function createLabel(
 ) {
   try {
     if (!name.trim()) {
-      return { success: false, error: "Label name is required" };
+      return { success: false, error: "Label name is required", kind: "invalid" as ServiceErrorKind };
     }
 
     const details = parseLabelDetails({ color: color || undefined, description });
     if (!details.success) {
-      return { success: false, error: details.error };
+      return { success: false, error: details.error, kind: "invalid" as ServiceErrorKind };
     }
 
     if (projectId) {
-      const hasAccess = await verifyProjectAccess(projectId, userId, "MEMBER");
-      if (!hasAccess) return { success: false, error: "Unauthorized" };
+      const denied = await accessDenial(projectId, userId, "MEMBER");
+      if (denied) return { success: false, error: "Unauthorized", kind: denied as ServiceErrorKind };
     }
 
     const label = await createScopedLabel({
@@ -61,32 +62,33 @@ export async function createLabel(
     if (projectId) safeRevalidatePath(`/projects/${projectId}`);
     return { success: true, data: label };
   } catch (error) {
-    if (error instanceof LabelExistsError) return { success: false, error: error.message };
+    if (error instanceof LabelExistsError) return { success: false, error: error.message, kind: "conflict" as ServiceErrorKind };
     console.error("Error creating label:", error);
-    return { success: false, error: "Failed to create label or label exists" };
+    return { success: false, error: "Failed to create label or label exists", kind: "internal" as ServiceErrorKind };
   }
 }
 
 async function findManageableLabel(id: string, userId: string) {
   const label = await db.label.findUnique({ where: { id } });
-  if (!label) return null;
+  if (!label) return { denied: "not_found" as const };
 
   // Project-scoped label: ADMIN on project may change or delete it.
   // Personal label: only its own creator may.
-  const isAuthorized = label.projectId
-    ? await verifyProjectAccess(label.projectId, userId, "ADMIN")
-    : label.userId === userId;
-  return isAuthorized ? label : null;
+  if (label.projectId) {
+    const denied = await accessDenial(label.projectId, userId, "ADMIN");
+    return denied ? { denied } : { label };
+  }
+  return label.userId === userId ? { label } : { denied: "not_found" as const };
 }
 
 export async function updateLabel(id: string, input: LabelDetailsInput, userId: string) {
   try {
-    const label = await findManageableLabel(id, userId);
-    if (!label) return { success: false, error: "Unauthorized" };
+    const { label, denied } = await findManageableLabel(id, userId);
+    if (!label) return { success: false, error: "Unauthorized", kind: denied as ServiceErrorKind };
 
     const details = parseLabelDetails(input);
     if (!details.success) {
-      return { success: false, error: details.error };
+      return { success: false, error: details.error, kind: "invalid" as ServiceErrorKind };
     }
 
     const updated = await db.label.update({
@@ -99,14 +101,14 @@ export async function updateLabel(id: string, input: LabelDetailsInput, userId: 
     return { success: true, data: updated };
   } catch (error) {
     console.error(`Error updating label ${id}:`, error);
-    return { success: false, error: "Failed to update label" };
+    return { success: false, error: "Failed to update label", kind: "internal" as ServiceErrorKind };
   }
 }
 
 export async function deleteLabel(id: string, userId: string) {
   try {
-    const label = await findManageableLabel(id, userId);
-    if (!label) return { success: false, error: "Unauthorized" };
+    const { label, denied } = await findManageableLabel(id, userId);
+    if (!label) return { success: false, error: "Unauthorized", kind: denied as ServiceErrorKind };
 
     await db.label.delete({
       where: { id },
@@ -117,6 +119,6 @@ export async function deleteLabel(id: string, userId: string) {
     return { success: true };
   } catch (error) {
     console.error(`Error deleting label ${id}:`, error);
-    return { success: false, error: "Failed to delete label" };
+    return { success: false, error: "Failed to delete label", kind: "internal" as ServiceErrorKind };
   }
 }

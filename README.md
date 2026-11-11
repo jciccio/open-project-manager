@@ -169,7 +169,11 @@ Once seeded (via either Docker or Local development), you can log in with the fo
 | **Admin Account** | `admin@example.com` | `password123` | Open Project Manager MVP |
 | **Jose Account** | `jose@example.com` | `password123` | Jose's Autonomous Systems |
 
-> ℹ️ You can also register a brand-new custom account directly from the login page (`/login`).
+> ℹ️ On a fresh instance, the first person to open `/register` creates the first account. After that, registration is closed and an administrator with access to the server creates accounts:
+> ```bash
+> yarn user:create --email jose@example.com --name "Jose"
+> ```
+> It prints a temporary password to share privately, which the new user changes under Profile Settings. Project owners can then add them from the members modal. On an instance with SSO, people sign in through the identity provider instead.
 
 ---
 
@@ -292,29 +296,49 @@ curl -X GET http://localhost:3000/api/v1/cards/CARD_ID/attachments \
 ```
 
 ### 9. Discord Bot Integration
-Open Project Manager supports Discord Interactions for slash commands and rich card unfurling. For setup details, see the official [Discord Developer Documentation](https://docs.discord.com/developers/quick-start/getting-started).
+Open Project Manager supports Discord Interactions for `/opm` slash commands (Part 1 of `#171`). For app creation and portal setup details, see the official [Discord Developer Documentation](https://docs.discord.com/developers/quick-start/getting-started).
 
 1. **Environment Configuration**:
-   Set `DISCORD_PUBLIC_KEY` and `APP_URL` on the server:
+   Set `DISCORD_PUBLIC_KEY` and `APP_URL` on the server (plus `DISCORD_APPLICATION_ID` and `DISCORD_BOT_TOKEN` to register slash commands with Discord):
    ```bash
    DISCORD_PUBLIC_KEY=your_discord_application_public_key_hex
    APP_URL=https://your-domain.com
+
+   # Used by `npm run discord:register` to register the `/opm` slash command:
+   DISCORD_APPLICATION_ID=your_discord_application_id
+   DISCORD_BOT_TOKEN=your_discord_bot_token
+   # Optional: register instantaneously to one guild during testing
+   # DISCORD_GUILD_ID=your_test_server_id
    ```
-2. **Discord Interactions Endpoint**:
-   Point your Discord Application's **Interactions Endpoint URL** to:
-   ```text
-   https://your-domain.com/api/v1/integrations/discord/interactions
-   ```
-3. **Usage**:
-   - `/opm link <token>`: Link your Discord account to your OPM user using an API token generated in User Profile. The link is authenticated and checked against active API tokens.
+2. **Discord Interactions Endpoint & Slash Command Registration**:
+   - Point your Discord Application's **Interactions Endpoint URL** to:
+     ```text
+     https://your-domain.com/api/v1/integrations/discord/interactions
+     ```
+     When Discord provides `application_id` and `token`, the endpoint responds immediately within Discord's 3-second limit using an ephemeral Deferred Response (`type: 5`) and patches the final reply via Next.js `after()`.
+   - Register the `/opm` command and exact option schema (`help`, `link [token]`, `whoami`, `unlink`, `list [key]`, `columns [key]`, `get [identifier]`, `move [identifier] [column]`, `create [key] [title]`, `new [title]`) using:
+     ```bash
+     npm run discord:register
+     ```
+     *(Accepted option name aliases in the handler also include `code` for `link`, `project` for `key`, `card` for `identifier`, and `destination`/`to` for `column`.)*
+3. **Account Linking (Short-Lived Single-Use Code)**:
+   - Recommended: generate a 10-minute single-use link code (`opm_dl_...`) from `POST /api/v1/integrations/discord/link-code` while signed in (cookie or Bearer API token):
+     ```bash
+     curl -X POST https://your-domain.com/api/v1/integrations/discord/link-code \
+       -H "Authorization: Bearer YOUR_API_TOKEN"
+     ```
+     Then run `/opm link <code_here>` in Discord. Because the link code is single-use and decoupled from your API token, revoking or rotating your API token afterward will not break your Discord link.
+   - Alternatively, you can still pass an OPM API token directly to `/opm link <token>`; when linked with an API token, deleting or expiring that API token automatically revokes the Discord link.
+4. **Commands & Scope Notes**:
    - `/opm whoami`: Check which OPM user is linked to your Discord account.
    - `/opm unlink`: Unlink your Discord account.
-   - `/opm list <key>` or `/opm list <owner/key>`: List open cards in a project grouped by column with copyable IDs.
-   - `/opm columns <key>` or `/opm columns <owner/key>`: List available columns in a project.
-   - `/opm get <KEY-123>` or `/opm get <owner/KEY-123>`: Inspect a card's status, priority, points, assignee, and project (ephemeral response).
+   - `/opm list <key>` or `/opm list <owner/key>`: List open cards in a project grouped by column (ephemeral, bounded to Discord's 2000-character limit).
+   - `/opm columns <key>` or `/opm columns <owner/key>`: List available columns in a project (ephemeral).
+   - `/opm get <KEY-123>` or `/opm get <owner/KEY-123>`: Inspect a card's status, priority, points, and assignees in an ephemeral embed.
    - `/opm move <KEY-123> <column>`: Move a card to a designated column (ephemeral response).
    - `/opm create <key> <title>` or `/opm create <owner/key> <title>`: Create a card in the specified project (ephemeral response).
    - `/opm new <title>`: Quick-create a card in your default active writable project (ephemeral response).
+   - **Current Scope vs `#171`**: Card embeds link to `/projects/<projectId>` (the board page, since OPM opens cards in a modal rather than a standalone `/cards/<id>` URL). Automatic Discord gateway message-link unfurling and channel event notifications are follow-up work.
 
 ---
 
@@ -397,28 +421,82 @@ hierarchy (sub-projects arrive as top-level projects). Images embedded in a desc
 still point at the Vikunja instance, so they may not display in OPM (Vikunja attachment
 URLs usually need a Vikunja login).
 
-### Plane (dry run only for now)
+### Plane
 
 A **Plane** adapter reads Plane Cloud or a self-hosted instance through Plane's public
-REST API. It only does dry runs today. The import contract cannot carry card numbers,
-parents or relations yet, so a live import would break references like `ABC-123`, and
-re-running it would not correct them. The command line refuses to run without
-`--dry-run`, and `POST /api/v1/import` does not accept Plane as a source.
+REST API, and runs from the command line only. `POST /api/v1/import` does not accept
+Plane as a source, so the API key stays out of the server's configuration.
 
 ```bash
+# See what would happen. Nothing is written.
 PLANE_API_KEY=… npx tsx scripts/import-plane.ts \
   --workspace my-team --project ABC --user you@example.com --dry-run
+
+# Back up the database first, then import.
+PLANE_API_KEY=… npx tsx scripts/import-plane.ts \
+  --workspace my-team --project ABC --user you@example.com
 ```
 
 Set `PLANE_URL` for a self-hosted instance (the default is `https://api.plane.so`).
 Omit `--project` to include every project the key can see.
 
-Plane allows 60 requests per minute per key. A dry run makes one request per work item
-to read its comments, so a few thousand items takes more than an hour. The adapter
-waits for the rate limit window to reset and retries 429 and 5xx responses.
+Pass `--map-email plane@example.com=opm@example.com` (repeatable) when someone's email
+differs between the two, for example when OPM signs them in through SSO.
 
-Plane's public API does not return archived work items, drafts or intake items, so a
-dry run does not count them. Unarchive anything you need in Plane first.
+| Plane | OPM |
+|---|---|
+| Project identifier | Project key, so `ABC-123` references keep working |
+| Work item `sequence_id` | Card number |
+| State, with group, color and description | Column |
+| Label, with color and description | Label |
+| Description and comments (HTML) | Markdown |
+| Parent | Parent card |
+| Links | Card links |
+| `blocking`, `blocked_by` | `BLOCKS` relation |
+| `relates_to`, `duplicate` | `RELATES_TO` relation |
+| `created_at`, `completed_at`, `target_date` | Same dates on the card |
+| Integer estimates | Points |
+| Attachments | Card attachments, up to `MAX_ATTACHMENT_BYTES` each |
+| Assignees | Card assignees, matched by email |
+
+**Assignees:** an assignee is matched only to the project's owner or an existing member.
+The import doesn't add anyone to a project, so anyone else's name goes in the card owner
+text. A re-run doesn't update cards that are already imported.
+
+**Not imported:** start dates, cycles, modules, label parents, non-integer estimates and
+the `start_before`, `start_after`, `finish_before` and `finish_after` relations. Dry and
+live runs both list what they found of these, with counts, under "Not carried over".
+
+**Project keys:** OPM keys are limited to 6 characters, and a key that's taken gets a
+suffix, which would break references. A live run refuses to start if any new project has
+a longer key or one this account already uses. A dry run lists the same problems.
+
+**Nesting:** OPM allows one level of subtasks. Deeper Plane hierarchies report a failure
+on the parent link, and the card itself still imports.
+
+**Time:** Plane allows 60 requests per minute per key, and each work item takes about
+five requests (links, relations, comments, attachments, and the page it's listed on), plus
+two for each attachment file on a live run. A few thousand
+items takes several hours, and a dry run about the same. Cards are read before any of
+them are written, so a large project writes nothing for a while. The adapter waits for
+the rate limit window to reset and retries 429 and 5xx responses.
+
+**Re-running:** a re-run skips what's already imported and adds new comments and
+attachments. It reads
+everything from Plane again, so it takes about as long. Use `--project` to limit it.
+
+**Relations across projects:** projects import one at a time, and a relation is created
+when the second of its two projects runs. That holds across separate `--project` runs too:
+importing `ABC` and later `XYZ` creates the relations between them on the second run. A
+relation into a project you never import isn't created. A dry run doesn't check these
+relations, and prints how many it left out.
+
+If Plane fails to return a work item's links or relations, the import carries on and the
+summary counts the work items affected. Re-running restores missing relations, but not
+links, because links are only written when a card is first created.
+
+Plane's public API does not return archived work items, drafts or intake items, so an
+import does not include them. Unarchive anything you need in Plane first.
 
 Adding another source is one adapter implementing `Importer` (`src/lib/import/types.ts`)
 plus one line in the `SOURCES` registry in `src/app/api/v1/import/route.ts`.
@@ -682,10 +760,11 @@ This fetches upstream git tags and displays your currently running version along
 ```
 open-project-manager/
 ├── prisma/
+│   ├── migrations/         # SQLite database migrations
+│   ├── migrations-postgres/# PostgreSQL database migrations
 │   ├── schema.prisma       # Prisma database models (User, Project, Column, Card, Label, Comment)
 │   └── seed.ts             # Sample user accounts & project seed script
 ├── scripts/
-│   ├── test-all.ts         # Automated integration test suite
 │   ├── benchmark-memory.ts # Baseline Node process memory & DB profiler
 │   └── load-test.ts        # High-concurrency stress & RAM load tester
 ├── src/
@@ -695,11 +774,16 @@ open-project-manager/
 │   │   ├── projects/[id]/  # Project Kanban, List, Analytics, & Calendar views
 │   │   └── page.tsx        # Dashboard page
 │   ├── components/         # React UI components (KanbanBoard, TaskCard, Modals, Views, Header)
-│   ├── lib/                # Auth JWT session & SQLite connection client
+│   ├── lib/                # Core libraries, auth, database client, and utils
+│   │   ├── import/         # Import framework (Vikunja, Plane)
+│   │   └── services/       # Domain business logic (Projects, Cards, Columns, Labels)
+│   ├── mcp/                # Model Context Protocol (MCP) server & tool handlers
 │   └── proxy.ts            # Route protection & Bearer token check (Next.js proxy)
 ├── prisma.config.ts        # Prisma v7 configuration
 └── dev.db                  # Local SQLite database file
 ```
+
+To run the automated test suite, use `yarn test` (or `npm test`).
 
 ---
 

@@ -10,8 +10,10 @@ import {
   formatDiscordCardEmbed,
   handleDiscordInteraction,
   linkDiscordUser,
+  issueDiscordLinkCode,
   type DiscordInteraction,
 } from "../discord";
+import { DISCORD_OPM_COMMAND, registerDiscordCommands } from "../discordCommands";
 
 describe("Discord Integration", () => {
   let userId: string;
@@ -252,6 +254,7 @@ describe("Discord Integration", () => {
     });
 
     it("ends Discord actions when revokeUserAccess is called", async () => {
+      await issueDiscordLinkCode(userId);
       const whoBefore = await handleDiscordInteraction({
         id: "i-who-1",
         type: 2,
@@ -261,6 +264,16 @@ describe("Discord Integration", () => {
       expect(whoBefore.data?.content).toContain("You are linked as");
 
       await revokeUserAccess(userId);
+
+      expect(
+        await db.importRecord.count({
+          where: {
+            source: "discord",
+            entityType: { in: ["user", "link_code"] },
+            OR: [{ userId }, { localId: userId }],
+          },
+        })
+      ).toBe(0);
 
       const whoAfter = await handleDiscordInteraction({
         id: "i-who-2",
@@ -773,6 +786,263 @@ describe("Discord Integration", () => {
         include: { column: true },
       });
       expect(createdCard?.column.group).not.toBe("CANCELLED");
+    });
+
+    it("bounds multi-column /opm list output with long column names to <= 2000 chars", async () => {
+      const cols = [];
+      for (let c = 1; c <= 10; c++) {
+        const col = await db.column.create({
+          data: {
+            projectId,
+            name: `Feature Stage ${c} ` + "X".repeat(150),
+            group: c <= 8 ? "STARTED" : "COMPLETED",
+            isDone: c > 8,
+            order: c + 10,
+          },
+        });
+        cols.push(col);
+        await db.card.create({
+          data: {
+            projectId,
+            columnId: col.id,
+            number: 100 + c,
+            title: `Card Title ${c} ` + "T".repeat(45),
+            order: 1,
+          },
+        });
+      }
+
+      const resList = await handleDiscordInteraction({
+        id: "i-list-multicolumn",
+        type: 2,
+        data: {
+          name: "opm",
+          options: [{ name: "list", type: 1, options: [{ name: "key", type: 3, value: projectKey }] }],
+        },
+        user: { id: "DISCORD_TEST_USER_1", username: "tester" },
+      });
+
+      const content = resList.data?.content || "";
+      expect(content.length).toBeGreaterThan(0);
+      expect(content.length).toBeLessThanOrEqual(2000);
+      expect(content).toContain("omitted");
+      // Closed COMPLETED columns must not appear when open columns exist
+      expect(content).not.toContain("Feature Stage 9 ");
+    });
+
+    it("caps /opm columns output at <= 2000 chars even with many long columns", async () => {
+      for (let c = 1; c <= 15; c++) {
+        await db.column.create({
+          data: {
+            projectId,
+            name: `VeryLongColumnName_${c}_` + "C".repeat(160),
+            group: "STARTED",
+            order: c + 20,
+          },
+        });
+      }
+
+      const resCols = await handleDiscordInteraction({
+        id: "i-cols-bounded",
+        type: 2,
+        data: {
+          name: "opm",
+          options: [{ name: "columns", type: 1, options: [{ name: "key", type: 3, value: projectKey }] }],
+        },
+        user: { id: "DISCORD_TEST_USER_1", username: "tester" },
+      });
+
+      const content = resCols.data?.content || "";
+      expect(content.length).toBeLessThanOrEqual(2000);
+      expect(content).toContain("omitted");
+    });
+
+    it("caps Assignee embed field at <= 1024 chars when a card has 35 long assignees", async () => {
+      const backlogCol = await db.column.findFirstOrThrow({ where: { projectId, name: "Backlog" } });
+      const card = await db.card.create({
+        data: {
+          projectId,
+          columnId: backlogCol.id,
+          number: 200,
+          title: "Many Assignees Card",
+          order: 1,
+        },
+      });
+
+      const extraUsers: string[] = [];
+      try {
+        for (let i = 0; i < 35; i++) {
+          const u = await createTestUser(`very-long-assignee-identifier-${i}-${"x".repeat(20)}-${Date.now()}`);
+          extraUsers.push(u.user.id);
+          await db.cardAssignee.create({
+            data: { cardId: card.id, userId: u.user.id },
+          });
+        }
+
+        const resGet = await handleDiscordInteraction({
+          id: "i-get-many-assignees",
+          type: 2,
+          data: {
+            name: "opm",
+            options: [{ name: "get", type: 1, options: [{ name: "identifier", type: 3, value: `${projectKey}-200` }] }],
+          },
+          user: { id: "DISCORD_TEST_USER_1", username: "tester" },
+        });
+
+        const assigneeField = resGet.data?.embeds?.[0].fields?.find((f) => f.name === "Assignee");
+        expect(assigneeField).toBeDefined();
+        expect(assigneeField!.value.length).toBeLessThanOrEqual(1024);
+        expect(assigneeField!.value).toContain("more)");
+      } finally {
+        for (const uid of extraUsers) {
+          await cleanupTestUser(uid);
+        }
+      }
+    });
+
+    it("supports short-lived single-use link codes decoupled from API token lifetime", async () => {
+      const { code } = await issueDiscordLinkCode(userId);
+      expect(code.startsWith("opm_dl_")).toBe(true);
+
+      // Link via code
+      const resLink = await handleDiscordInteraction({
+        id: "i-link-code-1",
+        type: 2,
+        data: {
+          name: "opm",
+          options: [{ name: "link", type: 1, options: [{ name: "token", type: 3, value: code }] }],
+        },
+        user: { id: "DISCORD_CODE_USER", username: "coder" },
+      });
+      expect(resLink.data?.content).toContain("Successfully linked");
+
+      // Re-using same single-use code fails
+      const resReplay = await handleDiscordInteraction({
+        id: "i-link-code-replay",
+        type: 2,
+        data: {
+          name: "opm",
+          options: [{ name: "link", type: 1, options: [{ name: "token", type: 3, value: code }] }],
+        },
+        user: { id: "DISCORD_CODE_USER_2", username: "thief" },
+      });
+      expect(resReplay.data?.content).toContain("Invalid, expired, or already used");
+
+      // Deleting ALL API tokens belonging to this user must NOT break the code-based link
+      await db.apiToken.deleteMany({ where: { userId } });
+
+      const who = await handleDiscordInteraction({
+        id: "i-who-code",
+        type: 2,
+        data: { name: "opm", options: [{ name: "whoami", type: 1 }] },
+        user: { id: "DISCORD_CODE_USER", username: "coder" },
+      });
+      expect(who.data?.content).toContain("You are linked as");
+
+      // Expired code is rejected
+      const expired = await issueDiscordLinkCode(userId);
+      await db.importRecord.updateMany({
+        where: { userId, source: "discord", entityType: "link_code" },
+        data: { importRunId: String(Date.now() - 1000) },
+      });
+      const resExpired = await handleDiscordInteraction({
+        id: "i-link-code-exp",
+        type: 2,
+        data: {
+          name: "opm",
+          options: [{ name: "link", type: 1, options: [{ name: "token", type: 3, value: expired.code }] }],
+        },
+        user: { id: "DISCORD_CODE_USER_3", username: "late" },
+      });
+      expect(resExpired.data?.content).toContain("Invalid, expired, or already used");
+    });
+
+    it("rejects empty owner in /KEY and ambiguous owner prefixes across create, list, columns, get, move", async () => {
+      const alice = await createTestUser(`alice-disc-${Date.now()}`);
+      const alan = await createTestUser(`alan-disc-${Date.now()}`);
+      try {
+        const key = `DAMB${Date.now().toString().slice(-4)}`;
+        const pAlice = await db.project.create({
+          data: { userId: alice.user.id, name: "Alice D Project", key, color: "#6366f1" },
+        });
+        const pAlan = await db.project.create({
+          data: { userId: alan.user.id, name: "Alan D Project", key, color: "#ec4899" },
+        });
+        const colAlice = await db.column.create({
+          data: { projectId: pAlice.id, name: "Backlog", group: "BACKLOG", order: 1 },
+        });
+        const colAlan = await db.column.create({
+          data: { projectId: pAlan.id, name: "Backlog", group: "BACKLOG", order: 1 },
+        });
+        await db.projectMember.createMany({
+          data: [
+            { projectId: pAlice.id, userId, role: "MEMBER" },
+            { projectId: pAlan.id, userId, role: "MEMBER" },
+          ],
+        });
+        await db.card.create({
+          data: { projectId: pAlice.id, columnId: colAlice.id, title: "Alice Card", number: 1, order: 1000 },
+        });
+        await db.card.create({
+          data: { projectId: pAlan.id, columnId: colAlan.id, title: "Alan Card", number: 1, order: 1000 },
+        });
+
+        const badEmptyOwner = await handleDiscordInteraction({
+          id: "i-empty-owner",
+          type: 2,
+          data: {
+            name: "opm",
+            options: [{ name: "list", type: 1, options: [{ name: "key", type: 3, value: `/${key}` }] }],
+          },
+          user: { id: "DISCORD_TEST_USER_1", username: "tester" },
+        });
+        expect(badEmptyOwner.data?.content).toContain("Invalid target format");
+
+        const commonPrefix = alice.user.email.slice(0, 2);
+        const ambigList = await handleDiscordInteraction({
+          id: "i-ambig-list",
+          type: 2,
+          data: {
+            name: "opm",
+            options: [{ name: "list", type: 1, options: [{ name: "key", type: 3, value: `${commonPrefix}/${key}` }] }],
+          },
+          user: { id: "DISCORD_TEST_USER_1", username: "tester" },
+        });
+        expect(ambigList.data?.content).toContain("Multiple projects");
+      } finally {
+        await cleanupTestUser(alice.user.id);
+        await cleanupTestUser(alan.user.id);
+      }
+    });
+
+    it("defines and registers exact /opm slash command option schema with DISCORD_BOT_TOKEN", async () => {
+      const subNames = DISCORD_OPM_COMMAND.options.map((o) => o.name);
+      expect(subNames).toEqual(
+        expect.arrayContaining(["help", "link", "whoami", "unlink", "list", "columns", "get", "move", "create", "new"])
+      );
+      expect(DISCORD_OPM_COMMAND.options.find((o) => o.name === "link")?.options?.[0]?.name).toBe("token");
+      expect(DISCORD_OPM_COMMAND.options.find((o) => o.name === "move")?.options?.map((x) => x.name)).toEqual([
+        "identifier",
+        "column",
+      ]);
+
+      let capturedUrl = "";
+      let capturedHeaders: Record<string, string> = {};
+      await registerDiscordCommands({
+        applicationId: "123456789012345678",
+        botToken: "bot-secret-token",
+        guildId: "987654321098765432",
+        fetchFn: (async (url: string | URL | Request, init?: RequestInit) => {
+          capturedUrl = String(url);
+          capturedHeaders = (init?.headers || {}) as Record<string, string>;
+          return new Response(JSON.stringify([{ id: "cmd-1", name: "opm" }]), { status: 200 });
+        }) as typeof fetch,
+      });
+
+      expect(capturedUrl).toBe(
+        "https://discord.com/api/v10/applications/123456789012345678/guilds/987654321098765432/commands"
+      );
+      expect(capturedHeaders.Authorization).toBe("Bot bot-secret-token");
     });
   });
 });

@@ -28,6 +28,8 @@ export interface DiscordInteractionResponse {
 export interface DiscordInteraction {
   id: string;
   type: number; // 1 = PING, 2 = APPLICATION_COMMAND
+  application_id?: string;
+  token?: string;
   data?: {
     id?: string;
     name: string;
@@ -45,6 +47,12 @@ export interface DiscordInteraction {
   user?: { id: string; username: string };
   member?: { user: { id: string; username: string } };
 }
+
+export const DISCORD_MAX_CONTENT_LENGTH = 2000;
+export const DISCORD_MAX_EMBED_FIELD_VALUE = 1024;
+export const DISCORD_LINK_CODE_PREFIX = "opm_dl_";
+export const DISCORD_LINK_CODE_TTL_MS = 10 * 60 * 1000;
+const DISCORD_LIST_CARDS_PER_COLUMN = 30;
 
 export function getAppBaseUrl(): string {
   const url = process.env.APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
@@ -150,6 +158,80 @@ export async function linkDiscordUser(discordUserId: string, opmUserId: string, 
   });
 }
 
+function hashDiscordLinkCode(rawCode: string): string {
+  return crypto.createHash("sha256").update(rawCode, "utf8").digest("hex");
+}
+
+/**
+ * Generates a short-lived, single-use link code for `/opm link <code>`.
+ * Stores only the SHA-256 hash and deletes prior unused codes for the same user.
+ */
+export async function issueDiscordLinkCode(opmUserId: string): Promise<{ code: string; expiresAt: Date }> {
+  const code = `${DISCORD_LINK_CODE_PREFIX}${crypto.randomBytes(24).toString("base64url")}`;
+  const codeHash = hashDiscordLinkCode(code);
+  const expiresAt = new Date(Date.now() + DISCORD_LINK_CODE_TTL_MS);
+
+  await db.$transaction(async (tx) => {
+    await tx.importRecord.deleteMany({
+      where: {
+        userId: opmUserId,
+        source: "discord",
+        entityType: "link_code",
+      },
+    });
+
+    await tx.importRecord.create({
+      data: {
+        userId: opmUserId,
+        source: "discord",
+        entityType: "link_code",
+        sourceId: codeHash,
+        localId: opmUserId,
+        importRunId: String(expiresAt.getTime()),
+      },
+    });
+  });
+
+  return { code, expiresAt };
+}
+
+/**
+ * Atomically consumes a short-lived link code inside a transaction so it can
+ * only be redeemed once before expiration.
+ */
+export async function consumeDiscordLinkCode(
+  rawCode: string
+): Promise<{ id: string; name: string | null; email: string } | null> {
+  if (!rawCode.startsWith(DISCORD_LINK_CODE_PREFIX)) return null;
+  const codeHash = hashDiscordLinkCode(rawCode);
+
+  return await db.$transaction(async (tx) => {
+    const record = await tx.importRecord.findFirst({
+      where: {
+        source: "discord",
+        entityType: "link_code",
+        sourceId: codeHash,
+      },
+    });
+    if (!record) return null;
+
+    const deleted = await tx.importRecord.deleteMany({
+      where: { id: record.id },
+    });
+    if (deleted.count !== 1) return null;
+
+    const expiresMs = Number(record.importRunId);
+    if (!Number.isFinite(expiresMs) || expiresMs < Date.now()) {
+      return null;
+    }
+
+    return await tx.user.findUnique({
+      where: { id: record.localId },
+      select: { id: true, name: true, email: true },
+    });
+  });
+}
+
 export async function unlinkDiscordUser(discordUserId: string) {
   await db.importRecord.deleteMany({
     where: {
@@ -158,6 +240,44 @@ export async function unlinkDiscordUser(discordUserId: string) {
       sourceId: discordUserId,
     },
   });
+}
+
+function truncateDiscordFieldValue(value: string, maxLen = DISCORD_MAX_EMBED_FIELD_VALUE): string {
+  if (!value) return "None";
+  if (value.length <= maxLen) return value;
+  return value.slice(0, Math.max(0, maxLen - 3)) + "...";
+}
+
+function formatBoundedAssigneeField(assigneeText: string, maxLen = DISCORD_MAX_EMBED_FIELD_VALUE): string {
+  if (!assigneeText) return "Unassigned";
+  if (assigneeText.length <= maxLen) return assigneeText;
+
+  const entries = assigneeText
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (entries.length <= 1) {
+    return truncateDiscordFieldValue(assigneeText, maxLen);
+  }
+
+  const kept: string[] = [];
+  for (let i = 0; i < entries.length; i++) {
+    const remaining = entries.length - (i + 1);
+    const suffix = remaining > 0 ? `, ... (+${remaining} more)` : "";
+    const candidate = (kept.length > 0 ? `${kept.join(", ")}, ` : "") + entries[i] + suffix;
+    if (candidate.length > maxLen) {
+      if (kept.length === 0) {
+        const onlyFirstSuffix = `, ... (+${entries.length - 1} more)`;
+        const room = Math.max(4, maxLen - onlyFirstSuffix.length);
+        return entries[0].slice(0, room - 3) + "..." + onlyFirstSuffix;
+      }
+      return `${kept.join(", ")}, ... (+${entries.length - i} more)`;
+    }
+    kept.push(entries[i]);
+  }
+
+  return truncateDiscordFieldValue(kept.join(", "), maxLen);
 }
 
 export function formatDiscordCardEmbed(card: {
@@ -172,7 +292,7 @@ export function formatDiscordCardEmbed(card: {
   url: string;
 }): DiscordEmbed {
   const priority = card.priority && card.priority !== "NONE" ? card.priority : "None";
-  const assignee = card.assignees || card.owner || "Unassigned";
+  const assignee = formatBoundedAssigneeField(card.assignees || card.owner || "Unassigned");
   const points = card.points != null ? `${card.points} pts` : "None";
 
   const fullUrl = card.url.startsWith("http")
@@ -190,28 +310,88 @@ export function formatDiscordCardEmbed(card: {
     url: fullUrl,
     color: 0x5865f2, // Discord Blurple
     fields: [
-      { name: "Project", value: card.projectName, inline: true },
-      { name: "Status", value: card.status, inline: true },
-      { name: "Priority", value: priority, inline: true },
+      { name: "Project", value: truncateDiscordFieldValue(card.projectName), inline: true },
+      { name: "Status", value: truncateDiscordFieldValue(card.status), inline: true },
+      { name: "Priority", value: truncateDiscordFieldValue(priority), inline: true },
       { name: "Assignee", value: assignee, inline: true },
-      { name: "Points", value: points, inline: true },
+      { name: "Points", value: truncateDiscordFieldValue(points), inline: true },
     ],
     footer: { text: "Open Project Manager" },
     timestamp: new Date().toISOString(),
   };
 }
 
-async function resolveDiscordProject(target: string, opmUserId: string) {
-  let ownerFilter: string | null = null;
-  let keyOrId = target.trim();
+interface OwnedProjectLike {
+  id: string;
+  user: { name: string | null; email: string };
+}
 
-  if (target.includes("/")) {
-    const slashIdx = target.indexOf("/");
-    ownerFilter = target.slice(0, slashIdx).trim().toLowerCase();
-    keyOrId = target.slice(slashIdx + 1).trim();
+function parseOwnerTarget(
+  raw: string,
+  formatExample: string
+): { ownerFilter: string | null; value: string } | { error: string } {
+  const trimmed = raw.trim();
+  if (!trimmed.includes("/")) {
+    return { ownerFilter: null, value: trimmed };
   }
 
-  // 1. Try resolving by projectId directly
+  const slashIdx = trimmed.indexOf("/");
+  const owner = trimmed.slice(0, slashIdx).trim().toLowerCase();
+  const value = trimmed.slice(slashIdx + 1).trim();
+
+  if (!owner || !value || value.includes("/")) {
+    return {
+      error: `Invalid target format "${raw}". Expected ${formatExample}.`,
+    };
+  }
+
+  return { ownerFilter: owner, value };
+}
+
+function filterByOwner<T>(
+  items: T[],
+  ownerFilter: string,
+  getProject: (item: T) => OwnedProjectLike
+): { match: T } | { ambiguous: T[] } | { notFound: true } {
+  const needle = ownerFilter.toLowerCase();
+
+  const exactMatches = items.filter((item) => {
+    const p = getProject(item);
+    const email = p.user.email.toLowerCase();
+    const localPart = email.split("@")[0] || "";
+    const name = p.user.name?.toLowerCase() || "";
+    return (
+      p.id.toLowerCase() === needle ||
+      email === needle ||
+      localPart === needle ||
+      name === needle
+    );
+  });
+
+  if (exactMatches.length === 1) return { match: exactMatches[0] };
+  if (exactMatches.length > 1) return { ambiguous: exactMatches };
+
+  const prefixMatches = items.filter((item) => {
+    const p = getProject(item);
+    const email = p.user.email.toLowerCase();
+    const name = p.user.name?.toLowerCase() || "";
+    return email.startsWith(needle) || name.startsWith(needle);
+  });
+
+  if (prefixMatches.length === 1) return { match: prefixMatches[0] };
+  if (prefixMatches.length > 1) return { ambiguous: prefixMatches };
+
+  return { notFound: true };
+}
+
+async function resolveDiscordProject(target: string, opmUserId: string) {
+  const parsed = parseOwnerTarget(target, '"<key>" or "<owner>/<key>"');
+  if ("error" in parsed) {
+    return { error: parsed.error };
+  }
+  const { ownerFilter, value: keyOrId } = parsed;
+
+  // 1. Try resolving by projectId directly (respecting ownerFilter if given)
   const byId = await db.project.findFirst({
     where: {
       id: keyOrId,
@@ -226,7 +406,12 @@ async function resolveDiscordProject(target: string, opmUserId: string) {
       user: { select: { id: true, name: true, email: true } },
     },
   });
-  if (byId) return { project: byId };
+  if (byId) {
+    if (!ownerFilter) return { project: byId };
+    const matched = filterByOwner([byId], ownerFilter, (p) => p);
+    if ("match" in matched) return { project: matched.match };
+    return { error: `No project "${keyOrId}" owned by "${ownerFilter}" found.` };
+  }
 
   // 2. Query candidates by key
   const candidates = await db.project.findMany({
@@ -249,13 +434,14 @@ async function resolveDiscordProject(target: string, opmUserId: string) {
   }
 
   if (ownerFilter) {
-    const matched = candidates.find(
-      (p) =>
-        p.user.name?.toLowerCase() === ownerFilter ||
-        p.user.email.toLowerCase() === ownerFilter ||
-        p.user.email.toLowerCase().startsWith(ownerFilter)
-    );
-    if (matched) return { project: matched };
+    const filtered = filterByOwner(candidates, ownerFilter, (p) => p);
+    if ("match" in filtered) return { project: filtered.match };
+    if ("ambiguous" in filtered) {
+      const owners = filtered.ambiguous.map((p) => p.user.email).join(", ");
+      return {
+        error: `Multiple projects with key "${keyOrId.toUpperCase()}" match owner "${ownerFilter}" (${owners}). Please specify the full owner email or project ID.`,
+      };
+    }
     return { error: `No project with key "${keyOrId.toUpperCase()}" owned by "${ownerFilter}" found.` };
   }
 
@@ -271,15 +457,24 @@ async function resolveDiscordProject(target: string, opmUserId: string) {
   };
 }
 
+/**
+ * Resolves lightweight project metadata only (no columns or cards loaded) so
+ * `/opm columns` and `/opm list` avoid fetching cards for non-selected projects.
+ */
 async function resolveDiscordProjectForViewing(target: string, opmUserId: string) {
-  let ownerFilter: string | null = null;
-  let keyOrId = target.trim();
-
-  if (target.includes("/")) {
-    const slashIdx = target.indexOf("/");
-    ownerFilter = target.slice(0, slashIdx).trim().toLowerCase();
-    keyOrId = target.slice(slashIdx + 1).trim();
+  const parsed = parseOwnerTarget(target, '"<key>" or "<owner>/<key>"');
+  if ("error" in parsed) {
+    return { error: parsed.error };
   }
+  const { ownerFilter, value: keyOrId } = parsed;
+
+  const projectSelect = {
+    id: true,
+    key: true,
+    name: true,
+    userId: true,
+    user: { select: { id: true, name: true, email: true } },
+  } as const;
 
   // 1. Try resolving by projectId directly
   const byId = await db.project.findFirst({
@@ -292,22 +487,16 @@ async function resolveDiscordProjectForViewing(target: string, opmUserId: string
         { visibility: "INTERNAL" },
       ],
     },
-    include: {
-      columns: {
-        orderBy: { order: "asc" },
-        include: {
-          cards: {
-            where: { isArchived: false },
-            orderBy: { order: "asc" },
-          },
-        },
-      },
-      user: { select: { id: true, name: true, email: true } },
-    },
+    select: projectSelect,
   });
-  if (byId) return { project: byId };
+  if (byId) {
+    if (!ownerFilter) return { project: byId };
+    const matched = filterByOwner([byId], ownerFilter, (p) => p);
+    if ("match" in matched) return { project: matched.match };
+    return { error: `No project "${keyOrId}" owned by "${ownerFilter}" found.` };
+  }
 
-  // 2. Query candidates by key
+  // 2. Query lightweight candidates by key
   const candidates = await db.project.findMany({
     where: {
       key: keyOrId.toUpperCase(),
@@ -318,18 +507,7 @@ async function resolveDiscordProjectForViewing(target: string, opmUserId: string
         { visibility: "INTERNAL" },
       ],
     },
-    include: {
-      columns: {
-        orderBy: { order: "asc" },
-        include: {
-          cards: {
-            where: { isArchived: false },
-            orderBy: { order: "asc" },
-          },
-        },
-      },
-      user: { select: { id: true, name: true, email: true } },
-    },
+    select: projectSelect,
   });
 
   if (candidates.length === 0) {
@@ -337,13 +515,14 @@ async function resolveDiscordProjectForViewing(target: string, opmUserId: string
   }
 
   if (ownerFilter) {
-    const matched = candidates.find(
-      (p) =>
-        p.user.name?.toLowerCase() === ownerFilter ||
-        p.user.email.toLowerCase() === ownerFilter ||
-        p.user.email.toLowerCase().startsWith(ownerFilter)
-    );
-    if (matched) return { project: matched };
+    const filtered = filterByOwner(candidates, ownerFilter, (p) => p);
+    if ("match" in filtered) return { project: filtered.match };
+    if ("ambiguous" in filtered) {
+      const owners = filtered.ambiguous.map((p) => p.user.email).join(", ");
+      return {
+        error: `Multiple projects with key "${keyOrId.toUpperCase()}" match owner "${ownerFilter}" (${owners}). Please specify the full owner email or project ID.`,
+      };
+    }
     return { error: `No project with key "${keyOrId.toUpperCase()}" owned by "${ownerFilter}" found.` };
   }
 
@@ -430,6 +609,198 @@ async function createCardInDiscordProject(
   };
 }
 
+interface ColumnListSection {
+  name: string;
+  totalCount: number;
+  cards: Array<{ number: number; title: string }>;
+}
+
+function buildOmittedNotice(count: number, unit: "card" | "column"): string {
+  if (unit === "card") {
+    return `_... and ${count} more ${count === 1 ? "card" : "cards"}_`;
+  }
+  return `_... and ${count} more ${count === 1 ? "column" : "columns"} omitted_`;
+}
+
+function formatBoundedColumnsContent(
+  projectName: string,
+  projectKey: string,
+  columns: Array<{ id: string; name: string; isDone: boolean }>
+): string {
+  const header = `**Columns in ${projectName} (${projectKey})**:\n`;
+  const lines: string[] = [];
+
+  for (let idx = 0; idx < columns.length; idx++) {
+    const c = columns[idx];
+    const line = `${idx + 1}. **${c.name}** (\`${c.id}\`)${c.isDone ? " *(Done)*" : ""}`;
+    const remainingAfter = columns.length - (idx + 1);
+    const reserve = remainingAfter > 0 ? `\n${buildOmittedNotice(remainingAfter, "column")}` : "";
+    const candidate = header + [...lines, line].join("\n") + reserve;
+    if (candidate.length > DISCORD_MAX_CONTENT_LENGTH) {
+      const omitNotice = buildOmittedNotice(columns.length - idx, "column");
+      if ((header + [...lines, omitNotice].join("\n")).length <= DISCORD_MAX_CONTENT_LENGTH) {
+        lines.push(omitNotice);
+      }
+      break;
+    }
+    lines.push(line);
+  }
+
+  return (header + lines.join("\n")).slice(0, DISCORD_MAX_CONTENT_LENGTH);
+}
+
+function formatBoundedOpenCardsContent(
+  projectName: string,
+  projectKey: string,
+  columnSections: ColumnListSection[]
+): string {
+  const header = `**Open Cards in ${projectName} (${projectKey})**:\n\n`;
+  const sections: string[] = [];
+
+  const fits = (candidateSections: string[], trailingNotice = "") => {
+    const body = candidateSections.join("\n\n");
+    const extra = trailingNotice ? (candidateSections.length > 0 ? "\n\n" : "") + trailingNotice : "";
+    return header.length + body.length + extra.length <= DISCORD_MAX_CONTENT_LENGTH;
+  };
+
+  for (let colIdx = 0; colIdx < columnSections.length; colIdx++) {
+    const col = columnSections[colIdx];
+    const colHeader = `**${col.name}** (${col.totalCount}):\n`;
+    const remainingColsHere = columnSections.length - colIdx;
+    const omitColsHere = buildOmittedNotice(remainingColsHere, "column");
+    const remainingColsAfter = columnSections.length - (colIdx + 1);
+    const nextColReserve =
+      remainingColsAfter > 0 ? buildOmittedNotice(remainingColsAfter, "column") : "";
+
+    if (col.cards.length === 0) {
+      const emptySection = `${colHeader}_No cards_`;
+      if (!fits([...sections, emptySection], nextColReserve)) {
+        if (fits(sections, omitColsHere)) {
+          sections.push(omitColsHere);
+        }
+        break;
+      }
+      sections.push(emptySection);
+      continue;
+    }
+
+    const onlyCardTruncSection = `${colHeader}${buildOmittedNotice(col.totalCount, "card")}`;
+    if (!fits([...sections, onlyCardTruncSection], nextColReserve)) {
+      if (fits(sections, omitColsHere)) {
+        sections.push(omitColsHere);
+      }
+      break;
+    }
+
+    const cardLines: string[] = [];
+    let truncatedInCol = false;
+
+    for (let i = 0; i < col.cards.length; i++) {
+      const c = col.cards[i];
+      const cardTitle = c.title.length > 60 ? c.title.slice(0, 57) + "..." : c.title;
+      const cardLine = `• \`${projectKey}-${c.number}\` - ${cardTitle}`;
+      const remainingAfterCard = col.totalCount - (i + 1);
+      const tailInCol =
+        remainingAfterCard > 0 ? `\n${buildOmittedNotice(remainingAfterCard, "card")}` : "";
+      const candidateSection = colHeader + [...cardLines, cardLine].join("\n") + tailInCol;
+
+      if (!fits([...sections, candidateSection], nextColReserve)) {
+        cardLines.push(buildOmittedNotice(col.totalCount - i, "card"));
+        truncatedInCol = true;
+        break;
+      }
+      cardLines.push(cardLine);
+    }
+
+    if (!truncatedInCol && col.cards.length < col.totalCount) {
+      cardLines.push(buildOmittedNotice(col.totalCount - col.cards.length, "card"));
+      truncatedInCol = true;
+    }
+
+    sections.push(colHeader + cardLines.join("\n"));
+
+    if (truncatedInCol) {
+      if (nextColReserve && fits(sections, nextColReserve)) {
+        sections.push(nextColReserve);
+      }
+      break;
+    }
+  }
+
+  const content = `${header}${sections.join("\n\n")}`;
+  return content.length <= DISCORD_MAX_CONTENT_LENGTH
+    ? content
+    : content.slice(0, DISCORD_MAX_CONTENT_LENGTH - 3) + "...";
+}
+
+function pickDisambiguatedCard<T extends { project: OwnedProjectLike & { userId: string } }>(
+  matchingCards: T[],
+  ownerFilter: string | null,
+  opmUserId: string,
+  identifier: string,
+  commandVerb: "get" | "move",
+  notFoundVerb: "view" | "move"
+): { card: T } | { error: string } {
+  if (ownerFilter) {
+    const filtered = filterByOwner(matchingCards, ownerFilter, (c) => c.project);
+    if ("match" in filtered) return { card: filtered.match };
+    if ("ambiguous" in filtered) {
+      const owners = filtered.ambiguous.map((c) => c.project.user.email).join(", ");
+      return {
+        error: `Multiple projects with card "${identifier}" match owner "${ownerFilter}" (${owners}). Please specify the full owner email or project ID.`,
+      };
+    }
+    return {
+      error: `Card ${identifier} was not found or you do not have permission to ${notFoundVerb} it.`,
+    };
+  }
+
+  const owned = matchingCards.find((c) => c.project.userId === opmUserId);
+  if (owned) return { card: owned };
+
+  if (matchingCards.length === 1) return { card: matchingCards[0] };
+
+  if (matchingCards.length > 1) {
+    const owners = matchingCards.map((c) => c.project.user.name || c.project.user.email).join(", ");
+    const syntax =
+      commandVerb === "move"
+        ? `\`/opm move <owner>/${identifier} <column>\``
+        : `\`/opm get <owner>/${identifier}\``;
+    return {
+      error: `Multiple projects match card "${identifier}" (owned by: ${owners}). Please disambiguate with ${syntax}.`,
+    };
+  }
+
+  return {
+    error: `Card ${identifier} was not found or you do not have permission to ${notFoundVerb} it.`,
+  };
+}
+
+function parseCardIdentifierInput(
+  rawInput: string
+):
+  | { ownerFilter: string | null; projectKey: string; number: number; identifier: string }
+  | { error: string } {
+  const parsed = parseOwnerTarget(rawInput, '"PROJ-12" or "owner/PROJ-12"');
+  if ("error" in parsed) {
+    return { error: parsed.error };
+  }
+  const match = parsed.value.toUpperCase().match(/^([A-Z0-9]+)-(\d{1,9})$/);
+  if (!match) {
+    return {
+      error: `Invalid card identifier format "${rawInput}". Expected format like "PROJ-12" or "owner/PROJ-12".`,
+    };
+  }
+  const projectKey = match[1];
+  const number = parseInt(match[2], 10);
+  return {
+    ownerFilter: parsed.ownerFilter,
+    projectKey,
+    number,
+    identifier: `${projectKey}-${number}`,
+  };
+}
+
 export async function handleDiscordInteraction(
   interaction: DiscordInteraction
 ): Promise<DiscordInteractionResponse> {
@@ -474,7 +845,7 @@ export async function handleDiscordInteraction(
       data: {
         content:
           "**Open Project Manager Discord Bot**\n\n" +
-          "• `/opm link <token>`: Link your Discord account to your OPM user using an API token from your profile.\n" +
+          "• `/opm link <code-or-token>`: Link your Discord account using a short-lived link code (`POST /api/v1/integrations/discord/link-code`, recommended) or an API token.\n" +
           "• `/opm whoami`: Check which OPM user is linked to your Discord account.\n" +
           "• `/opm unlink`: Unlink your Discord account.\n" +
           "• `/opm list <key>`: List open cards in a project grouped by column (supports `owner/key`).\n" +
@@ -489,23 +860,48 @@ export async function handleDiscordInteraction(
   }
 
   if (subCommand === "link") {
-    const token = String(subArgs.token || "").trim();
-    if (!token) {
+    const credential = String(subArgs.code || subArgs.token || "").trim();
+    if (!credential) {
       return {
         type: 4,
         data: {
-          content: "Usage: `/opm link <token>` (generate an API token in your OPM User Profile modal).",
+          content:
+            "Usage: `/opm link <code-or-token>` — generate a short-lived single-use code via `POST /api/v1/integrations/discord/link-code` (recommended) or pass an API token from your User Profile.",
           flags: 64,
         },
       };
     }
 
-    const apiTokenAuth = await verifyApiTokenOnly(token);
+    if (credential.startsWith(DISCORD_LINK_CODE_PREFIX)) {
+      const linkedUser = await consumeDiscordLinkCode(credential);
+      if (!linkedUser) {
+        return {
+          type: 4,
+          data: {
+            content:
+              "Invalid, expired, or already used Discord link code. Generate a new code via `POST /api/v1/integrations/discord/link-code`.",
+            flags: 64,
+          },
+        };
+      }
+
+      await linkDiscordUser(discordUser.id, linkedUser.id, "discord-link");
+      return {
+        type: 4,
+        data: {
+          content: `Successfully linked your Discord account to Open Project Manager as **${linkedUser.name || linkedUser.email}** (${linkedUser.email}). This link is independent of your API tokens.`,
+          flags: 64,
+        },
+      };
+    }
+
+    const apiTokenAuth = await verifyApiTokenOnly(credential);
     if (!apiTokenAuth) {
       return {
         type: 4,
         data: {
-          content: "Invalid or expired API token. Please generate a new API token in your OPM User Profile.",
+          content:
+            "Invalid or expired API token. Use a short-lived link code (`POST /api/v1/integrations/discord/link-code`) or generate a new API token in your OPM User Profile.",
           flags: 64,
         },
       };
@@ -515,7 +911,9 @@ export async function handleDiscordInteraction(
     return {
       type: 4,
       data: {
-        content: `Successfully linked your Discord account to Open Project Manager as **${apiTokenAuth.session.name}** (${apiTokenAuth.session.email}).`,
+        content:
+          `Successfully linked your Discord account to Open Project Manager as **${apiTokenAuth.session.name}** (${apiTokenAuth.session.email}). ` +
+          `Tip: deleting or expiring this API token will also unlink Discord; use a short-lived link code (\`POST /api/v1/integrations/discord/link-code\`) to avoid keeping an API token active.`,
         flags: 64,
       },
     };
@@ -555,28 +953,29 @@ export async function handleDiscordInteraction(
   }
 
   if (subCommand === "get") {
-    let ownerFilter: string | null = null;
-    let rawId = String(subArgs.identifier || "").trim();
-    if (rawId.includes("/")) {
-      const slashIdx = rawId.indexOf("/");
-      ownerFilter = rawId.slice(0, slashIdx).trim().toLowerCase();
-      rawId = rawId.slice(slashIdx + 1).trim();
-    }
-
-    const match = rawId.toUpperCase().match(/^([A-Z0-9]+)-(\d{1,9})$/);
-    if (!match) {
+    const rawInput = String(subArgs.identifier || subArgs.card || "").trim();
+    if (!rawInput) {
       return {
         type: 4,
         data: {
-          content: `Invalid card identifier format "${rawId}". Expected format like "PROJ-12" or "owner/PROJ-12".`,
+          content: 'Usage: `/opm get <KEY-123>`. Example: `/opm get ENG-12`',
           flags: 64,
         },
       };
     }
 
-    const projectKey = match[1];
-    const number = parseInt(match[2], 10);
-    const identifier = `${projectKey}-${number}`;
+    const parsedId = parseCardIdentifierInput(rawInput);
+    if ("error" in parsedId) {
+      return {
+        type: 4,
+        data: {
+          content: parsedId.error,
+          flags: 64,
+        },
+      };
+    }
+
+    const { ownerFilter, projectKey, number, identifier } = parsedId;
 
     const matchingCards = await db.card.findMany({
       where: {
@@ -607,41 +1006,17 @@ export async function handleDiscordInteraction(
       },
     });
 
-    let card = null;
-    if (ownerFilter) {
-      card =
-        matchingCards.find(
-          (c) =>
-            c.project.user.name?.toLowerCase() === ownerFilter ||
-            c.project.user.email.toLowerCase() === ownerFilter ||
-            c.project.user.email.toLowerCase().startsWith(ownerFilter) ||
-            c.project.id === ownerFilter
-        ) || null;
-    } else {
-      card =
-        matchingCards.find((c) => c.project.userId === opmUser.id) ||
-        (matchingCards.length === 1 ? matchingCards[0] : null);
-    }
-
-    if (!card) {
-      if (matchingCards.length > 1 && !ownerFilter) {
-        const owners = matchingCards.map((c) => c.project.user.name || c.project.user.email).join(", ");
-        return {
-          type: 4,
-          data: {
-            content: `Multiple projects match card "${identifier}" (owned by: ${owners}). Please specify owner with \`/opm get <owner>/${identifier}\`.`,
-            flags: 64,
-          },
-        };
-      }
+    const picked = pickDisambiguatedCard(matchingCards, ownerFilter, opmUser.id, identifier, "get", "view");
+    if ("error" in picked) {
       return {
         type: 4,
         data: {
-          content: `Card ${identifier} was not found or you do not have permission to view it.`,
+          content: picked.error,
           flags: 64,
         },
       };
     }
+    const card = picked.card;
 
     const canView = await verifyProjectAccess(card.projectId, opmUser.id, "VIEWER");
     if (!canView) {
@@ -704,8 +1079,13 @@ export async function handleDiscordInteraction(
     }
 
     const project = resolution.project!;
+    const columns = await db.column.findMany({
+      where: { projectId: project.id },
+      orderBy: { order: "asc" },
+      select: { id: true, name: true, isDone: true },
+    });
 
-    if (project.columns.length === 0) {
+    if (columns.length === 0) {
       return {
         type: 4,
         data: {
@@ -715,25 +1095,10 @@ export async function handleDiscordInteraction(
       };
     }
 
-    const lines: string[] = [];
-    let currentLength = 0;
-    const maxDiscordContentLength = 1900;
-
-    for (let idx = 0; idx < project.columns.length; idx++) {
-      const c = project.columns[idx];
-      const line = `${idx + 1}. **${c.name}** (\`${c.id}\`)${c.isDone ? " *(Done)*" : ""}`;
-      if (currentLength + line.length + 50 > maxDiscordContentLength) {
-        lines.push(`_... and ${project.columns.length - idx} more columns_`);
-        break;
-      }
-      lines.push(line);
-      currentLength += line.length + 1;
-    }
-
     return {
       type: 4,
       data: {
-        content: `**Columns in ${project.name} (${project.key})**:\n${lines.join("\n")}`,
+        content: formatBoundedColumnsContent(project.name, project.key, columns),
         flags: 64,
       },
     };
@@ -763,40 +1128,37 @@ export async function handleDiscordInteraction(
     }
 
     const project = resolution.project!;
+    const columns = await db.column.findMany({
+      where: { projectId: project.id },
+      orderBy: { order: "asc" },
+      select: { id: true, name: true, group: true, isDone: true },
+    });
 
-    const openColumns = project.columns.filter((c) => !isClosedColumn(c));
-    const targetColumns = openColumns.length > 0 ? openColumns : project.columns;
+    const openColumns = columns.filter((c) => !isClosedColumn(c));
+    const targetColumns = openColumns.length > 0 ? openColumns : columns;
 
-    const sections: string[] = [];
-    let totalCards = 0;
-    let currentContentLength = 100; // Header estimate
-    const maxDiscordContentLength = 1900;
-    let truncated = false;
-
-    for (const col of targetColumns) {
-      const colCards = col.cards;
-      totalCards += colCards.length;
-
-      const cardLines: string[] = [];
-      for (let i = 0; i < colCards.length; i++) {
-        const c = colCards[i];
-        let cardTitle = c.title;
-        if (cardTitle.length > 60) {
-          cardTitle = cardTitle.slice(0, 57) + "...";
-        }
-        const cardLine = `• \`${project.key}-${c.number}\` - ${cardTitle}`;
-        if (currentContentLength + cardLine.length + 50 > maxDiscordContentLength) {
-          cardLines.push(`_... and ${colCards.length - i} more cards_`);
-          truncated = true;
-          break;
-        }
-        cardLines.push(cardLine);
-        currentContentLength += cardLine.length + 1;
-      }
-
-      sections.push(`**${col.name}** (${colCards.length}):\n${cardLines.length > 0 ? cardLines.join("\n") : "_No cards_"}`);
-      if (truncated) break;
+    if (targetColumns.length === 0) {
+      return {
+        type: 4,
+        data: {
+          content: `No open cards found in project **${project.name}** (\`${project.key}\`).`,
+          flags: 64,
+        },
+      };
     }
+
+    const targetColIds = targetColumns.map((c) => c.id);
+    const counts = await db.card.groupBy({
+      by: ["columnId"],
+      where: {
+        columnId: { in: targetColIds },
+        isArchived: false,
+      },
+      _count: { _all: true },
+    });
+
+    const countByColumnId = new Map(counts.map((row) => [row.columnId, row._count._all]));
+    const totalCards = counts.reduce((sum, row) => sum + row._count._all, 0);
 
     if (totalCards === 0) {
       return {
@@ -808,24 +1170,38 @@ export async function handleDiscordInteraction(
       };
     }
 
+    // Fetch only bounded cards for non-empty target columns (never closed columns)
+    const cardsPerColumn = await Promise.all(
+      targetColumns.map(async (col) => {
+        const total = countByColumnId.get(col.id) || 0;
+        if (total === 0) return [];
+        return await db.card.findMany({
+          where: { columnId: col.id, isArchived: false },
+          orderBy: { order: "asc" },
+          select: { number: true, title: true },
+          take: DISCORD_LIST_CARDS_PER_COLUMN,
+        });
+      })
+    );
+
+    const sections: ColumnListSection[] = targetColumns.map((col, idx) => ({
+      name: col.name,
+      totalCount: countByColumnId.get(col.id) || 0,
+      cards: cardsPerColumn[idx],
+    }));
+
     return {
       type: 4,
       data: {
-        content: `**Open Cards in ${project.name} (${project.key})**:\n\n${sections.join("\n\n")}`,
+        content: formatBoundedOpenCardsContent(project.name, project.key, sections),
         flags: 64,
+        allowed_mentions: { parse: [] },
       },
     };
   }
 
   if (subCommand === "move") {
-    let ownerFilter: string | null = null;
-    let rawId = String(subArgs.identifier || subArgs.card || "").trim();
-    if (rawId.includes("/")) {
-      const slashIdx = rawId.indexOf("/");
-      ownerFilter = rawId.slice(0, slashIdx).trim().toLowerCase();
-      rawId = rawId.slice(slashIdx + 1).trim();
-    }
-
+    const rawId = String(subArgs.identifier || subArgs.card || "").trim();
     const targetColInput = String(subArgs.column || subArgs.destination || subArgs.to || "").trim();
 
     if (!rawId || !targetColInput) {
@@ -838,20 +1214,18 @@ export async function handleDiscordInteraction(
       };
     }
 
-    const match = rawId.toUpperCase().match(/^([A-Z0-9]+)-(\d{1,9})$/);
-    if (!match) {
+    const parsedId = parseCardIdentifierInput(rawId);
+    if ("error" in parsedId) {
       return {
         type: 4,
         data: {
-          content: `Invalid card identifier format "${rawId}". Expected format like "PROJ-12" or "owner/PROJ-12".`,
+          content: parsedId.error,
           flags: 64,
         },
       };
     }
 
-    const projectKey = match[1];
-    const number = parseInt(match[2], 10);
-    const identifier = `${projectKey}-${number}`;
+    const { ownerFilter, projectKey, number, identifier } = parsedId;
 
     const matchingCards = await db.card.findMany({
       where: {
@@ -882,41 +1256,17 @@ export async function handleDiscordInteraction(
       },
     });
 
-    let card = null;
-    if (ownerFilter) {
-      card =
-        matchingCards.find(
-          (c) =>
-            c.project.user.name?.toLowerCase() === ownerFilter ||
-            c.project.user.email.toLowerCase() === ownerFilter ||
-            c.project.user.email.toLowerCase().startsWith(ownerFilter) ||
-            c.project.id === ownerFilter
-        ) || null;
-    } else {
-      card =
-        matchingCards.find((c) => c.project.userId === opmUser.id) ||
-        (matchingCards.length === 1 ? matchingCards[0] : null);
-    }
-
-    if (!card) {
-      if (matchingCards.length > 1 && !ownerFilter) {
-        const owners = matchingCards.map((c) => c.project.user.name || c.project.user.email).join(", ");
-        return {
-          type: 4,
-          data: {
-            content: `Multiple projects match card "${identifier}" (owned by: ${owners}). Please disambiguate with \`/opm move <owner>/${identifier} <column>\`.`,
-            flags: 64,
-          },
-        };
-      }
+    const picked = pickDisambiguatedCard(matchingCards, ownerFilter, opmUser.id, identifier, "move", "move");
+    if ("error" in picked) {
       return {
         type: 4,
         data: {
-          content: `Card ${identifier} was not found or you do not have permission to move it.`,
+          content: picked.error,
           flags: 64,
         },
       };
     }
+    const card = picked.card;
 
     const canMove = await verifyProjectAccess(card.projectId, opmUser.id, "MEMBER");
     if (!canMove) {
@@ -1001,7 +1351,7 @@ export async function handleDiscordInteraction(
   }
 
   if (subCommand === "create") {
-    const rawKey = String(subArgs.key || "").trim();
+    const rawKey = String(subArgs.key || subArgs.project || "").trim();
     const title = String(subArgs.title || "").trim();
     if (!rawKey || !title) {
       return {
