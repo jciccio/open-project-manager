@@ -45,6 +45,16 @@ export interface ImportAssignee {
   name?: string;
 }
 
+export interface ImportCardRelation {
+  targetCardSourceId: string;
+  type: "BLOCKS" | "BLOCKED_BY" | "RELATES_TO";
+}
+
+export interface ImportCardLink {
+  url: string;
+  title?: string;
+}
+
 export interface ImportCard {
   sourceId: string;
   columnSourceId: string;
