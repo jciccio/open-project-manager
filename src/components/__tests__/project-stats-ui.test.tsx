@@ -105,7 +105,7 @@ describe("DashboardClient workspace totals", () => {
     expect(within(screen.getByTestId("workspace-overdue")).getByText("3")).toBeInTheDocument();
   });
 
-  it("applies min-w-0 and truncate classes to prevent clipping", () => {
+  it("uses responsive grid columns without clipping stat labels at 768px", () => {
     const { container } = renderWithProviders(
       <DashboardClient
         user={{ name: "Tester", userId: "u1" }}
@@ -117,7 +117,13 @@ describe("DashboardClient workspace totals", () => {
     const bannerFlex = container.querySelector(".lg\\:flex-row");
     expect(bannerFlex).toBeInTheDocument();
 
+    const statsGrid = container.querySelector(".grid-cols-2.md\\:grid-cols-3.lg\\:grid-cols-5");
+    expect(statsGrid).toBeInTheDocument();
+
     const overdueLabel = screen.getByText("Overdue");
-    expect(overdueLabel).toHaveClass("truncate");
+    expect(overdueLabel).not.toHaveClass("truncate");
+
+    const projectsLabel = screen.getByText("Projects");
+    expect(projectsLabel).not.toHaveClass("truncate");
   });
 });
