@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Plus, Trash2, Layers, ChevronLeft, ChevronRight, Pencil } from "lucide-react";
+import { useState, useRef } from "react";
+import { Plus, Trash2, Layers, ChevronDown, ChevronLeft, ChevronRight, Pencil } from "lucide-react";
 import TaskCard from "./TaskCard";
 import { createCard } from "@/actions/cards";
 import { deleteColumn } from "@/actions/columns";
@@ -25,11 +25,19 @@ interface Props {
   onCardClick: (card: any) => void;
   onRefresh: () => void;
   onDragStartCard: (e: React.DragEvent, cardId: string, sourceColumnId: string) => void;
-  onDropCard: (e: React.DragEvent, targetColumnId: string) => void;
+  onDropCard: (
+    e: React.DragEvent,
+    targetColumnId: string,
+    targetCardId?: string,
+    position?: "before" | "after"
+  ) => void;
   canMoveLeft?: boolean;
   canMoveRight?: boolean;
   onMoveLeft?: () => void;
   onMoveRight?: () => void;
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
+  members?: Array<{ userId: string; user: { id: string; name: string; email: string } }>;
 }
 
 export default function KanbanColumn({
@@ -42,13 +50,19 @@ export default function KanbanColumn({
   canMoveRight,
   onMoveLeft,
   onMoveRight,
+  collapsed = false,
+  onToggleCollapsed,
+  members = [],
 }: Props) {
   const [isAdding, setIsAdding] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newPriority, setNewPriority] = useState("NONE");
   const [newPoints, setNewPoints] = useState<number | "">("");
-  const [newOwner, setNewOwner] = useState("");
+  const [newAssigneeId, setNewAssigneeId] = useState("");
   const [isHoveredOver, setIsHoveredOver] = useState(false);
+  const dragCounter = useRef(0);
+  const [dragOverCardId, setDragOverCardId] = useState<string | null>(null);
+  const [dropPosition, setDropPosition] = useState<"before" | "after">("before");
   const [loading, setLoading] = useState(false);
   const [deletingColumn, setDeletingColumn] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -62,19 +76,21 @@ export default function KanbanColumn({
     setLoading(true);
     setError("");
     try {
+      const assignee = members.find((m) => m.user.id === newAssigneeId)?.user;
       const res = await createCard({
         projectId: column.projectId,
         columnId: column.id,
         title: newTitle.trim(),
         priority: newPriority,
         points: newPoints === "" ? null : Number(newPoints),
-        owner: newOwner.trim() || null,
+        owner: assignee ? assignee.name || assignee.email : null,
+        assigneeIds: assignee ? [assignee.id] : [],
       });
 
       if (res.success) {
         setNewTitle("");
         setNewPoints("");
-        setNewOwner("");
+        setNewAssigneeId("");
         setIsAdding(false);
         onRefresh();
       } else {
@@ -96,32 +112,75 @@ export default function KanbanColumn({
       if (res.success) {
         onRefresh();
       } else {
-        setError(res.error || "Failed to delete column.");
+        setError(res.error || t("kanban.deleteColumnFailed"));
       }
     } catch {
-      setError("Failed to delete column.");
+      setError(t("kanban.deleteColumnFailed"));
     } finally {
       setDeletingColumn(false);
     }
   }
 
-  function handleDragOver(e: React.DragEvent) {
+  function handleDragEnter(e: React.DragEvent) {
     e.preventDefault();
+    dragCounter.current += 1;
     setIsHoveredOver(true);
   }
 
-  function handleDragLeave() {
-    setIsHoveredOver(false);
+  function handleDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    if (!isHoveredOver) {
+      setIsHoveredOver(true);
+    }
+  }
+
+  function handleDragLeave(e: React.DragEvent) {
+    dragCounter.current -= 1;
+    if (dragCounter.current <= 0 || (e.relatedTarget && !e.currentTarget.contains(e.relatedTarget as Node))) {
+      dragCounter.current = 0;
+      setIsHoveredOver(false);
+      setDragOverCardId(null);
+    }
   }
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
+    dragCounter.current = 0;
     setIsHoveredOver(false);
+    setDragOverCardId(null);
     onDropCard(e, column.id);
+  }
+
+  function handleCardDragOver(e: React.DragEvent, cardId: string) {
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const isAfter = e.clientY - rect.top > rect.height / 2;
+    setDragOverCardId(cardId);
+    setDropPosition(isAfter ? "after" : "before");
+  }
+
+  function handleCardDragLeave(e: React.DragEvent) {
+    if (e.relatedTarget && !e.currentTarget.contains(e.relatedTarget as Node)) {
+      setDragOverCardId(null);
+    }
+  }
+
+  function handleCardDrop(e: React.DragEvent, targetCardId: string) {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current = 0;
+    setIsHoveredOver(false);
+    const rect = e.currentTarget.getBoundingClientRect();
+    const isAfter = rect && rect.height > 0 ? e.clientY - rect.top > rect.height / 2 : dropPosition === "after";
+    const pos = isAfter ? "after" : "before";
+    setDragOverCardId(null);
+    onDropCard(e, column.id, targetCardId, pos);
   }
 
   return (
     <div
+      onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -132,6 +191,17 @@ export default function KanbanColumn({
       {/* Column Header */}
       <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-300 dark:border-slate-800">
         <div className="flex items-center gap-2">
+          {onToggleCollapsed && (
+            <button
+              onClick={onToggleCollapsed}
+              className="-ml-1 rounded-lg p-0.5 text-slate-500 hover:bg-slate-300 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-colors"
+              title={t(collapsed ? "kanban.expandColumn" : "kanban.collapseColumn")}
+              aria-label={t(collapsed ? "kanban.expandColumn" : "kanban.collapseColumn")}
+              aria-expanded={!collapsed}
+            >
+              <ChevronDown className={`h-4 w-4 transition-transform ${collapsed ? "-rotate-90" : ""}`} />
+            </button>
+          )}
           <ColumnGroupIcon
             group={column.group}
             isDone={column.isDone}
@@ -179,18 +249,20 @@ export default function KanbanColumn({
           >
             <Pencil className="h-3.5 w-3.5" />
           </button>
-          <button
-            onClick={() => setIsAdding(true)}
-            className="rounded-lg p-1.5 text-slate-600 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-colors"
-            title={t("kanban.addCard")}
-          >
-            <Plus className="h-4 w-4" />
-          </button>
+          {!collapsed && (
+            <button
+              onClick={() => setIsAdding(true)}
+              className="rounded-lg p-1.5 text-slate-600 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-colors"
+              title={t("kanban.addCard")}
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+          )}
           <button
             onClick={handleDeleteColumn}
             disabled={deletingColumn}
             className="rounded-lg p-1 text-slate-500 hover:bg-red-500/10 hover:text-red-500 transition-colors disabled:opacity-50"
-            title="Delete column"
+            title={t("kanban.deleteColumnTooltip")}
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>
@@ -211,17 +283,30 @@ export default function KanbanColumn({
       {error && <div className="mb-3"><ErrorBanner message={error} /></div>}
 
       {/* Cards List */}
-      <div className="flex-1 space-y-3 min-h-[150px] overflow-y-auto pr-0.5">
-        {column.cards && column.cards.length > 0 ? (
-          column.cards.map((card) => (
-            <div
-              key={card.id}
-              draggable
-              onDragStart={(e) => onDragStartCard(e, card.id, column.id)}
-            >
-              <TaskCard card={card} onClick={() => onCardClick(card)} />
-            </div>
-          ))
+      <div className={`flex-1 space-y-3 overflow-y-auto pr-0.5 ${collapsed ? "" : "min-h-[150px]"}`}>
+        {collapsed ? null : column.cards && column.cards.length > 0 ? (
+          column.cards.map((card) => {
+            const isTarget = dragOverCardId === card.id;
+            return (
+              <div
+                key={card.id}
+                draggable
+                onDragStart={(e) => onDragStartCard(e, card.id, column.id)}
+                onDragOver={(e) => handleCardDragOver(e, card.id)}
+                onDragLeave={handleCardDragLeave}
+                onDrop={(e) => handleCardDrop(e, card.id)}
+                className={`relative transition-all rounded-xl ${
+                  isTarget
+                    ? dropPosition === "before"
+                      ? "border-t-2 border-indigo-500 pt-1"
+                      : "border-b-2 border-indigo-500 pb-1"
+                    : ""
+                }`}
+              >
+                <TaskCard card={card} onClick={() => onCardClick(card)} />
+              </div>
+            );
+          })
         ) : (
           <div className="flex h-32 flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 dark:border-slate-800 p-4 text-center">
             <Layers className="h-6 w-6 text-slate-400 dark:text-slate-600 mb-1.5" />
@@ -231,14 +316,14 @@ export default function KanbanColumn({
       </div>
 
       {/* Inline Quick Add Form */}
-      {isAdding ? (
+      {collapsed ? null : isAdding ? (
         <form onSubmit={handleAddCard} className="mt-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-indigo-500/30 p-3 space-y-2.5 shadow-lg">
           <input
             type="text"
             placeholder={t("kanban.taskTitlePlaceholder")}
             value={newTitle}
             onChange={(e) => setNewTitle(e.target.value)}
-            className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none"
+            className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
             autoFocus
           />
 
@@ -246,31 +331,37 @@ export default function KanbanColumn({
             <select
               value={newPriority}
               onChange={(e) => setNewPriority(e.target.value)}
-              className="flex-1 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2 py-1 text-[11px] text-slate-900 dark:text-white focus:outline-none"
+              className="flex-1 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2 py-1 text-[11px] text-slate-900 dark:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
             >
-              <option value="NONE">None</option>
-              <option value="LOW">Low</option>
-              <option value="MEDIUM">Medium</option>
-              <option value="HIGH">High</option>
-              <option value="URGENT">Urgent</option>
+              <option value="NONE">{t("cardModal.priorityNone")}</option>
+              <option value="LOW">{t("cardModal.priorityLow")}</option>
+              <option value="MEDIUM">{t("cardModal.priorityMedium")}</option>
+              <option value="HIGH">{t("cardModal.priorityHigh")}</option>
+              <option value="URGENT">{t("cardModal.priorityUrgent")}</option>
             </select>
 
             <input
               type="number"
-              placeholder="Pts"
+              placeholder={t("kanban.pts")}
               value={newPoints}
               onChange={(e) => setNewPoints(e.target.value === "" ? "" : Number(e.target.value))}
-              className="w-16 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2 py-1 text-[11px] text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none"
+              className="w-16 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2 py-1 text-[11px] text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
             />
           </div>
 
-          <input
-            type="text"
-            placeholder={t("kanban.assigneePlaceholder")}
-            value={newOwner}
-            onChange={(e) => setNewOwner(e.target.value)}
-            className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none"
-          />
+          <select
+            aria-label={t("cardModal.owner")}
+            value={newAssigneeId}
+            onChange={(e) => setNewAssigneeId(e.target.value)}
+            className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
+          >
+            <option value="">{t("cardModal.unassigned")}</option>
+            {members.map((m) => (
+              <option key={m.user.id} value={m.user.id}>
+                {m.user.name || m.user.email}
+              </option>
+            ))}
+          </select>
 
           <div className="flex items-center justify-end gap-2 pt-1">
             <button

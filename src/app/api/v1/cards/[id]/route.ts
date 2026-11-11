@@ -3,6 +3,7 @@ import { getApiSession } from "@/lib/auth";
 import { updateCard, deleteCard } from "@/lib/services/cards";
 import { db } from "@/lib/db";
 import { verifyProjectAccess } from "@/lib/permissions";
+import { serviceErrorResponse } from "@/lib/api/serviceErrorResponse";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -24,7 +25,10 @@ export async function GET(request: NextRequest, { params }: Props) {
         project: true,
         type: true,
         labels: { include: { label: true } },
-        comments: { orderBy: { createdAt: "asc" } },
+        comments: {
+          orderBy: { createdAt: "asc" },
+          include: { authorUser: { select: { id: true, name: true, email: true } } },
+        },
         assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
         parent: { select: { id: true, number: true, title: true } },
         children: { select: { id: true, number: true, title: true, completedAt: true } },
@@ -52,7 +56,7 @@ export async function PUT(request: NextRequest, { params }: Props) {
     const body = await request.json();
     const res = await updateCard(id, body, session.userId);
     if (!res.success) {
-      return NextResponse.json({ error: res.error }, { status: 400 });
+      return serviceErrorResponse(res);
     }
 
     return NextResponse.json({ success: true, data: res.data });
@@ -70,7 +74,7 @@ export async function DELETE(request: NextRequest, { params }: Props) {
   const { id } = await params;
   const res = await deleteCard(id, session.userId);
   if (!res.success) {
-    return NextResponse.json({ error: res.error }, { status: 400 });
+    return serviceErrorResponse(res);
   }
 
   return NextResponse.json({ success: true });

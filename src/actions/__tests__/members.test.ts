@@ -112,4 +112,79 @@ describe("Project Members Server Actions", () => {
       await db.projectMember.findUnique({ where: { projectId_userId: { projectId, userId: outsiderId } } })
     ).toBeNull();
   });
+
+  describe("changing a secondary owner's role", () => {
+    let adminId: string;
+    let adminEmail: string;
+
+    beforeEach(async () => {
+      const admin = await createTestUser(`mem-admin-${Date.now()}`);
+      adminId = admin.user.id;
+      adminEmail = admin.user.email;
+      await db.projectMember.createMany({
+        data: [
+          { projectId, userId: adminId, role: "ADMIN" },
+          { projectId, userId: memberId, role: "OWNER" },
+        ],
+      });
+    });
+
+    afterEach(async () => {
+      await cleanupTestUser(adminId);
+    });
+
+    const storedRole = async (userId: string) =>
+      (await db.projectMember.findUnique({ where: { projectId_userId: { projectId, userId } } }))?.role;
+
+    it("refuses an ADMIN and leaves the row unchanged", async () => {
+      await createSession({ userId: adminId, email: adminEmail, name: "Admin" });
+
+      const res = await updateMemberRole(projectId, memberId, "VIEWER");
+
+      expect(res.success).toBe(false);
+      expect(res.error).toContain("Only the project owner");
+      expect(await storedRole(memberId)).toBe("OWNER");
+    });
+
+    it("still lets an owner change it", async () => {
+      const res = await updateMemberRole(projectId, memberId, "VIEWER");
+
+      expect(res.success).toBe(true);
+      expect(await storedRole(memberId)).toBe("VIEWER");
+    });
+
+    it("still lets an ADMIN change a regular member", async () => {
+      await db.projectMember.update({
+        where: { projectId_userId: { projectId, userId: memberId } },
+        data: { role: "MEMBER" },
+      });
+      await createSession({ userId: adminId, email: adminEmail, name: "Admin" });
+
+      const res = await updateMemberRole(projectId, memberId, "VIEWER");
+
+      expect(res.success).toBe(true);
+      expect(await storedRole(memberId)).toBe("VIEWER");
+    });
+  });
+
+  it("rejects a role outside the four project roles", async () => {
+    await addProjectMember(projectId, memberEmail, "MEMBER");
+
+    const updateRes = await updateMemberRole(projectId, memberId, "SUPERUSER" as never);
+    expect(updateRes.success).toBe(false);
+    expect(
+      (await db.projectMember.findUnique({ where: { projectId_userId: { projectId, userId: memberId } } }))?.role
+    ).toBe("MEMBER");
+
+    const addRes = await addProjectMember(projectId, outsiderEmail, "SUPERUSER" as never);
+    expect(addRes.success).toBe(false);
+    expect(
+      await db.projectMember.findUnique({ where: { projectId_userId: { projectId, userId: outsiderId } } })
+    ).toBeNull();
+  });
+
+  it("reports a missing member instead of a generic failure", async () => {
+    const res = await updateMemberRole(projectId, outsiderId, "VIEWER");
+    expect(res).toEqual({ success: false, error: "Member not found in project", kind: "not_found" });
+  });
 });

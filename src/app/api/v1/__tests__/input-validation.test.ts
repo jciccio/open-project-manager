@@ -7,6 +7,10 @@ import { POST as createViewRoute } from "../views/route";
 import { PUT as updateViewRoute } from "../views/[id]/route";
 import { POST as createCardTypeRoute } from "../card-types/route";
 import { PUT as updateCardTypeRoute } from "../card-types/[id]/route";
+import { POST as createProjectRoute } from "../projects/route";
+import { PUT as updateProjectRoute } from "../projects/[id]/route";
+import { POST as createCommentRoute } from "../cards/[id]/comments/route";
+import { PATCH as updateCommentRoute } from "../comments/[id]/route";
 import {
   cleanupTestUser,
   createTestCard,
@@ -16,6 +20,7 @@ import {
   createTestUser,
 } from "@/test/helpers";
 import { db } from "@/lib/db";
+import { MAX_COMMENT_LENGTH } from "@/lib/validation/comments";
 
 describe("REST API input validation", () => {
   let userId: string;
@@ -66,6 +71,27 @@ describe("REST API input validation", () => {
     expect(body.error).toMatch(/^points: /);
   });
 
+  it("PUT /cards/:id returns 400 for fractional points", async () => {
+    const card = await createTestCard(projectId, columnId);
+    const { status, body } = await read(
+      await updateCardRoute(jsonRequest(`/cards/${card.id}`, "PUT", { points: 1.5 }), params(card.id))
+    );
+    expect(status).toBe(400);
+    expect(body.error).toMatch(/^points: /);
+  });
+
+  it("POST /projects and PUT /projects/:id return 400 for a non-string or blank name", async () => {
+    const created = await read(await createProjectRoute(jsonRequest("/projects", "POST", { name: 42 })));
+    expect(created.status).toBe(400);
+    expect(created.body.error).toBe("Project name is required");
+
+    const updated = await read(
+      await updateProjectRoute(jsonRequest(`/projects/${projectId}`, "PUT", { name: "  " }), params(projectId))
+    );
+    expect(updated.status).toBe(400);
+    expect(updated.body.error).toBe("Project name is required");
+  });
+
   it("POST /cards/reorder returns 400 for a bad item or an unknown body key", async () => {
     const card = await createTestCard(projectId, columnId);
     const badItem = await read(
@@ -109,5 +135,33 @@ describe("REST API input validation", () => {
     );
     expect(updated.status).toBe(400);
     expect(updated.body.error).toMatch(/^icon: /);
+  });
+
+  it("rejects blank and over-limit comment content on create and update", async () => {
+    const card = await createTestCard(projectId, columnId);
+    const tooLong = "x".repeat(MAX_COMMENT_LENGTH + 1);
+
+    const blank = await read(await createCommentRoute(jsonRequest(`/cards/${card.id}/comments`, "POST", { content: "   " }), params(card.id)));
+    expect(blank.status).toBe(400);
+    expect(blank.body.error).toBe("Comment content cannot be empty");
+
+    const longCreate = await read(await createCommentRoute(jsonRequest(`/cards/${card.id}/comments`, "POST", { content: tooLong }), params(card.id)));
+    expect(longCreate.status).toBe(400);
+    expect(longCreate.body.error).toMatch(/characters or fewer/);
+    expect(await db.comment.count({ where: { cardId: card.id } })).toBe(0);
+
+    const atLimit = await read(
+      await createCommentRoute(jsonRequest(`/cards/${card.id}/comments`, "POST", { content: "x".repeat(MAX_COMMENT_LENGTH) }), params(card.id))
+    );
+    expect(atLimit.status).toBe(201);
+    const commentId = atLimit.body.data.id;
+
+    const longUpdate = await read(await updateCommentRoute(jsonRequest(`/comments/${commentId}`, "PATCH", { content: tooLong }), params(commentId)));
+    expect(longUpdate.status).toBe(400);
+    expect(longUpdate.body.error).toMatch(/characters or fewer/);
+
+    const trimmed = await read(await updateCommentRoute(jsonRequest(`/comments/${commentId}`, "PATCH", { content: "  Edited  " }), params(commentId)));
+    expect(trimmed.status).toBe(200);
+    expect((await db.comment.findUnique({ where: { id: commentId } }))?.content).toBe("Edited");
   });
 });

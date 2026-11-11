@@ -106,7 +106,7 @@ describe("Labels & Comments Server Actions", () => {
   });
 
   it("adds, updates, and deletes comments on a card", async () => {
-    const addRes = await addComment(cardId, "Tester", "This is a test comment");
+    const addRes = await addComment(cardId, "This is a test comment");
     expect(addRes.success).toBe(true);
     expect(addRes.data?.content).toBe("This is a test comment");
 
@@ -118,5 +118,17 @@ describe("Labels & Comments Server Actions", () => {
     const delRes = await deleteComment(commentId);
     expect(delRes.success).toBe(true);
   });
-});
 
+  it("rejects non-string and over-limit comment content", async () => {
+    const nonString = await addComment(cardId, 42 as unknown as string);
+    expect(nonString).toEqual({ success: false, error: "Comment content cannot be empty", kind: "invalid" });
+
+    const tooLong = await addComment(cardId, "x".repeat(50_001));
+    expect(tooLong.success).toBe(false);
+    expect(tooLong.error).toMatch(/characters or fewer/);
+
+    const created = await addComment(cardId, "Original");
+    const updateRes = await updateComment(created.data!.id, 42 as unknown as string);
+    expect(updateRes).toEqual({ success: false, error: "Comment content cannot be empty", kind: "invalid" });
+  });
+});

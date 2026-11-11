@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useTranslation } from "./LanguageProvider";
 import ColorPicker from "./ColorPicker";
 import { DEFAULT_PROJECT_COLOR } from "@/lib/colors";
+import ErrorBanner from "./ErrorBanner";
 
 interface Props {
   onClose: () => void;
@@ -52,7 +53,7 @@ export default function NewProjectModal({ onClose }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl">
         <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
           <div className="flex items-center gap-2.5">
@@ -69,11 +70,7 @@ export default function NewProjectModal({ onClose }: Props) {
           </button>
         </div>
 
-        {error && (
-          <div className="mt-4 rounded-lg bg-red-500/10 border border-red-500/20 p-3 text-xs text-red-500 font-medium">
-            {error}
-          </div>
-        )}
+        {error && <div className="mt-4"><ErrorBanner message={error} /></div>}
 
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
           <div>

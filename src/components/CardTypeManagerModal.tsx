@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { X, Layers, Plus, Trash2, Pencil, Check } from "lucide-react";
 import { getCardTypes, createCardType, updateCardType, deleteCardType } from "@/actions/cardTypes";
 import { useTranslation } from "./LanguageProvider";
 import { CARD_TYPE_ICON_NAMES, CardTypeIcon } from "./cardTypeIcons";
 import ColorPicker from "./ColorPicker";
 import ErrorBanner from "./ErrorBanner";
-import { DEFAULT_PROJECT_COLOR, PROJECT_COLORS } from "@/lib/colors";
+import { DEFAULT_PROJECT_COLOR } from "@/lib/colors";
 
 interface Props {
   projectId: string;
@@ -39,11 +39,7 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
 
   const { t } = useTranslation();
 
-  useEffect(() => {
-    fetchCardTypes();
-  }, [projectId]);
-
-  async function fetchCardTypes() {
+  const fetchCardTypes = useCallback(async () => {
     try {
       const res = await getCardTypes(projectId);
       if (res.success && res.data) {
@@ -52,7 +48,11 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
     } catch {
       setError("Failed to load card types.");
     }
-  }
+  }, [projectId]);
+
+  useEffect(() => {
+    fetchCardTypes();
+  }, [fetchCardTypes]);
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -122,7 +122,7 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-6">
         <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
           <div className="flex items-center gap-2.5">
@@ -210,7 +210,7 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
                             type="text"
                             value={editingName}
                             onChange={(e) => setEditingName(e.target.value)}
-                            className="flex-1 rounded-md bg-white dark:bg-slate-900 border border-indigo-500 px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none"
+                            className="flex-1 rounded-md bg-white dark:bg-slate-900 border border-indigo-500 px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
                             autoFocus
                           />
                           <div className="flex items-center gap-1">

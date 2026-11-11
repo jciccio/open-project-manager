@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
 import { deleteAttachment } from "@/lib/services/attachments";
 import { db } from "@/lib/db";
+import { verifyProjectAccess } from "@/lib/permissions";
 import fs from "fs";
 import { getAttachmentFilePath, canRenderInline, contentDispositionHeader } from "@/lib/attachmentStorage";
+import { serviceErrorResponse } from "@/lib/api/serviceErrorResponse";
 
 export async function GET(
   request: NextRequest,
@@ -17,10 +19,10 @@ export async function GET(
   const { id: attachmentId } = await params;
   const attachment = await db.attachment.findFirst({
     where: { id: attachmentId },
-    include: { card: { include: { project: true } } },
+    include: { card: { select: { projectId: true } } },
   });
 
-  if (!attachment || attachment.card.project.userId !== session.userId) {
+  if (!attachment || !(await verifyProjectAccess(attachment.card.projectId, session.userId, "VIEWER"))) {
     return NextResponse.json({ error: "Attachment not found or access denied" }, { status: 404 });
   }
 
@@ -54,7 +56,7 @@ export async function DELETE(
   const res = await deleteAttachment(attachmentId, session.userId);
 
   if (!res.success) {
-    return NextResponse.json({ error: res.error }, { status: 400 });
+    return serviceErrorResponse(res);
   }
 
   return NextResponse.json({ success: true, data: res.data });

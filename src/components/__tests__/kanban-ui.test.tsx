@@ -57,12 +57,31 @@ describe("Kanban & Project UI Components", () => {
 
     expect(screen.getByText("Implement Stripe Webhooks")).toBeInTheDocument();
     expect(screen.getByText("Backend")).toBeInTheDocument();
-    expect(screen.getByText("HIGH")).toBeInTheDocument();
+    expect(screen.getByText("High")).toBeInTheDocument();
     expect(screen.getByText("8 pts")).toBeInTheDocument();
     expect(screen.getByText("A")).toBeInTheDocument(); // Alice avatar initial
 
     fireEvent.click(screen.getByText("Implement Stripe Webhooks"));
     expect(handleClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders TaskCard with custom priority fallback and owner tooltip", () => {
+    const mockCard = {
+      id: "c2",
+      title: "Unknown Priority Task",
+      description: null,
+      priority: "CRITICAL",
+      points: null,
+      dueDate: null,
+      owner: "Alice",
+      labels: [],
+      comments: [],
+    };
+
+    renderWithProviders(<TaskCard card={mockCard} onClick={vi.fn()} />);
+
+    expect(screen.getByText("CRITICAL")).toBeInTheDocument();
+    expect(screen.getByTitle("Assigned to Alice")).toBeInTheDocument();
   });
 
   it("renders KanbanColumn move buttons when enabled", () => {

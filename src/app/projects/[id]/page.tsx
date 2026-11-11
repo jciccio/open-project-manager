@@ -1,4 +1,3 @@
-import Header from "@/components/Header";
 import KanbanBoard from "@/components/KanbanBoard";
 import { getProjectById } from "@/actions/projects";
 import { getSession } from "@/lib/auth";
@@ -20,14 +19,12 @@ export default async function ProjectBoardPage({ params }: Props) {
   }
   const res = await getProjectById(id);
 
+  if (!res.success && "kind" in res && res.kind === "internal") {
+    throw new Error(res.error);
+  }
   if (!res.success || !res.data) {
     notFound();
   }
 
-  return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white flex flex-col overflow-hidden">
-      <Header user={session} />
-      <KanbanBoard project={res.data} />
-    </div>
-  );
+  return <KanbanBoard project={res.data} />;
 }

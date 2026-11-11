@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useDeferredValue, useMemo } from "react";
 import {
   Plus,
   ArrowLeft,
@@ -15,8 +15,6 @@ import {
   Bookmark,
   BookmarkPlus,
   Trash2,
-  Star,
-  Check,
   Tag,
   X,
   Pencil,
@@ -24,23 +22,27 @@ import {
   Users,
   Lock,
   Globe,
+  Webhook,
 } from "lucide-react";
 import Link from "next/link";
 import KanbanColumn from "./KanbanColumn";
 import CardDetailModal from "./CardDetailModal";
 import EditProjectModal from "./EditProjectModal";
 import ProjectMembersModal from "./ProjectMembersModal";
+import WebhookManagerModal from "./WebhookManagerModal";
 import ListView from "./views/ListView";
 import AnalyticsView from "./views/AnalyticsView";
 import CalendarView from "./views/CalendarView";
+import ErrorBanner from "./ErrorBanner";
 
 import { createColumn, reorderColumns } from "@/actions/columns";
-import { moveCard } from "@/actions/cards";
+import { moveCard, reorderCards } from "@/actions/cards";
 import { unarchiveProject } from "@/actions/projects";
-import { createSavedView, deleteSavedView, updateSavedView } from "@/actions/views";
+import { createSavedView, deleteSavedView } from "@/actions/views";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "./LanguageProvider";
-import { COLUMN_GROUPS, DEFAULT_COLUMN_GROUP, type ColumnGroup } from "@/lib/columnGroups";
+import { COLUMN_GROUPS, DEFAULT_COLUMN_GROUP, isClosedColumn, type ColumnGroup } from "@/lib/columnGroups";
+import { filterCards } from "@/lib/cardFilter";
 
 interface Props {
   project: any;
@@ -57,6 +59,8 @@ export default function KanbanBoard({ project }: Props) {
   const [loadingCol, setLoadingCol] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+  const [expandedClosedColumnIds, setExpandedClosedColumnIds] = useState<ReadonlySet<string>>(new Set());
   const [priorityFilter, setPriorityFilter] = useState<string>("ALL");
   const [typeFilter, setTypeFilter] = useState<string>("ALL");
   const [hideSubtasks, setHideSubtasks] = useState(false);
@@ -70,9 +74,44 @@ export default function KanbanBoard({ project }: Props) {
   const [savingViewLoading, setSavingViewLoading] = useState(false);
   const [isEditProjectOpen, setIsEditProjectOpen] = useState(false);
   const [isMembersModalOpen, setIsMembersModalOpen] = useState(false);
+  const [isWebhooksModalOpen, setIsWebhooksModalOpen] = useState(false);
+  const [boardError, setBoardError] = useState("");
 
   const { t } = useTranslation();
+
+  function reportResult(res: { success: boolean; error?: string }) {
+    setBoardError(res.success ? "" : res.error || t("kanban.actionFailed"));
+    return res.success;
+  }
   const router = useRouter();
+
+  const applySavedView = useCallback((view: any) => {
+    setSelectedViewId(view.id);
+    try {
+      const filters = typeof view.filterJson === "string" ? JSON.parse(view.filterJson) : view.filterJson;
+      if (filters.query !== undefined) setSearchQuery(filters.query);
+
+      if (filters.priority !== undefined) {
+        const validPriorities = ["ALL", "NONE", "LOW", "MEDIUM", "HIGH", "URGENT"];
+        setPriorityFilter(validPriorities.includes(filters.priority) ? filters.priority : "ALL");
+      }
+
+      if (filters.typeId !== undefined) {
+        const isValidType =
+          filters.typeId === "ALL" ||
+          filters.typeId === "NONE" ||
+          (project.cardTypes && project.cardTypes.some((ct: any) => ct.id === filters.typeId));
+        setTypeFilter(isValidType ? filters.typeId : "ALL");
+      }
+
+      if (filters.hideSubtasks !== undefined) setHideSubtasks(Boolean(filters.hideSubtasks));
+      if (filters.viewMode && ["kanban", "list", "analytics", "calendar"].includes(filters.viewMode)) {
+        setViewMode(filters.viewMode);
+      }
+    } catch (e) {
+      console.error("Failed to parse filterJson:", e);
+    }
+  }, []);
 
   // Apply default saved view on initial load if present
   useEffect(() => {
@@ -82,23 +121,8 @@ export default function KanbanBoard({ project }: Props) {
         applySavedView(defaultView);
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id]);
-
-  function applySavedView(view: any) {
-    setSelectedViewId(view.id);
-    try {
-      const filters = typeof view.filterJson === "string" ? JSON.parse(view.filterJson) : view.filterJson;
-      if (filters.query !== undefined) setSearchQuery(filters.query);
-      if (filters.priority !== undefined) setPriorityFilter(filters.priority);
-      if (filters.typeId !== undefined) setTypeFilter(filters.typeId);
-      if (filters.hideSubtasks !== undefined) setHideSubtasks(filters.hideSubtasks);
-      if (filters.viewMode && ["kanban", "list", "analytics", "calendar"].includes(filters.viewMode)) {
-        setViewMode(filters.viewMode);
-      }
-    } catch (e) {
-      console.error("Failed to parse filterJson:", e);
-    }
-  }
 
   function handleSelectView(viewId: string) {
     if (viewId === "all") {
@@ -135,7 +159,7 @@ export default function KanbanBoard({ project }: Props) {
     });
     setSavingViewLoading(false);
 
-    if (res.success && res.data) {
+    if (reportResult(res) && res.data) {
       let updated = [...savedViews];
       if (newViewIsDefault) {
         updated = updated.map((v) => ({ ...v, isDefault: false }));
@@ -156,7 +180,7 @@ export default function KanbanBoard({ project }: Props) {
     if (!window.confirm(t("savedViews.confirmDelete", { name: target.name }))) return;
 
     const res = await deleteSavedView(viewId);
-    if (res.success) {
+    if (reportResult(res)) {
       setSavedViews((prev) => prev.filter((v) => v.id !== viewId));
       if (selectedViewId === viewId) {
         handleSelectView("all");
@@ -172,7 +196,7 @@ export default function KanbanBoard({ project }: Props) {
     const res = await createColumn(project.id, newColumnName.trim(), { group: newColumnGroup });
     setLoadingCol(false);
 
-    if (res.success) {
+    if (reportResult(res)) {
       setNewColumnName("");
       setNewColumnGroup(DEFAULT_COLUMN_GROUP);
       setIsAddingColumn(false);
@@ -184,7 +208,7 @@ export default function KanbanBoard({ project }: Props) {
     setRestoring(true);
     const res = await unarchiveProject(project.id);
     setRestoring(false);
-    if (res.success) {
+    if (reportResult(res)) {
       router.push("/");
       router.refresh();
     }
@@ -202,7 +226,7 @@ export default function KanbanBoard({ project }: Props) {
 
     const orderedIds = newColumns.map((c: any) => c.id);
     const res = await reorderColumns(project.id, orderedIds);
-    if (res.success) {
+    if (reportResult(res)) {
       router.refresh();
     }
   }
@@ -211,21 +235,91 @@ export default function KanbanBoard({ project }: Props) {
     e.dataTransfer.setData("text/plain", JSON.stringify({ cardId, sourceColumnId }));
   }
 
-  async function handleDropCard(e: React.DragEvent, targetColumnId: string) {
+  async function handleDropCard(
+    e: React.DragEvent,
+    targetColumnId: string,
+    targetCardId?: string,
+    position?: "before" | "after"
+  ) {
     const rawData = e.dataTransfer.getData("text/plain");
     if (!rawData) return;
 
     try {
       const { cardId, sourceColumnId } = JSON.parse(rawData);
-      if (sourceColumnId === targetColumnId) return;
 
+      const sourceCol = project.columns.find((c: any) => c.id === sourceColumnId);
       const targetCol = project.columns.find((c: any) => c.id === targetColumnId);
-      const newOrder = targetCol?.cards ? targetCol.cards.length : 0;
+      if (!sourceCol || !targetCol) return;
 
-      await moveCard(cardId, targetColumnId, newOrder);
-      router.refresh();
+      const card = sourceCol.cards?.find((c: any) => c.id === cardId);
+      if (!card) return;
+
+      // If dropped onto itself in the same column, do nothing
+      if (sourceColumnId === targetColumnId && targetCardId === cardId) {
+        return;
+      }
+
+      const ORDER_GAP = 10000;
+
+      if (sourceColumnId === targetColumnId) {
+        const currentCards = [...(targetCol.cards || [])];
+        const currentIndex = currentCards.findIndex((c: any) => c.id === cardId);
+        if (currentIndex === -1) return;
+
+        const [movedCard] = currentCards.splice(currentIndex, 1);
+
+        if (targetCardId) {
+          const targetIndex = currentCards.findIndex((c: any) => c.id === targetCardId);
+          if (targetIndex !== -1) {
+            const insertIndex = position === "after" ? targetIndex + 1 : targetIndex;
+            currentCards.splice(insertIndex, 0, movedCard);
+          } else {
+            currentCards.push(movedCard);
+          }
+        } else {
+          currentCards.push(movedCard);
+        }
+
+        const reorderItems = currentCards.map((c: any, index: number) => ({
+          id: c.id,
+          order: (index + 1) * ORDER_GAP,
+          columnId: targetColumnId,
+        }));
+
+        const res = await reorderCards(reorderItems);
+        if (reportResult(res)) {
+          router.refresh();
+        }
+      } else {
+        const targetCards = [...(targetCol.cards || [])];
+        const movedCard = { ...card, columnId: targetColumnId };
+
+        if (targetCardId) {
+          const targetIndex = targetCards.findIndex((c: any) => c.id === targetCardId);
+          if (targetIndex !== -1) {
+            const insertIndex = position === "after" ? targetIndex + 1 : targetIndex;
+            targetCards.splice(insertIndex, 0, movedCard);
+          } else {
+            targetCards.push(movedCard);
+          }
+        } else {
+          targetCards.push(movedCard);
+        }
+
+        const reorderItems = targetCards.map((c: any, index: number) => ({
+          id: c.id,
+          order: (index + 1) * ORDER_GAP,
+          columnId: targetColumnId,
+        }));
+
+        const res = await reorderCards(reorderItems);
+        if (reportResult(res)) {
+          router.refresh();
+        }
+      }
     } catch (err) {
       console.error("Drop card error:", err);
+      setBoardError(t("kanban.actionFailed"));
     }
   }
 
@@ -236,33 +330,32 @@ export default function KanbanBoard({ project }: Props) {
     : null;
 
   // Filter cards by search, priority, type & subtask visibility for Kanban view
-  const columnsWithFilteredCards = project.columns.map((col: any) => {
-    const filteredCards = (col.cards || []).filter((card: any) => {
-      if (hideSubtasks && card.parentId) {
-        return false;
-      }
+  const columnsWithFilteredCards = useMemo(
+    () =>
+      project.columns.map((col: any) => ({
+        ...col,
+        cards: filterCards(col.cards || [], {
+          searchQuery: deferredSearchQuery,
+          priorityFilter,
+          typeFilter,
+          hideSubtasks,
+        }),
+      })),
+    [project.columns, deferredSearchQuery, priorityFilter, typeFilter, hideSubtasks]
+  );
 
-      const matchesSearch =
-        searchQuery === "" ||
-        card.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (card.description && card.description.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        (card.owner && card.owner.toLowerCase().includes(searchQuery.toLowerCase()));
+  const isFiltering = deferredSearchQuery.trim() !== "" || priorityFilter !== "ALL" || typeFilter !== "ALL";
 
-      const matchesPriority =
-        priorityFilter === "ALL" || card.priority === priorityFilter;
-
-      const matchesType =
-        typeFilter === "ALL" ||
-        (typeFilter === "NONE" ? !card.typeId : card.typeId === typeFilter);
-
-      return matchesSearch && matchesPriority && matchesType;
+  function toggleClosedColumn(columnId: string) {
+    setExpandedClosedColumnIds((current) => {
+      const next = new Set(current);
+      if (!next.delete(columnId)) next.add(columnId);
+      return next;
     });
-
-    return { ...col, cards: filteredCards };
-  });
+  }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-65px)] overflow-hidden bg-slate-100/70 dark:bg-slate-950">
+    <main className="flex flex-col flex-1 min-h-0 overflow-hidden bg-slate-100/70 dark:bg-slate-950">
       {/* Archived Banner */}
       {project.isArchived && (
         <div className="bg-amber-500/15 border-b border-amber-500/30 px-6 py-2 flex items-center justify-between text-xs text-amber-800 dark:text-amber-300 shrink-0">
@@ -281,6 +374,12 @@ export default function KanbanBoard({ project }: Props) {
         </div>
       )}
 
+      {boardError && (
+        <div className="px-6 pt-3 shrink-0">
+          <ErrorBanner id="board-error" message={boardError} />
+        </div>
+      )}
+
       {/* Board Top Header & View Mode Switcher */}
       <div className="glass-panel border-b border-slate-200 dark:border-slate-800 px-6 py-4 shrink-0">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -288,7 +387,7 @@ export default function KanbanBoard({ project }: Props) {
             <Link
               href={project.isArchived ? "/archived" : "/"}
               className="rounded-xl bg-slate-200/80 dark:bg-slate-800/80 p-2 text-slate-600 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white transition-colors"
-              title={project.isArchived ? "Back to Archived Projects" : "Back to Projects"}
+              title={project.isArchived ? t("kanban.backToArchived") : t("kanban.backToProjects")}
             >
               <ArrowLeft className="h-4 w-4" />
             </Link>
@@ -315,34 +414,43 @@ export default function KanbanBoard({ project }: Props) {
                       ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
                       : "bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20"
                   }`}
-                  title={project.visibility === "INTERNAL" ? "Internal project" : "Private project"}
+                  title={project.visibility === "INTERNAL" ? t("kanban.internalProject") : t("kanban.privateProject")}
                 >
                   {project.visibility === "INTERNAL" ? (
                     <Globe className="h-2.5 w-2.5" />
                   ) : (
                     <Lock className="h-2.5 w-2.5" />
                   )}
-                  <span>{project.visibility === "INTERNAL" ? "Internal" : "Private"}</span>
+                  <span>{project.visibility === "INTERNAL" ? t("kanban.internal") : t("kanban.private")}</span>
                 </span>
                 <button
                   type="button"
                   onClick={() => setIsMembersModalOpen(true)}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-slate-200/80 dark:bg-slate-800/80 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors"
-                  title="Manage project members and access"
+                  title={t("kanban.manageMembers")}
                 >
                   <Users className="h-3.5 w-3.5 text-indigo-500" />
-                  <span>Members</span>
+                  <span>{t("kanban.members")}</span>
                   {project.members && project.members.length > 0 && (
                     <span className="rounded-full bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 px-1.5 py-0.5 text-[10px] font-bold">
                       {project.members.length}
                     </span>
                   )}
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setIsWebhooksModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-slate-200/80 dark:bg-slate-800/80 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors"
+                  title="Manage project outbound webhooks"
+                >
+                  <Webhook className="h-3.5 w-3.5 text-indigo-500" />
+                  <span>Webhooks</span>
+                </button>
                 {project.members && project.members.length > 0 && (
                   <div
                     className="flex -space-x-1.5 overflow-hidden items-center cursor-pointer"
                     onClick={() => setIsMembersModalOpen(true)}
-                    title="View members"
+                    title={t("kanban.viewMembers")}
                   >
                     {project.members.slice(0, 4).map((m: any) => {
                       const initial = (m.user?.name || m.user?.email || "?")[0].toUpperCase();
@@ -429,109 +537,112 @@ export default function KanbanBoard({ project }: Props) {
             </div>
 
             {/* Saved Views, Search, Priority & Type Filters */}
-            {viewMode !== "analytics" && (
-              <>
-                {/* Saved Views Selector */}
-                <div className="flex items-center gap-1.5 rounded-lg bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 px-2.5 py-1 text-xs">
-                  <Bookmark className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400 shrink-0" />
-                  <select
-                    value={selectedViewId}
-                    onChange={(e) => handleSelectView(e.target.value)}
-                    className="bg-transparent text-slate-900 dark:text-white focus:outline-none cursor-pointer max-w-[140px] truncate"
+            <div
+              className={`flex items-center gap-3 flex-wrap ${
+                viewMode === "analytics" ? "invisible pointer-events-none select-none" : ""
+              }`}
+              aria-hidden={viewMode === "analytics" ? true : undefined}
+            >
+              {/* Saved Views Selector */}
+              <div className="flex items-center gap-1.5 rounded-lg bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 px-2.5 py-1 text-xs">
+                <Bookmark className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400 shrink-0" />
+                <select
+                  value={selectedViewId}
+                  onChange={(e) => handleSelectView(e.target.value)}
+                  className="bg-transparent text-slate-900 dark:text-white focus:outline-none rounded focus-visible:ring-2 focus-visible:ring-indigo-500 cursor-pointer max-w-[140px] truncate"
+                >
+                  <option value="all">{t("savedViews.allCards")}</option>
+                  {savedViews.map((view) => (
+                    <option key={view.id} value={view.id}>
+                      {view.name} {view.isDefault ? "★" : ""}
+                    </option>
+                  ))}
+                </select>
+
+                {selectedViewId !== "all" && (
+                  <button
+                    type="button"
+                    onClick={(e) => handleDeleteView(selectedViewId, e)}
+                    className="text-slate-400 hover:text-rose-500 transition-colors p-0.5"
+                    title={t("savedViews.deleteViewTooltip")}
                   >
-                    <option value="all">{t("savedViews.allCards")}</option>
-                    {savedViews.map((view) => (
-                      <option key={view.id} value={view.id}>
-                        {view.name} {view.isDefault ? "★" : ""}
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+
+              {/* Save View Button */}
+              <button
+                type="button"
+                onClick={() => setIsSavingView(true)}
+                className="flex items-center gap-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800/60 px-2.5 py-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors"
+                title={t("savedViews.saveCurrentView")}
+              >
+                <BookmarkPlus className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">{t("savedViews.save")}</span>
+              </button>
+
+              <div className="relative">
+                <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder={t("kanban.searchPlaceholder")}
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-36 rounded-lg bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 pl-8 pr-3 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
+                />
+              </div>
+
+              <div className="flex items-center gap-1.5 rounded-lg bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 px-2.5 py-1 text-xs">
+                <Filter className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
+                <select
+                  value={priorityFilter}
+                  onChange={(e) => setPriorityFilter(e.target.value)}
+                  className="bg-transparent text-slate-900 dark:text-white focus:outline-none rounded focus-visible:ring-2 focus-visible:ring-indigo-500 cursor-pointer"
+                >
+                  <option value="ALL">{t("kanban.allPriorities")}</option>
+                  <option value="NONE">{t("cardModal.priorityNone")}</option>
+                  <option value="LOW">{t("cardModal.priorityLow")}</option>
+                  <option value="MEDIUM">{t("cardModal.priorityMedium")}</option>
+                  <option value="HIGH">{t("cardModal.priorityHigh")}</option>
+                  <option value="URGENT">{t("cardModal.priorityUrgent")}</option>
+                </select>
+              </div>
+
+              {project.cardTypes && project.cardTypes.length > 0 && (
+                <div className="flex items-center gap-1.5 rounded-lg bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 px-2.5 py-1 text-xs">
+                  <Tag className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
+                  <select
+                    value={typeFilter}
+                    onChange={(e) => setTypeFilter(e.target.value)}
+                    className="bg-transparent text-slate-900 dark:text-white focus:outline-none rounded focus-visible:ring-2 focus-visible:ring-indigo-500 cursor-pointer max-w-[110px]"
+                  >
+                    <option value="ALL">{t("kanban.allTypes")}</option>
+                    <option value="NONE">{t("kanban.noTypeFilter")}</option>
+                    {project.cardTypes.map((ct: any) => (
+                      <option key={ct.id} value={ct.id}>
+                        {ct.name}
                       </option>
                     ))}
                   </select>
-
-                  {selectedViewId !== "all" && (
-                    <button
-                      type="button"
-                      onClick={(e) => handleDeleteView(selectedViewId, e)}
-                      className="text-slate-400 hover:text-rose-500 transition-colors p-0.5"
-                      title={t("savedViews.deleteViewTooltip")}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
-                  )}
                 </div>
+              )}
 
-                {/* Save View Button */}
-                <button
-                  type="button"
-                  onClick={() => setIsSavingView(true)}
-                  className="flex items-center gap-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800/60 px-2.5 py-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors"
-                  title={t("savedViews.saveCurrentView")}
-                >
-                  <BookmarkPlus className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">{t("savedViews.save")}</span>
-                </button>
-
-                <div className="relative">
-                  <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder={t("kanban.searchPlaceholder")}
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-36 rounded-lg bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 pl-8 pr-3 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-indigo-500 focus:outline-none"
-                  />
-                </div>
-
-                <div className="flex items-center gap-1.5 rounded-lg bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 px-2.5 py-1 text-xs">
-                  <Filter className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
-                  <select
-                    value={priorityFilter}
-                    onChange={(e) => setPriorityFilter(e.target.value)}
-                    className="bg-transparent text-slate-900 dark:text-white focus:outline-none cursor-pointer"
-                  >
-                    <option value="ALL">{t("kanban.allPriorities")}</option>
-                    <option value="NONE">None</option>
-                    <option value="LOW">Low</option>
-                    <option value="MEDIUM">Medium</option>
-                    <option value="HIGH">High</option>
-                    <option value="URGENT">Urgent</option>
-                  </select>
-                </div>
-
-                {project.cardTypes && project.cardTypes.length > 0 && (
-                  <div className="flex items-center gap-1.5 rounded-lg bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 px-2.5 py-1 text-xs">
-                    <Tag className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
-                    <select
-                      value={typeFilter}
-                      onChange={(e) => setTypeFilter(e.target.value)}
-                      className="bg-transparent text-slate-900 dark:text-white focus:outline-none cursor-pointer max-w-[110px]"
-                    >
-                      <option value="ALL">All Types</option>
-                      <option value="NONE">No Type</option>
-                      {project.cardTypes.map((ct: any) => (
-                        <option key={ct.id} value={ct.id}>
-                          {ct.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                {/* Hide / Show Subtasks Filter Button */}
-                <button
-                  type="button"
-                  onClick={() => setHideSubtasks(!hideSubtasks)}
-                  className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold transition-all ${
-                    hideSubtasks
-                      ? "bg-indigo-50 dark:bg-indigo-500/20 border-indigo-300 dark:border-indigo-500/40 text-indigo-700 dark:text-indigo-300"
-                      : "bg-white dark:bg-slate-800/80 border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                  }`}
-                  title={hideSubtasks ? "Subtasks are hidden from board columns" : "Subtasks are visible on board columns"}
-                >
-                  <ListTree className="h-3.5 w-3.5" />
-                  <span>{hideSubtasks ? "Subtasks Hidden" : "Hide Subtasks"}</span>
-                </button>
-              </>
-            )}
+              {/* Hide / Show Subtasks Filter Button */}
+              <button
+                type="button"
+                onClick={() => setHideSubtasks(!hideSubtasks)}
+                className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold transition-all ${
+                  hideSubtasks
+                    ? "bg-indigo-50 dark:bg-indigo-500/20 border-indigo-300 dark:border-indigo-500/40 text-indigo-700 dark:text-indigo-300"
+                    : "bg-white dark:bg-slate-800/80 border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                }`}
+                title={hideSubtasks ? t("kanban.subtasksHiddenTooltip") : t("kanban.hideSubtasksTooltip")}
+              >
+                <ListTree className="h-3.5 w-3.5" />
+                <span>{hideSubtasks ? t("kanban.subtasksHidden") : t("kanban.hideSubtasks")}</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -552,6 +663,11 @@ export default function KanbanBoard({ project }: Props) {
                 canMoveRight={index < columnsWithFilteredCards.length - 1}
                 onMoveLeft={() => handleMoveColumn(column.id, "left")}
                 onMoveRight={() => handleMoveColumn(column.id, "right")}
+                collapsed={isClosedColumn(column) && !isFiltering && !expandedClosedColumnIds.has(column.id)}
+                onToggleCollapsed={
+                  isClosedColumn(column) && !isFiltering ? () => toggleClosedColumn(column.id) : undefined
+                }
+                members={project.members}
               />
             ))}
 
@@ -616,7 +732,7 @@ export default function KanbanBoard({ project }: Props) {
             project={project}
             onCardClick={(card) => setActiveCardId(card.id)}
             onRefresh={() => router.refresh()}
-            searchQuery={searchQuery}
+            searchQuery={deferredSearchQuery}
             priorityFilter={priorityFilter}
             typeFilter={typeFilter}
           />
@@ -628,15 +744,16 @@ export default function KanbanBoard({ project }: Props) {
           <CalendarView
             project={project}
             onCardClick={(card) => setActiveCardId(card.id)}
-            searchQuery={searchQuery}
+            searchQuery={deferredSearchQuery}
             priorityFilter={priorityFilter}
+            typeFilter={typeFilter}
           />
         )}
       </div>
 
       {/* Save View Modal */}
       {isSavingView && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
               <div className="flex items-center gap-2">
@@ -747,6 +864,14 @@ export default function KanbanBoard({ project }: Props) {
           }}
         />
       )}
-    </div>
+
+      {/* Project Outbound Webhooks Modal */}
+      {isWebhooksModalOpen && (
+        <WebhookManagerModal
+          project={project}
+          onClose={() => setIsWebhooksModalOpen(false)}
+        />
+      )}
+    </main>
   );
 }

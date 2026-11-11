@@ -8,6 +8,7 @@ import { loginUser } from "@/actions/auth";
 import { useSearchParams } from "next/navigation";
 import { useTranslation } from "@/components/LanguageProvider";
 import type { TranslationKeys } from "@/locales/en";
+import ErrorBanner from "@/components/ErrorBanner";
 
 const LOGIN_ERROR_KEYS: Record<string, keyof TranslationKeys["auth"]> = {
   registration_closed: "registrationClosed",
@@ -77,13 +78,13 @@ export function LoginForm({ oidcEnabled, registrationOpen }: { oidcEnabled: bool
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white flex items-center justify-center p-6">
+    <main className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white flex items-center justify-center p-6">
       <div className="w-full max-w-md rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-8 shadow-2xl space-y-6">
         {/* Brand Logo */}
         <div className="flex flex-col items-center text-center space-y-3">
           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400 via-indigo-600 to-purple-600 p-0.5 shadow-lg shadow-amber-500/20">
             <div className="flex h-full w-full items-center justify-center rounded-[14px] bg-slate-950 overflow-hidden">
-              <Image src="/logo.png" alt="Nanobanana Logo" width={40} height={40} unoptimized className="h-10 w-10 object-cover rounded-xl" />
+              <Image src="/logo.png" alt="Open Project Manager Logo" width={40} height={40} unoptimized className="h-10 w-10 object-cover rounded-xl" />
             </div>
           </div>
           <div>
@@ -96,11 +97,7 @@ export function LoginForm({ oidcEnabled, registrationOpen }: { oidcEnabled: bool
           </div>
         </div>
 
-        {displayedError && (
-          <div className="rounded-xl bg-red-500/10 border border-red-500/20 p-3.5 text-xs font-semibold text-red-600 dark:text-red-400 text-center">
-            {displayedError}
-          </div>
-        )}
+        {displayedError && <ErrorBanner id="login-error" message={displayedError} />}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -116,6 +113,7 @@ export function LoginForm({ oidcEnabled, registrationOpen }: { oidcEnabled: bool
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="admin@example.com"
                 className="w-full rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 pl-10 pr-4 py-2.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-indigo-500 focus:outline-none"
+                aria-describedby={displayedError ? "login-error" : undefined}
               />
             </div>
           </div>
@@ -133,6 +131,7 @@ export function LoginForm({ oidcEnabled, registrationOpen }: { oidcEnabled: bool
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
                 className="w-full rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 pl-10 pr-4 py-2.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-indigo-500 focus:outline-none"
+                aria-describedby={displayedError ? "login-error" : undefined}
               />
             </div>
           </div>
@@ -180,6 +179,6 @@ export function LoginForm({ oidcEnabled, registrationOpen }: { oidcEnabled: bool
           </div>
         )}
       </div>
-    </div>
+    </main>
   );
 }

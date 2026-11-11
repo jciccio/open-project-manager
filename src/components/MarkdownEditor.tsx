@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useId } from "react";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import {
   Bold,
@@ -15,6 +15,7 @@ import {
 import { useTranslation } from "./LanguageProvider";
 
 interface Props {
+  id?: string;
   value: string;
   onChange: (val: string) => void;
   placeholder?: string;
@@ -22,18 +23,21 @@ interface Props {
 }
 
 export default function MarkdownEditor({
+  id,
   value,
   onChange,
-  placeholder = "Write description in Markdown...",
+  placeholder,
   rows = 5,
 }: Props) {
+  const generatedId = useId();
+  const textareaId = id ?? generatedId;
   const [activeTab, setActiveTab] = useState<"write" | "preview">("write");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { t } = useTranslation();
+  const effectivePlaceholder = placeholder ?? t("markdownEditor.writePlaceholder");
 
   function insertFormatting(prefix: string, suffix: string = "") {
-    const textarea = document.getElementById(
-      "markdown-editor-textarea"
-    ) as HTMLTextAreaElement | null;
+    const textarea = textareaRef.current;
     if (!textarea) return;
 
     const start = textarea.selectionStart;
@@ -143,12 +147,13 @@ export default function MarkdownEditor({
       <div className="p-3">
         {activeTab === "write" ? (
           <textarea
-            id="markdown-editor-textarea"
+            id={textareaId}
+            ref={textareaRef}
             rows={rows}
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            placeholder={placeholder}
-            className="w-full bg-transparent text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none resize-y leading-relaxed font-mono"
+            placeholder={effectivePlaceholder}
+            className="w-full bg-transparent text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 resize-y leading-relaxed font-mono"
           />
         ) : (
           <div className="min-h-[100px] text-xs text-slate-900 dark:text-slate-100 space-y-2 leading-relaxed">

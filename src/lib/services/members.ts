@@ -1,12 +1,15 @@
 import { db } from "@/lib/db";
 import { safeRevalidatePath } from "@/lib/revalidate";
 import { getProjectAccess, ProjectRole } from "@/lib/permissions";
+import { parseInput } from "@/lib/validation/errors";
+import { ProjectRoleSchema } from "@/lib/validation/members";
+import type { ServiceErrorKind } from "@/lib/services/result";
 
 export async function getProjectMembers(projectId: string, userId: string) {
   try {
     const access = await getProjectAccess(projectId, userId, "VIEWER");
     if (!access.hasAccess) {
-      return { success: false, error: "Project not found or access denied" };
+      return { success: false, error: "Project not found or access denied", kind: access.role ? "forbidden" : "not_found" as ServiceErrorKind };
     }
 
     const members = await db.projectMember.findMany({
@@ -22,7 +25,7 @@ export async function getProjectMembers(projectId: string, userId: string) {
     return { success: true, data: members, currentUserRole: access.role };
   } catch (error) {
     console.error(`Error fetching members for project ${projectId}:`, error);
-    return { success: false, error: "Failed to fetch project members" };
+    return { success: false, error: "Failed to fetch project members", kind: "internal" as ServiceErrorKind };
   }
 }
 
@@ -33,13 +36,18 @@ export async function addProjectMember(
   userId: string
 ) {
   try {
+    const parsedRole = parseInput(ProjectRoleSchema, role);
+    if (!parsedRole.success) {
+      return { success: false, error: parsedRole.error, kind: "invalid" as ServiceErrorKind };
+    }
+
     const access = await getProjectAccess(projectId, userId, "ADMIN");
     if (!access.hasAccess) {
-      return { success: false, error: "Only project admins and owners can add members" };
+      return { success: false, error: "Only project admins and owners can add members", kind: access.role ? "forbidden" : "not_found" as ServiceErrorKind };
     }
 
     if (role === "OWNER" && !access.isOwner) {
-      return { success: false, error: "Only the project owner can assign the OWNER role" };
+      return { success: false, error: "Only the project owner can assign the OWNER role", kind: "forbidden" as ServiceErrorKind };
     }
 
     const targetUser = await db.user.findUnique({
@@ -47,7 +55,7 @@ export async function addProjectMember(
     });
 
     if (!targetUser) {
-      return { success: false, error: "No user found with that email address" };
+      return { success: false, error: "No user found with that email address", kind: "invalid" as ServiceErrorKind };
     }
 
     const existingMember = await db.projectMember.findUnique({
@@ -60,7 +68,7 @@ export async function addProjectMember(
     });
 
     if (existingMember) {
-      return { success: false, error: "User is already a member of this project" };
+      return { success: false, error: "User is already a member of this project", kind: "conflict" as ServiceErrorKind };
     }
 
     const member = await db.projectMember.create({
@@ -81,7 +89,7 @@ export async function addProjectMember(
     return { success: true, data: member };
   } catch (error) {
     console.error(`Error adding member to project ${projectId}:`, error);
-    return { success: false, error: "Failed to add project member" };
+    return { success: false, error: "Failed to add project member", kind: "internal" as ServiceErrorKind };
   }
 }
 
@@ -92,9 +100,14 @@ export async function updateMemberRole(
   userId: string
 ) {
   try {
+    const parsedRole = parseInput(ProjectRoleSchema, newRole);
+    if (!parsedRole.success) {
+      return { success: false, error: parsedRole.error, kind: "invalid" as ServiceErrorKind };
+    }
+
     const access = await getProjectAccess(projectId, userId, "ADMIN");
     if (!access.hasAccess) {
-      return { success: false, error: "Only project admins and owners can update roles" };
+      return { success: false, error: "Only project admins and owners can update roles", kind: access.role ? "forbidden" : "not_found" as ServiceErrorKind };
     }
 
     const project = await db.project.findUnique({
@@ -103,17 +116,30 @@ export async function updateMemberRole(
     });
 
     if (!project) {
-      return { success: false, error: "Project not found" };
+      return { success: false, error: "Project not found", kind: "not_found" as ServiceErrorKind };
     }
 
     // Cannot demote the original project creator
     if (project.userId === targetUserId && newRole !== "OWNER") {
-      return { success: false, error: "Cannot change the role of the project creator" };
+      return { success: false, error: "Cannot change the role of the project creator", kind: "forbidden" as ServiceErrorKind };
+    }
+
+    const targetMember = await db.projectMember.findUnique({
+      where: { projectId_userId: { projectId, userId: targetUserId } },
+      select: { role: true },
+    });
+
+    if (!targetMember) {
+      return { success: false, error: "Member not found in project", kind: "not_found" as ServiceErrorKind };
+    }
+
+    if (targetMember.role === "OWNER" && !access.isOwner) {
+      return { success: false, error: "Only the project owner can change another owner's role", kind: "forbidden" as ServiceErrorKind };
     }
 
     // Only owner can assign or demote OWNER role
     if ((newRole === "OWNER" || targetUserId === userId) && !access.isOwner) {
-      return { success: false, error: "Only the project owner can manage OWNER roles" };
+      return { success: false, error: "Only the project owner can manage OWNER roles", kind: "forbidden" as ServiceErrorKind };
     }
 
     const member = await db.projectMember.update({
@@ -136,7 +162,7 @@ export async function updateMemberRole(
     return { success: true, data: member };
   } catch (error) {
     console.error(`Error updating role in project ${projectId}:`, error);
-    return { success: false, error: "Failed to update member role" };
+    return { success: false, error: "Failed to update member role", kind: "internal" as ServiceErrorKind };
   }
 }
 
@@ -148,13 +174,13 @@ export async function removeProjectMember(
   try {
     const access = await getProjectAccess(projectId, userId, "VIEWER");
     if (!access.hasAccess) {
-      return { success: false, error: "Unauthorized" };
+      return { success: false, error: "Unauthorized", kind: access.role ? "forbidden" : "not_found" as ServiceErrorKind };
     }
 
     const isSelfRemoval = userId === targetUserId;
 
     if (!isSelfRemoval && !access.isAdmin) {
-      return { success: false, error: "Only project admins and owners can remove members" };
+      return { success: false, error: "Only project admins and owners can remove members", kind: "forbidden" as ServiceErrorKind };
     }
 
     const project = await db.project.findUnique({
@@ -163,11 +189,11 @@ export async function removeProjectMember(
     });
 
     if (!project) {
-      return { success: false, error: "Project not found" };
+      return { success: false, error: "Project not found", kind: "not_found" as ServiceErrorKind };
     }
 
     if (project.userId === targetUserId) {
-      return { success: false, error: "Cannot remove the project creator from the project" };
+      return { success: false, error: "Cannot remove the project creator from the project", kind: "forbidden" as ServiceErrorKind };
     }
 
     const targetMember = await db.projectMember.findUnique({
@@ -180,11 +206,11 @@ export async function removeProjectMember(
     });
 
     if (!targetMember) {
-      return { success: false, error: "Member not found in project" };
+      return { success: false, error: "Member not found in project", kind: "not_found" as ServiceErrorKind };
     }
 
     if (targetMember.role === "OWNER" && !access.isOwner && !isSelfRemoval) {
-      return { success: false, error: "Only the project owner can remove another owner" };
+      return { success: false, error: "Only the project owner can remove another owner", kind: "forbidden" as ServiceErrorKind };
     }
 
     await db.projectMember.delete({
@@ -201,6 +227,6 @@ export async function removeProjectMember(
     return { success: true };
   } catch (error) {
     console.error(`Error removing member from project ${projectId}:`, error);
-    return { success: false, error: "Failed to remove project member" };
+    return { success: false, error: "Failed to remove project member", kind: "internal" as ServiceErrorKind };
   }
 }

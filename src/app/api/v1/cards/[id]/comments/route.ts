@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
 import { listComments, addComment } from "@/lib/services/comments";
+import { serviceErrorResponse } from "@/lib/api/serviceErrorResponse";
 
 export async function GET(
   request: NextRequest,
@@ -15,7 +16,7 @@ export async function GET(
   const res = await listComments(cardId, session.userId);
 
   if (!res.success) {
-    return NextResponse.json({ error: res.error }, { status: 400 });
+    return serviceErrorResponse(res);
   }
 
   return NextResponse.json({ success: true, data: res.data });
@@ -38,11 +39,10 @@ export async function POST(
       return NextResponse.json({ error: "Comment content is required" }, { status: 400 });
     }
 
-    const author = typeof body.author === "string" ? body.author : session.name;
-    const res = await addComment(cardId, author, body.content, session.userId);
+    const res = await addComment(cardId, body.content, session.userId);
 
     if (!res.success) {
-      return NextResponse.json({ error: res.error }, { status: 400 });
+      return serviceErrorResponse(res);
     }
 
     return NextResponse.json({ success: true, data: res.data }, { status: 201 });

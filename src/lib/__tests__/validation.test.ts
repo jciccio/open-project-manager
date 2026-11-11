@@ -1,6 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { isSafeUrl, safeHref, SafeUrlSchema } from "@/lib/validation/safeUrl";
-import { CardCreateSchema, CardUpdateSchema, CardReorderSchema, PrioritySchema } from "@/lib/validation/cards";
+import {
+  CardCreateSchema,
+  CardUpdateSchema,
+  CardReorderSchema,
+  MAX_CARD_REFERENCE_IDS,
+  MAX_REORDER_ITEMS,
+  PrioritySchema,
+} from "@/lib/validation/cards";
 import { FilterJsonSchema } from "@/lib/validation/views";
 
 describe("safeUrl", () => {
@@ -43,7 +50,7 @@ describe("card schemas", () => {
       CardCreateSchema.safeParse({
         ...validCreate,
         priority: "HIGH",
-        points: 3.5,
+        points: 3,
         dueDate: "2026-12-01",
         description: null,
         labelIds: ["l1"],
@@ -62,8 +69,8 @@ describe("card schemas", () => {
     expect(CardCreateSchema.safeParse({ ...validCreate, title: "x".repeat(501) }).success).toBe(false);
   });
 
-  it("rejects string, NaN and infinite points", () => {
-    for (const points of ["3", Number.NaN, Number.POSITIVE_INFINITY]) {
+  it("rejects string, fractional, NaN and infinite points", () => {
+    for (const points of ["3", 3.5, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(CardCreateSchema.safeParse({ ...validCreate, points }).success).toBe(false);
     }
   });
@@ -97,5 +104,34 @@ describe("FilterJsonSchema", () => {
 
   it.each(["not json", "[]", "null", '"str"', "42"])("rejects %s", (value) => {
     expect(FilterJsonSchema.safeParse(value).success).toBe(false);
+  });
+});
+
+describe("array size limits", () => {
+  const invalidElements = (count: number) => Array.from({ length: count }, (_, i) => i);
+
+  const expectOneIssue = (result: { success: boolean; error?: { issues: { path: PropertyKey[]; code: string }[] } }, field: string) => {
+    expect(result.success).toBe(false);
+    expect(result.error?.issues).toHaveLength(1);
+    expect(result.error?.issues[0].path).toEqual([field]);
+    expect(result.error?.issues[0].code).toBe("too_big");
+  };
+
+  it.each(["labelIds", "assigneeIds"])("rejects an oversized %s before walking its elements", (field) => {
+    const base = { projectId: "p", columnId: "c", title: "Card" };
+    expectOneIssue(CardCreateSchema.safeParse({ ...base, [field]: invalidElements(MAX_CARD_REFERENCE_IDS + 1) }), field);
+    expectOneIssue(CardUpdateSchema.safeParse({ [field]: invalidElements(MAX_CARD_REFERENCE_IDS + 1) }), field);
+  });
+
+  it("rejects oversized reorder items before walking them", () => {
+    expectOneIssue(CardReorderSchema.safeParse({ items: invalidElements(MAX_REORDER_ITEMS + 1) }), "items");
+  });
+
+  it("accepts arrays exactly at each limit", () => {
+    const ids = Array.from({ length: MAX_CARD_REFERENCE_IDS }, (_, i) => `id-${i}`);
+    expect(CardUpdateSchema.safeParse({ labelIds: ids, assigneeIds: ids }).success).toBe(true);
+
+    const items = Array.from({ length: MAX_REORDER_ITEMS }, (_, i) => ({ id: `id-${i}`, order: i }));
+    expect(CardReorderSchema.safeParse({ items }).success).toBe(true);
   });
 });

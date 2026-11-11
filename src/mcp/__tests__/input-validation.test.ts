@@ -9,6 +9,7 @@ import {
   createTestUser,
 } from "@/test/helpers";
 import { db } from "@/lib/db";
+import { MAX_COMMENT_LENGTH } from "@/lib/validation/comments";
 
 describe("MCP tool input validation", () => {
   let userId: string;
@@ -72,6 +73,41 @@ describe("MCP tool input validation", () => {
     ).rejects.toThrow(/^items\.0\.order: /);
   });
 
+  it("create_card and update_card reject fractional points", async () => {
+    await expect(
+      executeMcpTool("create_card", { projectId, columnId, title: "Card", points: 1.5 }, { userId })
+    ).rejects.toThrow(/^points: /);
+
+    const card = await createTestCard(projectId, columnId);
+    await expect(executeMcpTool("update_card", { id: card.id, points: 1.5 }, { userId })).rejects.toThrow(/^points: /);
+  });
+
+  it("add_card_link refuses a javascript: URL and stores nothing", async () => {
+    const card = await createTestCard(projectId, columnId);
+    await expect(
+      executeMcpTool("add_card_link", { cardId: card.id, url: "javascript:alert(1)" }, { userId })
+    ).rejects.toThrow("Link URL must be");
+    await expect(executeMcpTool("add_card_link", { cardId: card.id, url: 42 }, { userId })).rejects.toThrow(
+      "Link URL must be"
+    );
+    expect(await db.cardLink.count({ where: { cardId: card.id } })).toBe(0);
+
+    const res = await executeMcpTool("add_card_link", { cardId: card.id, url: "https://example.com" }, { userId });
+    expect(res.success).toBe(true);
+  });
+
+  it("create_project and update_project reject a non-string or blank name", async () => {
+    await expect(executeMcpTool("create_project", { name: 42 }, { userId })).rejects.toThrow("Project name is required");
+    await expect(executeMcpTool("create_project", { name: "  " }, { userId })).rejects.toThrow(
+      "Project name is required"
+    );
+
+    await expect(executeMcpTool("update_project", { id: projectId, name: 42 }, { userId })).rejects.toThrow(
+      "Project name is required"
+    );
+    expect((await db.project.findUnique({ where: { id: projectId } }))!.name).toBe("MCP Validation");
+  });
+
   it("create_card_type and update_card_type reject a bad color and an over-long name", async () => {
     await expect(
       executeMcpTool("create_card_type", { projectId, name: "Story", color: "#12345" }, { userId })
@@ -99,5 +135,31 @@ describe("MCP tool input validation", () => {
       { userId }
     );
     expect(JSON.parse((created as any).savedView.filterJson)).toEqual({ search: "x" });
+  });
+
+  it("add_comment rejects non-string, blank and over-limit content without writing", async () => {
+    const card = await createTestCard(projectId, columnId);
+    await expect(executeMcpTool("add_comment", { cardId: card.id, content: 42 }, { userId })).rejects.toThrow(/cannot be empty/);
+    await expect(executeMcpTool("add_comment", { cardId: card.id, content: "   " }, { userId })).rejects.toThrow(/cannot be empty/);
+    await expect(
+      executeMcpTool("add_comment", { cardId: card.id, content: "x".repeat(MAX_COMMENT_LENGTH + 1) }, { userId })
+    ).rejects.toThrow(/characters or fewer/);
+    expect(await db.comment.count({ where: { cardId: card.id } })).toBe(0);
+  });
+
+  it("update_comment rejects non-string, blank and over-limit content and keeps the stored text", async () => {
+    const card = await createTestCard(projectId, columnId);
+    const added = await executeMcpTool("add_comment", { cardId: card.id, content: "Original" }, { userId });
+    const commentId = (added as any).comment.id;
+
+    await expect(executeMcpTool("update_comment", { commentId, content: 42 }, { userId })).rejects.toThrow(/cannot be empty/);
+    await expect(executeMcpTool("update_comment", { commentId, content: "   " }, { userId })).rejects.toThrow(/cannot be empty/);
+    await expect(
+      executeMcpTool("update_comment", { commentId, content: "x".repeat(MAX_COMMENT_LENGTH + 1) }, { userId })
+    ).rejects.toThrow(/characters or fewer/);
+    expect((await db.comment.findUnique({ where: { id: commentId } }))?.content).toBe("Original");
+
+    const updated = await executeMcpTool("update_comment", { commentId, content: "  Edited  " }, { userId });
+    expect((updated as any).comment.content).toBe("Edited");
   });
 });

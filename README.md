@@ -169,7 +169,11 @@ Once seeded (via either Docker or Local development), you can log in with the fo
 | **Admin Account** | `admin@example.com` | `password123` | Open Project Manager MVP |
 | **Jose Account** | `jose@example.com` | `password123` | Jose's Autonomous Systems |
 
-> ℹ️ You can also register a brand-new custom account directly from the login page (`/login`).
+> ℹ️ On a fresh instance, the first person to open `/register` creates the first account. After that, registration is closed and an administrator with access to the server creates accounts:
+> ```bash
+> yarn user:create --email jose@example.com --name "Jose"
+> ```
+> It prints a temporary password to share privately, which the new user changes under Profile Settings. Project owners can then add them from the members modal. On an instance with SSO, people sign in through the identity provider instead.
 
 ---
 
@@ -711,10 +715,11 @@ This fetches upstream git tags and displays your currently running version along
 ```
 open-project-manager/
 ├── prisma/
+│   ├── migrations/         # SQLite database migrations
+│   ├── migrations-postgres/# PostgreSQL database migrations
 │   ├── schema.prisma       # Prisma database models (User, Project, Column, Card, Label, Comment)
 │   └── seed.ts             # Sample user accounts & project seed script
 ├── scripts/
-│   ├── test-all.ts         # Automated integration test suite
 │   ├── benchmark-memory.ts # Baseline Node process memory & DB profiler
 │   └── load-test.ts        # High-concurrency stress & RAM load tester
 ├── src/
@@ -724,11 +729,16 @@ open-project-manager/
 │   │   ├── projects/[id]/  # Project Kanban, List, Analytics, & Calendar views
 │   │   └── page.tsx        # Dashboard page
 │   ├── components/         # React UI components (KanbanBoard, TaskCard, Modals, Views, Header)
-│   ├── lib/                # Auth JWT session & SQLite connection client
+│   ├── lib/                # Core libraries, auth, database client, and utils
+│   │   ├── import/         # Import framework (Vikunja, Plane)
+│   │   └── services/       # Domain business logic (Projects, Cards, Columns, Labels)
+│   ├── mcp/                # Model Context Protocol (MCP) server & tool handlers
 │   └── proxy.ts            # Route protection & Bearer token check (Next.js proxy)
 ├── prisma.config.ts        # Prisma v7 configuration
 └── dev.db                  # Local SQLite database file
 ```
+
+To run the automated test suite, use `yarn test` (or `npm test`).
 
 ---
 

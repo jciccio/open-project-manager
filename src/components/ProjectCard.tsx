@@ -133,14 +133,14 @@ export default function ProjectCard({ project, stats, currentUserId, onDeleteSuc
                       ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
                       : "bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20"
                   }`}
-                  title={project.visibility === "INTERNAL" ? "Internal project" : "Private project"}
+                  title={project.visibility === "INTERNAL" ? t("projectCard.internalProject") : t("projectCard.privateProject")}
                 >
                   {project.visibility === "INTERNAL" ? (
                     <Globe className="h-2.5 w-2.5" />
                   ) : (
                     <Lock className="h-2.5 w-2.5" />
                   )}
-                  <span>{project.visibility === "INTERNAL" ? "Internal" : "Private"}</span>
+                  <span>{project.visibility === "INTERNAL" ? t("projectCard.internal") : t("projectCard.private")}</span>
                 </span>
                 {project.isArchived && (
                   <span className="rounded-md bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 border border-amber-500/20">

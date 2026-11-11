@@ -4,6 +4,8 @@ export const PRIORITIES = ["NONE", "LOW", "MEDIUM", "HIGH", "URGENT"] as const;
 
 export const MAX_TITLE_LENGTH = 500;
 export const MAX_DESCRIPTION_LENGTH = 50_000;
+export const MAX_CARD_REFERENCE_IDS = 1_000;
+export const MAX_REORDER_ITEMS = 10_000;
 
 export const PrioritySchema = z.enum(PRIORITIES);
 
@@ -15,13 +17,13 @@ const cardFields = {
   title: z.string().trim().min(1, "Card title is required").max(MAX_TITLE_LENGTH),
   description: z.string().max(MAX_DESCRIPTION_LENGTH).nullable(),
   priority: PrioritySchema,
-  points: z.number().nullable(),
+  points: z.number().int().nullable(),
   owner: z.string().max(200).nullable(),
   dueDate: DueDateSchema.nullable(),
   parentId: z.string().nullable(),
   typeId: z.string().nullable(),
-  labelIds: z.array(z.string()),
-  assigneeIds: z.array(z.string()),
+  labelIds: z.array(z.string()).max(MAX_CARD_REFERENCE_IDS),
+  assigneeIds: z.array(z.string()).max(MAX_CARD_REFERENCE_IDS),
 };
 
 export const CardCreateSchema = z.strictObject({
@@ -57,5 +59,6 @@ export const CardUpdateSchema = z.strictObject({
 export const CardReorderSchema = z.strictObject({
   items: z
     .array(z.strictObject({ id: z.string().min(1), order: z.number().int(), columnId: z.string().min(1).optional() }))
-    .min(1),
+    .min(1)
+    .max(MAX_REORDER_ITEMS),
 });

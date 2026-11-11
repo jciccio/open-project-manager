@@ -3,13 +3,14 @@
 import { z } from "zod";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
-import { createSession, destroySession, getSession, signApiToken } from "@/lib/auth";
+import { API_TOKEN_DURATION, createSession, destroySession, getSession, signApiToken } from "@/lib/auth";
 import bcrypt from "bcryptjs";
 import { getClientIp } from "@/lib/clientIp";
 import { checkLoginRateLimit, recordLoginFailure, recordLoginSuccess } from "@/lib/loginRateLimit";
 import { safeRevalidatePath } from "@/lib/revalidate";
 import { localPasswordAllowed, passwordMatches, ssoAccountsKeepLocalPasswords } from "@/lib/passwords";
 import { isRegistrationOpen } from "@/lib/registration";
+import { createPasswordUser } from "@/lib/createUser";
 import { isOidcConfigured } from "@/lib/oidc";
 
 const SSO_ONLY_PASSWORD_ERROR = "This account signs in through SSO, so it cannot have a local password.";
@@ -31,36 +32,16 @@ export async function registerUser(formData: {
     }
 
     const { name, email, password, confirmPassword } = formData;
-
-    if (!name.trim() || !email.trim() || !password) {
-      return { success: false, error: "All fields are required." };
-    }
-
-    if (confirmPassword !== undefined && password !== confirmPassword) {
+    const fieldsPresent = !!name.trim() && !!email.trim() && !!password;
+    if (fieldsPresent && confirmPassword !== undefined && password !== confirmPassword) {
       return { success: false, error: "Passwords do not match." };
     }
 
-    if (password.length < 6) {
-      return { success: false, error: "Password must be at least 6 characters long." };
+    const created = await createPasswordUser({ name, email, password });
+    if (!created.success) {
+      return { success: false, error: created.error };
     }
-
-    const existingUser = await db.user.findUnique({
-      where: { email: email.toLowerCase().trim() },
-    });
-
-    if (existingUser) {
-      return { success: false, error: "An account with this email already exists." };
-    }
-
-    const passwordHash = await bcrypt.hash(password, 10);
-
-    const user = await db.user.create({
-      data: {
-        name: name.trim(),
-        email: email.toLowerCase().trim(),
-        passwordHash,
-      },
-    });
+    const user = created.user;
 
     await createSession({
       userId: user.id,
@@ -259,7 +240,10 @@ export async function listApiTokens() {
   }
 }
 
-export async function createApiToken(name: string) {
+export async function createApiToken(
+  name: string,
+  expiresInDays?: number | string | null
+) {
   try {
     const session = await getSession();
     if (!session) {
@@ -271,11 +255,26 @@ export async function createApiToken(name: string) {
       return { success: false, error: "Token name is required." };
     }
 
+    const ALLOWED_EXPIRATION_DAYS = [30, 60, 90, 365] as const;
+
+    let expiresAt: Date | null = null;
+    if (expiresInDays === "never") {
+      expiresAt = null;
+    } else if (expiresInDays === undefined || expiresInDays === null) {
+      expiresAt = new Date(Date.now() + API_TOKEN_DURATION * 1000);
+    } else {
+      const days = typeof expiresInDays === "number" ? expiresInDays : Number(expiresInDays);
+      if (!ALLOWED_EXPIRATION_DAYS.includes(days as (typeof ALLOWED_EXPIRATION_DAYS)[number])) {
+        return { success: false, error: "Invalid token expiration option." };
+      }
+      expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+    }
+
     const record = await db.apiToken.create({
-      data: { userId: session.userId, name: trimmedName },
+      data: { userId: session.userId, name: trimmedName, expiresAt },
     });
 
-    const secret = await signApiToken(session, record.id);
+    const secret = await signApiToken(session, record.id, expiresAt);
 
     return {
       success: true,
@@ -283,6 +282,7 @@ export async function createApiToken(name: string) {
         id: record.id,
         name: record.name,
         createdAt: record.createdAt,
+        expiresAt: record.expiresAt,
         secret,
       },
     };

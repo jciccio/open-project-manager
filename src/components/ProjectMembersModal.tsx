@@ -11,6 +11,7 @@ import {
 import { updateProject } from "@/actions/projects";
 import { ProjectRole } from "@/lib/permissions";
 import { useRouter } from "next/navigation";
+import ErrorBanner from "./ErrorBanner";
 
 interface Props {
   project: {
@@ -143,7 +144,7 @@ export default function ProjectMembersModal({ project, onClose, onMembersChange 
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <div className="w-full max-w-xl rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl max-h-[90vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800 shrink-0">
@@ -169,11 +170,7 @@ export default function ProjectMembersModal({ project, onClose, onMembersChange 
         </div>
 
         {/* Alerts */}
-        {error && (
-          <div className="mt-4 rounded-lg bg-rose-500/10 border border-rose-500/20 p-3 text-xs text-rose-500 font-medium">
-            {error}
-          </div>
-        )}
+        {error && <div className="mt-4"><ErrorBanner message={error} /></div>}
         {successMsg && (
           <div className="mt-4 rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-3 text-xs text-emerald-500 font-medium">
             {successMsg}

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
 import { getProjectById, updateProject, deleteProject } from "@/lib/services/projects";
+import { serviceErrorResponse } from "@/lib/api/serviceErrorResponse";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -15,7 +16,7 @@ export async function GET(request: NextRequest, { params }: Props) {
   const { id } = await params;
   const res = await getProjectById(id, session.userId);
   if (!res.success) {
-    return NextResponse.json({ error: res.error }, { status: 404 });
+    return serviceErrorResponse(res);
   }
 
   return NextResponse.json({ success: true, data: res.data });
@@ -32,7 +33,7 @@ export async function PUT(request: NextRequest, { params }: Props) {
     const body = await request.json();
     const res = await updateProject(id, body, session.userId);
     if (!res.success) {
-      return NextResponse.json({ error: res.error }, { status: 400 });
+      return serviceErrorResponse(res);
     }
     return NextResponse.json({ success: true, data: res.data });
   } catch (err) {
@@ -49,7 +50,7 @@ export async function DELETE(request: NextRequest, { params }: Props) {
   const { id } = await params;
   const res = await deleteProject(id, session.userId);
   if (!res.success) {
-    return NextResponse.json({ error: res.error }, { status: 400 });
+    return serviceErrorResponse(res);
   }
 
   return NextResponse.json({ success: true });
