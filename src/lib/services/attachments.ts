@@ -2,15 +2,9 @@ import { db } from "@/lib/db";
 import { removeAttachmentFiles } from "@/lib/attachmentCleanup";
 import { safeRevalidatePath } from "@/lib/revalidate";
 import fs from "fs";
-import { UPLOADS_DIR, MAX_ATTACHMENT_BYTES, getAttachmentFilePath } from "@/lib/attachmentStorage";
+import { MAX_ATTACHMENT_BYTES, getAttachmentFilePath, writeAttachmentFile } from "@/lib/attachmentStorage";
 import { verifyProjectAccess, accessDenial } from "@/lib/permissions";
 import type { ServiceErrorKind } from "@/lib/services/result";
-
-function ensureUploadsDir() {
-  if (!fs.existsSync(UPLOADS_DIR)) {
-    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-  }
-}
 
 async function verifyCardAccess(cardId: string, userId: string, minRole: "VIEWER" | "MEMBER" = "MEMBER") {
   const card = await db.card.findUnique({
@@ -42,14 +36,8 @@ export async function uploadAttachment(
       return { success: false, error: `File exceeds the ${Math.floor(MAX_ATTACHMENT_BYTES / (1024 * 1024))}MB attachment size limit`, kind: "invalid" as ServiceErrorKind };
     }
 
-    ensureUploadsDir();
-
-    const sanitizedFilename = data.filename.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const uniquePrefix = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
-    const storageKey = `${uniquePrefix}-${sanitizedFilename}`;
+    const storageKey = writeAttachmentFile(data.filename, data.contentBuffer);
     const filePath = getAttachmentFilePath(storageKey);
-
-    fs.writeFileSync(filePath, data.contentBuffer);
 
     let updated;
     try {
