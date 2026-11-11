@@ -401,7 +401,86 @@ function livePlan(ctx: RunCtx): ImportPlan {
   };
 }
 
-async function importProject(ctx: TraversalCtx) {
+/**
+ * Records the decisions a live run would make without writing anything. A record it would
+ * create gets a placeholder id, and parent links it would make are kept in memory so
+ * later parent checks see them, as the live run's database would.
+ */
+function dryPlan(ctx: RunCtx): ImportPlan {
+  const planned = new Map<string, string>();
+  const plannedCardProjects = new Map<string, string>();
+  const plannedParents = new Map<string, string>();
+  const plannedKey = (entityType: ImportEntityType, mappingKey: string) => `${entityType}:${mappingKey}`;
+
+  const plan: ImportPlan = {
+    records: [],
+    parentReader: {
+      childCount: async (cardId) =>
+        (await db.card.count({ where: { parentId: cardId } })) +
+        [...plannedParents.values()].filter((parentId) => parentId === cardId).length,
+      card: async (cardId) => {
+        const projectId = plannedCardProjects.get(cardId);
+        if (projectId) return { projectId, parentId: plannedParents.get(cardId) ?? null };
+        return db.card.findUnique({ where: { id: cardId }, select: { projectId: true, parentId: true } });
+      },
+    },
+    resolve: async (entityType, mappingKey) =>
+      planned.get(plannedKey(entityType, mappingKey)) ?? liveLocalId(ctx, entityType, mappingKey),
+    createOrSkip: async (entityType, sourceId, _create, options = {}) => {
+      const mappingKey = options.mappingKey ?? sourceId;
+      const key = plannedKey(entityType, mappingKey);
+      try {
+        const skip = (localId: string): CreateOrSkipResult => ({
+          localId,
+          result: { entityType, sourceId, status: "skipped", localId },
+        });
+        const plannedId = planned.get(key);
+        if (plannedId) return skip(plannedId);
+
+        const existing = await findExistingMapping(ctx.userId, ctx.source, entityType, mappingKey);
+        if (existing && (await rowStillExists(entityType, existing.localId))) return skip(existing.localId);
+
+        const legacyLocalId = existing ? undefined : await options.findLegacy?.();
+        if (legacyLocalId) {
+          planned.set(key, legacyLocalId);
+          return skip(legacyLocalId);
+        }
+
+        const invalid = await options.validate?.();
+        if (invalid) return { result: { entityType, sourceId, status: "failed", error: invalid } };
+
+        const localId = `planned:${key}`;
+        planned.set(key, localId);
+        return { localId, result: { entityType, sourceId, status: "created", localId } };
+      } catch (err) {
+        return {
+          result: { entityType, sourceId, status: "failed", error: err instanceof Error ? err.message : String(err) },
+        };
+      }
+    },
+    cardCreated: (cardLocalId, projectLocalId) => {
+      plannedCardProjects.set(cardLocalId, projectLocalId);
+    },
+    setParent: async (cardLocalId, parentLocalId) => {
+      plannedParents.set(cardLocalId, parentLocalId);
+    },
+    addRelation: async () => {},
+  };
+  return plan;
+}
+
+const DRY_RUN_STATUS = { created: "would_create", skipped: "would_skip", failed: "would_fail" } as const;
+
+function asDryRunRecord(record: ImportRecordResult): ImportDryRunRecordResult {
+  return {
+    entityType: record.entityType,
+    sourceId: record.sourceId,
+    status: DRY_RUN_STATUS[record.status],
+    ...(record.error !== undefined ? { error: record.error } : {}),
+  };
+}
+
+async function traverseImport(ctx: TraversalCtx) {
   const records = ctx.plan.records;
   try {
     for await (const projectRec of ctx.importer.fetchProjects()) {
@@ -846,342 +925,6 @@ async function importProject(ctx: TraversalCtx) {
   }
 }
 
-async function classifyForDryRun(
-  importer: Importer,
-  userId: string,
-  source: string,
-  records: ImportDryRunRecordResult[],
-  tally: DroppedTally
-) {
-  async function liveMapping(entityType: ImportEntityType, mappingKey: string) {
-    const existing = await findExistingMapping(userId, source, entityType, mappingKey);
-    return existing && (await rowStillExists(entityType, existing.localId)) ? existing : undefined;
-  }
-
-  async function classify(entityType: ImportEntityType, sourceId: string) {
-    const alreadyImported = !!(await liveMapping(entityType, sourceId));
-    records.push({ entityType, sourceId, status: alreadyImported ? "would_skip" : "would_create" });
-  }
-
-  try {
-    for await (const project of importer.fetchProjects()) {
-      try {
-        const projectMapping = await liveMapping("project", project.sourceId);
-        records.push({ entityType: "project", sourceId: project.sourceId, status: projectMapping ? "would_skip" : "would_create" });
-        const columnSourceIds = new Set<string>();
-        try {
-          for await (const col of importer.fetchColumns(project.sourceId)) {
-            columnSourceIds.add(col.sourceId);
-            if (col.group !== undefined && !(COLUMN_GROUPS as readonly string[]).includes(col.group)) {
-              records.push({
-                entityType: "column",
-                sourceId: col.sourceId,
-                status: "would_fail",
-                error: `Invalid column group "${col.group}". Expected one of: ${COLUMN_GROUPS.join(", ")}`,
-              });
-              continue;
-            }
-            const groupRes = resolveColumnGroup(
-              { group: col.group as ColumnGroup | undefined, isDone: col.isDone },
-              DEFAULT_COLUMN_GROUP
-            );
-            if (!groupRes.success) {
-              records.push({
-                entityType: "column",
-                sourceId: col.sourceId,
-                status: "would_fail",
-                error: groupRes.error,
-              });
-              continue;
-            }
-            await classify("column", col.sourceId);
-          }
-        } catch (err) {
-          records.push({
-            entityType: "column",
-            sourceId: `${project.sourceId}:columns`,
-            status: "would_fail",
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-
-        try {
-          for await (const ct of importer.fetchCardTypes(project.sourceId)) {
-            const mapped = !!(await liveMapping("cardType", ct.sourceId));
-            const sameName = !mapped && projectMapping ? !!(await findCardTypeByName(projectMapping.localId, ct.name)) : false;
-            records.push({ entityType: "cardType", sourceId: ct.sourceId, status: mapped || sameName ? "would_skip" : "would_create" });
-          }
-        } catch (err) {
-          records.push({
-            entityType: "cardType",
-            sourceId: `${project.sourceId}:cardTypes`,
-            status: "would_fail",
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-
-        const labelSourceIds = new Set<string>();
-        try {
-          for await (const lbl of importer.fetchLabels(project.sourceId)) {
-            labelSourceIds.add(lbl.sourceId);
-            const mapped = !!(await liveMapping("label", labelMappingKey(project.sourceId, lbl.sourceId)));
-            const legacy =
-              !mapped && projectMapping
-                ? !!(await findLegacyLabelInProject(userId, source, lbl.sourceId, projectMapping.localId))
-                : false;
-            records.push({ entityType: "label", sourceId: lbl.sourceId, status: mapped || legacy ? "would_skip" : "would_create" });
-          }
-        } catch (err) {
-          records.push({
-            entityType: "label",
-            sourceId: `${project.sourceId}:labels`,
-            status: "would_fail",
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-
-        const cards: ImportCard[] = [];
-        try {
-          for await (const card of importer.fetchCards(project.sourceId)) {
-            cards.push(card);
-          }
-        } catch (err) {
-          records.push({
-            entityType: "card",
-            sourceId: `${project.sourceId}:cards`,
-            status: "would_fail",
-            error: err instanceof Error ? err.message : String(err),
-          });
-          if (cards.length === 0) continue;
-        }
-
-        const assignable = projectMapping
-          ? await assignableUsersByEmail(projectMapping.localId, userId)
-          : await usersByEmail([userId]);
-        const validCardSourceIds = new Set<string>();
-        const batchParents = new Map<string, string>();
-        for (const card of cards) {
-          if (card.parentSourceId) {
-            batchParents.set(card.sourceId, card.parentSourceId);
-          }
-        }
-
-        try {
-          for (const card of cards) {
-            if (!columnSourceIds.has(card.columnSourceId)) {
-              records.push({
-                entityType: "card",
-                sourceId: card.sourceId,
-                status: "would_fail",
-                error: unknownColumnError(card.columnSourceId),
-              });
-              continue;
-            }
-
-            if (card.links && card.links.length > 0) {
-              let invalidLinkUrl: string | undefined;
-              for (const link of card.links) {
-                const parsed = SafeUrlSchema.safeParse(link.url);
-                if (!parsed.success) {
-                  invalidLinkUrl = link.url;
-                  break;
-                }
-              }
-              if (invalidLinkUrl) {
-                records.push({
-                  entityType: "card",
-                  sourceId: card.sourceId,
-                  status: "would_fail",
-                  error: `Invalid link URL "${invalidLinkUrl}": must be a valid http, https or mailto URL`,
-                });
-                continue;
-              }
-            }
-
-            if (card.labelSourceIds && card.labelSourceIds.length > 0) {
-              let unknownSid: string | undefined;
-              for (const sid of card.labelSourceIds) {
-                if (!labelSourceIds.has(sid)) {
-                  const mapped = await liveMapping("label", labelMappingKey(project.sourceId, sid));
-                  if (!mapped) {
-                    unknownSid = sid;
-                    break;
-                  }
-                }
-              }
-              if (unknownSid) {
-                records.push({
-                  entityType: "card",
-                  sourceId: card.sourceId,
-                  status: "would_fail",
-                  error: `Unknown labelSourceId "${unknownSid}": no matching label was imported for this project`,
-                });
-                continue;
-              }
-            }
-
-            validCardSourceIds.add(card.sourceId);
-            await classify("card", card.sourceId);
-            if (card.assignees?.length && !(await liveMapping("card", card.sourceId))) {
-              tally.unmatchedAssignees += splitAssignees(card.assignees, assignable).unmatched.length;
-            }
-
-            if (card.parentSourceId) {
-              if (card.parentSourceId === card.sourceId) {
-                records.push({
-                  entityType: "card",
-                  sourceId: `${card.sourceId}:parent`,
-                  status: "would_fail",
-                  error: `Invalid parent "${card.parentSourceId}": A card cannot be its own parent`,
-                });
-              } else {
-                const parentKnown =
-                  validCardSourceIds.has(card.parentSourceId) ||
-                  cards.some((c) => c.sourceId === card.parentSourceId && columnSourceIds.has(c.columnSourceId)) ||
-                  !!(await liveMapping("card", card.parentSourceId));
-                if (!parentKnown) {
-                  records.push({
-                    entityType: "card",
-                    sourceId: `${card.sourceId}:parent`,
-                    status: "would_fail",
-                    error: `Unresolved parentSourceId "${card.parentSourceId}": no matching card found`,
-                  });
-                } else if (batchParents.has(card.parentSourceId)) {
-                  records.push({
-                    entityType: "card",
-                    sourceId: `${card.sourceId}:parent`,
-                    status: "would_fail",
-                    error: `Invalid parent "${card.parentSourceId}": Subtasks cannot be nested under another subtask`,
-                  });
-                } else {
-                  const hasChildren = Array.from(batchParents.values()).includes(card.sourceId);
-                  if (hasChildren) {
-                    records.push({
-                      entityType: "card",
-                      sourceId: `${card.sourceId}:parent`,
-                      status: "would_fail",
-                      error: `Invalid parent "${card.parentSourceId}": A card with subtasks cannot be made a subtask`,
-                    });
-                  } else {
-                    const parentMapping = await liveMapping("card", card.parentSourceId);
-                    if (parentMapping && projectMapping) {
-                      const parentError = await validateParentCard(projectMapping.localId, parentMapping.localId);
-                      if (parentError) {
-                        records.push({
-                          entityType: "card",
-                          sourceId: `${card.sourceId}:parent`,
-                          status: "would_fail",
-                          error: `Invalid parent "${card.parentSourceId}": ${parentError}`,
-                        });
-                      }
-                    }
-                  }
-                }
-              }
-            }
-
-            if (card.relations) {
-              for (const rel of card.relations) {
-                if (rel.targetCardSourceId === card.sourceId) {
-                  records.push({
-                    entityType: "card",
-                    sourceId: `${card.sourceId}:relation:${rel.targetCardSourceId}`,
-                    status: "would_fail",
-                    error: "A card cannot relate to itself",
-                  });
-                  continue;
-                }
-
-                const norm = normalizeRelation(card.sourceId, rel.targetCardSourceId, rel.type);
-                if (!norm.valid) {
-                  records.push({
-                    entityType: "card",
-                    sourceId: `${card.sourceId}:relation:${rel.targetCardSourceId}`,
-                    status: "would_fail",
-                    error: norm.error,
-                  });
-                  continue;
-                }
-
-                const targetKnown =
-                  validCardSourceIds.has(rel.targetCardSourceId) ||
-                  cards.some((c) => c.sourceId === rel.targetCardSourceId && columnSourceIds.has(c.columnSourceId)) ||
-                  !!(await liveMapping("card", rel.targetCardSourceId));
-                if (!targetKnown) {
-                  records.push({
-                    entityType: "card",
-                    sourceId: `${card.sourceId}:relation:${rel.targetCardSourceId}`,
-                    status: "would_fail",
-                    error: `Unresolved relation target "${rel.targetCardSourceId}": no matching card found`,
-                  });
-                }
-              }
-            }
-
-            try {
-              for await (const comment of importer.fetchComments(card.sourceId)) {
-                await classify("comment", comment.sourceId);
-              }
-            } catch (err) {
-              records.push({
-                entityType: "comment",
-                sourceId: `${card.sourceId}:comments`,
-                status: "would_fail",
-                error: err instanceof Error ? err.message : String(err),
-              });
-            }
-
-            if (importer.fetchAttachments) {
-              try {
-                for await (const attachment of importer.fetchAttachments(card.sourceId)) {
-                  if (attachment.size !== undefined && attachment.size > MAX_ATTACHMENT_BYTES) {
-                    records.push({
-                      entityType: "attachment",
-                      sourceId: attachment.sourceId,
-                      status: "would_fail",
-                      error: attachmentTooLargeError(attachment.filename),
-                    });
-                  } else {
-                    await classify("attachment", attachment.sourceId);
-                  }
-                }
-              } catch (err) {
-                records.push({
-                  entityType: "attachment",
-                  sourceId: `${card.sourceId}:attachments`,
-                  status: "would_fail",
-                  error: err instanceof Error ? err.message : String(err),
-                });
-              }
-            }
-          }
-        } catch (err) {
-          records.push({
-            entityType: "card",
-            sourceId: `${project.sourceId}:cards`,
-            status: "would_fail",
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      } catch (err) {
-        records.push({
-          entityType: "project",
-          sourceId: project.sourceId,
-          status: "would_fail",
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
-  } catch (err) {
-    records.push({
-      entityType: "project",
-      sourceId: "projects",
-      status: "would_fail",
-      error: err instanceof Error ? err.message : String(err),
-    });
-  }
-}
-
 export async function runImport(
   importer: Importer,
   userId: string,
@@ -1189,10 +932,12 @@ export async function runImport(
 ): Promise<ImportSummary | ImportDryRunSummary> {
   const importRunId = options.importRunId ?? randomUUID();
   const tally: DroppedTally = { unmatchedAssignees: 0 };
+  const ctx: RunCtx = { importer, userId, source: importer.name, importRunId, tally };
+  const plan = options.dryRun ? dryPlan(ctx) : livePlan(ctx);
+  await traverseImport({ ...ctx, plan });
 
   if (options.dryRun) {
-    const records: ImportDryRunRecordResult[] = [];
-    await classifyForDryRun(importer, userId, importer.name, records, tally);
+    const records = plan.records.map(asDryRunRecord);
     const wouldCreate = records.filter((r) => r.status === "would_create").length;
     const wouldSkip = records.filter((r) => r.status === "would_skip").length;
     const wouldFail = records.filter((r) => r.status === "would_fail").length;
@@ -1205,9 +950,6 @@ export async function runImport(
     };
   }
 
-  const ctx: RunCtx = { importer, userId, source: importer.name, importRunId, tally };
-  const plan = livePlan(ctx);
-  await importProject({ ...ctx, plan });
   const records = plan.records;
 
   const created = records.filter((r) => r.status === "created").length;
