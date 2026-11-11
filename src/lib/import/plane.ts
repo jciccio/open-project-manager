@@ -7,7 +7,11 @@ import type {
   ImportCardType,
   ImportLabel,
   ImportCard,
+  ImportCardLink,
+  ImportCardRelation,
   ImportComment,
+  ImportAttachment,
+  ImportDroppedField,
 } from "./types";
 
 export interface PlaneImporterConfig {
@@ -24,6 +28,12 @@ export interface PlaneImporterConfig {
   /** Per-request timeout in ms, covering the response body (default: 30000). A timeout is retried. */
   timeoutMs?: number;
   sleep?: (ms: number) => Promise<void>;
+  /** Leave out relations that cross projects. A dry run sets this, since it writes nothing for their targets to resolve against. */
+  skipCrossProjectRelations?: boolean;
+  /** Whether an earlier run already imported this card, so a relation into a project imported separately can be kept. */
+  isCardImported?: (cardSourceId: string) => Promise<boolean>;
+  /** Plane email to OPM email, for accounts whose address differs between the two. */
+  emailMap?: Record<string, string>;
 }
 
 // Plane's docs cap per_page at 100, although CE accepts more.
@@ -48,12 +58,16 @@ interface PlaneState {
   name: string;
   group: string;
   sequence: number;
+  color?: string;
+  description?: string;
 }
 
 interface PlaneLabel {
   id: string;
   name: string;
   color?: string;
+  description?: string;
+  parent?: string | null;
 }
 
 interface PlaneWorkItem {
@@ -65,8 +79,39 @@ interface PlaneWorkItem {
   assignees?: string[];
   labels?: string[];
   estimate_point?: string | null;
+  start_date?: string | null;
   target_date?: string | null;
   completed_at?: string | null;
+  created_at?: string;
+  sequence_id?: number;
+  parent?: string | null;
+}
+
+interface PlaneLink {
+  url: string;
+  title?: string | null;
+}
+
+interface PlaneRelationTarget {
+  project_id: string;
+  issue_id: string;
+}
+
+// Plane's start_before, start_after, finish_before and finish_after have no OPM equivalent.
+const RELATION_TYPES: Record<string, ImportCardRelation["type"]> = {
+  blocking: "BLOCKS",
+  blocked_by: "BLOCKED_BY",
+  relates_to: "RELATES_TO",
+  duplicate: "RELATES_TO",
+};
+const UNSUPPORTED_RELATION_TYPES = ["start_before", "start_after", "finish_before", "finish_after"];
+
+interface PlaneAttachment {
+  id: string;
+  attributes?: { name?: string; type?: string; size?: number };
+  size?: number;
+  created_by?: string | null;
+  created_at?: string;
 }
 
 interface PlaneComment {
@@ -82,6 +127,12 @@ interface PlaneMember {
   display_name?: string;
   first_name?: string;
   last_name?: string;
+  email?: string | null;
+}
+
+interface MemberIdentity {
+  name?: string;
+  email?: string;
 }
 
 interface PlaneEstimatePoint {
@@ -118,6 +169,9 @@ export function cardTypeSourceId(projectId: string, name: string): string {
 export function commentSourceId(id: string): string {
   return `plane:comment:${id}`;
 }
+export function attachmentSourceId(id: string): string {
+  return `plane:attachment:${id}`;
+}
 
 function projectIdOf(sourceId: string): string {
   return sourceId.slice(projectSourceId("").length);
@@ -146,8 +200,25 @@ export class PlaneImporter implements Importer {
 
   private rateLimitRemaining?: number;
   private rateLimitResetAtMs?: number;
-  private members?: Promise<Map<string, string>>;
+  private members?: Promise<Map<string, MemberIdentity>>;
   private estimatePoints = new Map<string, Promise<Map<string, number>>>();
+  private readonly skipCrossProjectRelations: boolean;
+  private readonly isCardImported?: (cardSourceId: string) => Promise<boolean>;
+  private readonly projectsStarted = new Set<string>();
+  private crossProjectRelationsSkippedCount = 0;
+  private readonly emailMap: Map<string, string>;
+  private readonly droppedCounts = {
+    startDates: 0,
+    nonIntegerEstimates: 0,
+    labelParents: 0,
+    startFinishRelationSides: 0,
+    cycles: 0,
+    modules: 0,
+    unreadableLists: 0,
+    unreadableLinks: 0,
+    unreadableRelations: 0,
+    crossProjectRelationsNotYetImported: 0,
+  };
 
   constructor(config: PlaneImporterConfig) {
     const base = config.baseUrl.replace(/\/+$/, "").replace(/\/api\/v1$/, "");
@@ -161,7 +232,10 @@ export class PlaneImporter implements Importer {
     this.retryDelayMs = config.retryDelayMs ?? 1000;
     this.timeoutMs = config.timeoutMs ?? 30_000;
     this.sleep = config.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
-    this.name = `plane:${new URL(base).host}/${config.workspaceSlug}`;
+    this.skipCrossProjectRelations = config.skipCrossProjectRelations ?? false;
+    this.isCardImported = config.isCardImported;
+    this.emailMap = new Map(Object.entries(config.emailMap ?? {}).map(([from, to]) => [from.toLowerCase(), to]));
+    this.name =`plane:${new URL(base).host}/${config.workspaceSlug}`;
   }
 
   private recordRateLimit(res: Response) {
@@ -188,12 +262,17 @@ export class PlaneImporter implements Importer {
     return this.retryDelayMs * 2 ** attempt;
   }
 
-  private async get<T>(path: string): Promise<T> {
+  private get<T>(path: string): Promise<T> {
+    return this.send(path, "follow", async (res) => (await res.json()) as T);
+  }
+
+  private async send<T>(path: string, redirect: RequestRedirect, read: (res: Response) => T | Promise<T>): Promise<T> {
     for (let attempt = 0; ; attempt++) {
       await this.waitForRateLimitWindow();
       try {
         const res = await fetch(`${this.apiBase}${path}`, {
           headers: { "X-API-Key": this.apiKey, Accept: "application/json" },
+          redirect,
           signal: AbortSignal.timeout(this.timeoutMs),
         });
         this.recordRateLimit(res);
@@ -204,8 +283,9 @@ export class PlaneImporter implements Importer {
           await this.sleep(this.retryDelay(res, attempt));
           continue;
         }
-        if (!res.ok) throw new PlaneApiError(path, res.status, res.statusText);
-        return (await res.json()) as T;
+        const isExpectedRedirect = redirect === "manual" && res.status >= 300 && res.status < 400;
+        if (!res.ok && !isExpectedRedirect) throw new PlaneApiError(path, res.status, res.statusText);
+        return await read(res);
       } catch (err) {
         if (err instanceof PlaneApiError) throw err;
         if (attempt < this.maxRetries) {
@@ -235,16 +315,49 @@ export class PlaneImporter implements Importer {
     return `${this.workspacePath}/projects/${projectId}`;
   }
 
-  private memberNames(): Promise<Map<string, string>> {
+  private memberIdentities(): Promise<Map<string, MemberIdentity>> {
     this.members ??= this.get<PlaneMember[]>(`${this.workspacePath}/members/`).then((members) => {
-      const names = new Map<string, string>();
+      const identities = new Map<string, MemberIdentity>();
       for (const member of members) {
-        const name = memberName(member);
-        if (name) names.set(member.id, name);
+        const email = member.email || undefined;
+        identities.set(member.id, {
+          name: memberName(member),
+          email: email && (this.emailMap.get(email.toLowerCase()) ?? email),
+        });
       }
-      return names;
+      return identities;
     });
     return this.members;
+  }
+
+  private async countDropped(projectId: string, list: "cycles" | "modules") {
+    try {
+      for await (const entry of this.paginate<{ id: string }>(`${this.projectPath(projectId)}/${list}/`)) {
+        if (entry.id) this.droppedCounts[list]++;
+      }
+    } catch (err) {
+      if (!(err instanceof PlaneApiError)) throw err;
+      this.droppedCounts.unreadableLists++;
+    }
+  }
+
+  droppedFields(): ImportDroppedField[] {
+    const counts = this.droppedCounts;
+    return [
+      { field: "Start dates", count: counts.startDates },
+      { field: "Non-integer estimates", count: counts.nonIntegerEstimates },
+      { field: "Label parents", count: counts.labelParents },
+      { field: "Start/finish relation sides", count: counts.startFinishRelationSides },
+      { field: "Cycles", count: counts.cycles },
+      { field: "Modules", count: counts.modules },
+      { field: "Cycle or module lists that could not be read", count: counts.unreadableLists },
+      { field: "Work items whose links could not be read (not added on re-run)", count: counts.unreadableLinks },
+      { field: "Work items whose relations could not be read", count: counts.unreadableRelations },
+      {
+        field: "Relation sides into a project not imported yet (imported with that project)",
+        count: counts.crossProjectRelationsNotYetImported,
+      },
+    ].filter(({ count }) => count > 0);
   }
 
   private integerEstimatePoints(projectId: string): Promise<Map<string, number>> {
@@ -276,6 +389,60 @@ export class PlaneImporter implements Importer {
     return values;
   }
 
+  get crossProjectRelationsSkipped(): number {
+    return this.crossProjectRelationsSkippedCount;
+  }
+
+  private async fetchLinks(projectId: string, itemId: string): Promise<ImportCardLink[]> {
+    const links: ImportCardLink[] = [];
+    try {
+      for await (const link of this.paginate<PlaneLink>(`${this.projectPath(projectId)}/work-items/${itemId}/links/`)) {
+        links.push({ url: link.url, title: link.title || undefined });
+      }
+    } catch (err) {
+      if (!(err instanceof PlaneApiError)) throw err;
+      this.droppedCounts.unreadableLinks++;
+      return [];
+    }
+    return links;
+  }
+
+  private async fetchRelations(projectId: string, itemId: string): Promise<ImportCardRelation[]> {
+    let grouped: Record<string, PlaneRelationTarget[] | undefined>;
+    try {
+      grouped = await this.get(`${this.projectPath(projectId)}/work-items/${itemId}/relations/`);
+    } catch (err) {
+      if (!(err instanceof PlaneApiError)) throw err;
+      this.droppedCounts.unreadableRelations++;
+      return [];
+    }
+    for (const planeType of UNSUPPORTED_RELATION_TYPES) {
+      this.droppedCounts.startFinishRelationSides += grouped[planeType]?.length ?? 0;
+    }
+    const relations: ImportCardRelation[] = [];
+    for (const [planeType, type] of Object.entries(RELATION_TYPES)) {
+      for (const target of grouped[planeType] ?? []) {
+        const targetCardSourceId = workItemSourceId(target.project_id, target.issue_id);
+        if (target.project_id !== projectId) {
+          if (this.skipCrossProjectRelations) {
+            this.crossProjectRelationsSkippedCount++;
+            continue;
+          }
+          // Plane returns a relation from both sides, so a side whose target isn't in OPM
+          // yet is created when the target's project is imported and reports its own side.
+          const targetInOpm =
+            this.projectsStarted.has(target.project_id) || (await this.isCardImported?.(targetCardSourceId));
+          if (!targetInOpm) {
+            this.droppedCounts.crossProjectRelationsNotYetImported++;
+            continue;
+          }
+        }
+        relations.push({ targetCardSourceId, type });
+      }
+    }
+    return relations;
+  }
+
   async *fetchProjects(): AsyncGenerator<ImportProject> {
     for await (const project of this.paginate<PlaneProject>(`${this.workspacePath}/projects/`)) {
       if (this.projectIdentifiers && !this.projectIdentifiers.has(project.identifier.toUpperCase())) continue;
@@ -300,6 +467,9 @@ export class PlaneImporter implements Importer {
         name: state.name,
         order: rank,
         isDone: state.group === "completed",
+        group: state.group.toUpperCase(),
+        color: state.color || undefined,
+        description: state.description || undefined,
       };
     }
   }
@@ -315,44 +485,103 @@ export class PlaneImporter implements Importer {
   async *fetchLabels(projectSourceIdValue: string): AsyncGenerator<ImportLabel> {
     const path = `${this.projectPath(projectIdOf(projectSourceIdValue))}/labels/`;
     for await (const label of this.paginate<PlaneLabel>(path)) {
-      yield { sourceId: labelSourceId(label.id), name: label.name, color: label.color || undefined };
+      if (label.parent) this.droppedCounts.labelParents++;
+      yield {
+        sourceId: labelSourceId(label.id),
+        name: label.name,
+        color: label.color || undefined,
+        description: label.description || undefined,
+      };
     }
   }
 
   async *fetchCards(projectSourceIdValue: string): AsyncGenerator<ImportCard> {
     const projectId = projectIdOf(projectSourceIdValue);
-    const names = await this.memberNames();
+    this.projectsStarted.add(projectId);
+    const members = await this.memberIdentities();
     const points = await this.integerEstimatePoints(projectId);
+    await this.countDropped(projectId, "cycles");
+    await this.countDropped(projectId, "modules");
 
     for await (const item of this.paginate<PlaneWorkItem>(`${this.projectPath(projectId)}/work-items/`)) {
-      const assignees = (item.assignees ?? []).map((id) => names.get(id)).filter(Boolean);
+      const assignees = (item.assignees ?? []).flatMap((id) => members.get(id) ?? []);
+      const links = await this.fetchLinks(projectId, item.id);
+      const relations = await this.fetchRelations(projectId, item.id);
+      if (item.start_date) this.droppedCounts.startDates++;
+      if (item.estimate_point && !points.has(item.estimate_point)) this.droppedCounts.nonIntegerEstimates++;
       yield {
         sourceId: workItemSourceId(projectId, item.id),
         columnSourceId: stateSourceId(item.state),
         title: item.name,
         description: htmlToMarkdown(item.description_html) || undefined,
+        number: item.sequence_id,
         priority: mapPriority(item.priority),
         points: item.estimate_point ? points.get(item.estimate_point) : undefined,
-        owner: assignees.join(", ") || undefined,
+        assignees: assignees.length > 0 ? assignees : undefined,
         dueDate: item.target_date || undefined,
         completedAt: item.completed_at || undefined,
+        createdAt: item.created_at,
+        parentSourceId: item.parent ? workItemSourceId(projectId, item.parent) : undefined,
         labelSourceIds: (item.labels ?? []).map(labelSourceId),
+        links: links.length > 0 ? links : undefined,
+        relations: relations.length > 0 ? relations : undefined,
       };
     }
   }
 
   async *fetchComments(cardSourceId: string): AsyncGenerator<ImportComment> {
     const [, , projectId, itemId] = cardSourceId.split(":");
-    const names = await this.memberNames();
+    const members = await this.memberIdentities();
     const path = `${this.projectPath(projectId)}/work-items/${itemId}/comments/`;
     for await (const comment of this.paginate<PlaneComment>(path, "order_by=created_at")) {
       const authorId = comment.actor ?? comment.created_by;
       yield {
         sourceId: commentSourceId(comment.id),
-        author: (authorId && names.get(authorId)) || "plane",
+        author: (authorId && members.get(authorId)?.name) || "plane",
         content: htmlToMarkdown(comment.comment_html),
         createdAt: comment.created_at,
       };
+    }
+  }
+
+  async *fetchAttachments(cardSourceId: string): AsyncGenerator<ImportAttachment> {
+    const [, , projectId, itemId] = cardSourceId.split(":");
+    const members = await this.memberIdentities();
+    const path = `${this.projectPath(projectId)}/work-items/${itemId}/attachments/`;
+    for (const attachment of await this.get<PlaneAttachment[]>(path)) {
+      yield {
+        sourceId: attachmentSourceId(attachment.id),
+        filename: attachment.attributes?.name || "attachment",
+        mimeType: attachment.attributes?.type || undefined,
+        size: attachment.attributes?.size ?? attachment.size,
+        uploadedBy: (attachment.created_by && members.get(attachment.created_by)?.name) || undefined,
+        createdAt: attachment.created_at,
+        download: () => this.downloadAttachment(`${path}${attachment.id}/`),
+      };
+    }
+  }
+
+  // Plane redirects to a presigned storage URL. The redirect is read by hand so the
+  // API key is never sent to the storage host.
+  private async downloadAttachment(path: string): Promise<Buffer> {
+    const location = await this.send(path, "manual", (res) => res.headers.get("location"));
+    if (!location) throw new Error(`Plane GET ${path} did not redirect to a download URL`);
+    return this.fetchFile(new URL(location, this.apiBase));
+  }
+
+  private async fetchFile(url: URL): Promise<Buffer> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const res = await fetch(url, { signal: AbortSignal.timeout(this.timeoutMs) });
+        if (res.ok) return Buffer.from(await res.arrayBuffer());
+        // The URL's query string is a credential, so errors name only the host.
+        const failure = new PlaneApiError(`file on ${url.host}`, res.status, res.statusText);
+        if (res.status < 500 || attempt >= this.maxRetries) throw failure;
+      } catch (err) {
+        if (err instanceof PlaneApiError) throw err;
+        if (attempt >= this.maxRetries) throw new Error(`Attachment download from ${url.host} failed`);
+      }
+      await this.sleep(this.retryDelayMs * 2 ** attempt);
     }
   }
 }

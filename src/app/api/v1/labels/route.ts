@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
 import { getLabels, createLabel } from "@/lib/services/labels";
+import { serviceErrorResponse } from "@/lib/api/serviceErrorResponse";
 
 export async function GET(request: NextRequest) {
   const session = await getApiSession(request);
@@ -13,7 +14,7 @@ export async function GET(request: NextRequest) {
 
   const res = await getLabels(projectId, session.userId);
   if (!res.success) {
-    return NextResponse.json({ error: res.error }, { status: 400 });
+    return serviceErrorResponse(res);
   }
 
   return NextResponse.json({ success: true, data: res.data });
@@ -33,7 +34,7 @@ export async function POST(request: NextRequest) {
 
     const res = await createLabel(body.name, body.color, body.projectId, session.userId, body.description);
     if (!res.success) {
-      return NextResponse.json({ error: res.error }, { status: 400 });
+      return serviceErrorResponse(res);
     }
 
     return NextResponse.json({ success: true, data: res.data }, { status: 201 });
