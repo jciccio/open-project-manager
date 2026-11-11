@@ -73,11 +73,11 @@ describe("colors module", () => {
   describe("chipTextColor and contrast", () => {
     it("guarantees at least 4.5:1 contrast against every preset in PROJECT_COLORS (WCAG 1.4.3 AA)", () => {
       const lWhite = relativeLuminance("#ffffff");
-      const lDark = relativeLuminance("#020617");
+      const lDark = relativeLuminance("#000000");
 
       for (const { value, name } of PROJECT_COLORS) {
         const textClass = chipTextColor(value);
-        expect(textClass === "text-white" || textClass === "text-slate-950").toBe(true);
+        expect(textClass === "text-white" || textClass === "text-black").toBe(true);
 
         const lBg = relativeLuminance(value);
         const ratio = textClass === "text-white" ? contrastRatio(lWhite, lBg) : contrastRatio(lBg, lDark);
@@ -85,15 +85,27 @@ describe("colors module", () => {
       }
     });
 
+    it("guarantees at least 4.5:1 contrast on borderline custom luminance colors like #006ffc", () => {
+      const lWhite = relativeLuminance("#ffffff");
+      const lBlack = relativeLuminance("#000000");
+      for (const hex of ["#006ffc", "#10b981", "#000000", "#ffffff", "#777777", "#767676"]) {
+        const textClass = chipTextColor(hex);
+        const lBg = relativeLuminance(hex);
+        const ratio = textClass === "text-white" ? contrastRatio(lWhite, lBg) : contrastRatio(lBg, lBlack);
+        expect(ratio, `Color ${hex} with ${textClass}`).toBeGreaterThanOrEqual(4.5);
+      }
+      expect(chipTextColor("#006ffc")).toBe("text-black");
+    });
+
     it("selects dark text for seeded/light colors that fail contrast with white", () => {
       // Previously failed with white text:
       // #10b981 (2.54), #ec4899 (3.53), #3b82f6 (3.68), #ef4444 (3.76), #8b5cf6 (4.23), #6366f1 (4.47)
-      expect(chipTextColor("#10b981")).toBe("text-slate-950");
-      expect(chipTextColor("#ec4899")).toBe("text-slate-950");
-      expect(chipTextColor("#3b82f6")).toBe("text-slate-950");
-      expect(chipTextColor("#ef4444")).toBe("text-slate-950");
-      expect(chipTextColor("#8b5cf6")).toBe("text-slate-950");
-      expect(chipTextColor("#6366f1")).toBe("text-slate-950");
+      expect(chipTextColor("#10b981")).toBe("text-black");
+      expect(chipTextColor("#ec4899")).toBe("text-black");
+      expect(chipTextColor("#3b82f6")).toBe("text-black");
+      expect(chipTextColor("#ef4444")).toBe("text-black");
+      expect(chipTextColor("#8b5cf6")).toBe("text-black");
+      expect(chipTextColor("#6366f1")).toBe("text-black");
     });
 
     it("selects white text for deep/dark colors that pass contrast with white", () => {

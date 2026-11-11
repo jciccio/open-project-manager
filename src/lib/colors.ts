@@ -88,7 +88,7 @@ export function contrastRatio(l1: number, l2: number): number {
 }
 
 /**
- * Returns either "text-white" or "text-slate-950" to ensure at least 4.5:1
+ * Returns either "text-white" or "text-black" to ensure at least 4.5:1
  * text contrast against the chip background color per WCAG 1.4.3 (AA).
  */
 export function chipTextColor(bg: string): string {
@@ -98,7 +98,7 @@ export function chipTextColor(bg: string): string {
     if (contrastWithWhite >= 4.5) {
       return "text-white";
     }
-    return "text-slate-950";
+    return "text-black";
   } catch {
     return "text-white";
   }

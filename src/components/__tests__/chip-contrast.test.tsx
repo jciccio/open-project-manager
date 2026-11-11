@@ -1,8 +1,9 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import TaskCard from "../TaskCard";
 import ListView from "../views/ListView";
 import CardTypeManagerModal from "../CardTypeManagerModal";
+import LabelManagerModal from "../LabelManagerModal";
 import CardDetailModal from "../CardDetailModal";
 import ArchivedClient from "@/app/archived/ArchivedClient";
 import { LanguageProvider } from "../LanguageProvider";
@@ -32,6 +33,9 @@ vi.mock("@/actions/labels", () => ({
       { id: "l2", name: "Unselected Label", color: "#ef4444" },
     ],
   })),
+  createLabel: vi.fn(),
+  updateLabel: vi.fn(),
+  deleteLabel: vi.fn(),
 }));
 
 function renderWithProviders(ui: React.ReactNode) {
@@ -58,11 +62,11 @@ describe("Chip text contrast on component surfaces (#285)", () => {
     renderWithProviders(<TaskCard card={card as any} onClick={vi.fn()} />);
 
     const labelChip = screen.getByText("Emerald Label");
-    expect(labelChip).toHaveClass("text-slate-950");
+    expect(labelChip).toHaveClass("text-black");
     expect(labelChip).not.toHaveClass("text-white");
 
     const typeBadge = screen.getByText("Pink Type");
-    expect(typeBadge.parentElement).toHaveClass("text-slate-950");
+    expect(typeBadge.parentElement).toHaveClass("text-black");
     expect(typeBadge.parentElement).not.toHaveClass("text-white");
   });
 
@@ -99,7 +103,7 @@ describe("Chip text contrast on component surfaces (#285)", () => {
     );
 
     const labelChip = screen.getByText("Light Label");
-    expect(labelChip).toHaveClass("text-slate-950");
+    expect(labelChip).toHaveClass("text-black");
     expect(labelChip).not.toHaveClass("text-white");
   });
 
@@ -109,8 +113,27 @@ describe("Chip text contrast on component surfaces (#285)", () => {
     );
 
     const typeChip = await screen.findByText("Feature");
-    expect(typeChip.closest("span")).toHaveClass("text-slate-950");
+    expect(typeChip.closest("span")).toHaveClass("text-black");
     expect(typeChip.closest("span")).not.toHaveClass("text-white");
+  });
+
+  it("LabelManagerModal applies dark text to light label chips in list and edit modes", async () => {
+    renderWithProviders(
+      <LabelManagerModal onClose={vi.fn()} />
+    );
+
+    // Existing label list chip (light emerald #10b981)
+    const listChip = await screen.findByText("Selected Label");
+    expect(listChip).toHaveClass("text-black");
+    expect(listChip).not.toHaveClass("text-white");
+
+    // Enter edit mode on the first label and check the edit preview chip
+    const editButtons = screen.getAllByRole("button", { name: /edit label/i });
+    fireEvent.click(editButtons[0]);
+
+    const editChip = await screen.findByText("Selected Label");
+    expect(editChip).toHaveClass("text-black");
+    expect(editChip).not.toHaveClass("text-white");
   });
 
   it("CardDetailModal avoids opacity-60 on unselected label toggles and uses high contrast text", async () => {
@@ -156,7 +179,7 @@ describe("Chip text contrast on component surfaces (#285)", () => {
     expect(unselectedBtn.className).toMatch(/text-slate-700/);
 
     const selectedBtn = await screen.findByRole("button", { name: /^Selected Label$/i });
-    expect(selectedBtn).toHaveClass("text-slate-950");
+    expect(selectedBtn).toHaveClass("text-black");
     expect(selectedBtn).not.toHaveClass("text-white");
   });
 
