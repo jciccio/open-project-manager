@@ -1166,34 +1166,34 @@ export default function CardDetailModal({
                   return (
                     <div
                       key={rel.id}
-                      className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold ${
+                      className={`inline-flex max-w-full flex-wrap items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold ${
                         isBlocked
                           ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-400"
                           : "bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300"
                       }`}
                     >
                       {isBlocked ? (
-                        <ShieldAlert className="h-3.5 w-3.5 text-rose-500 animate-pulse" />
+                        <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-rose-500 animate-pulse" />
                       ) : (
-                        <Link2 className="h-3.5 w-3.5 text-indigo-500" />
+                        <Link2 className="h-3.5 w-3.5 shrink-0 text-indigo-500" />
                       )}
-                      <span className="uppercase text-[10px] font-bold tracking-wider opacity-75">
+                      <span className="shrink-0 uppercase text-[10px] font-bold tracking-wider opacity-75">
                         {rel.relationType === "BLOCKS"
                           ? t("cardModal.blocks")
                           : rel.relationType === "BLOCKED_BY"
                           ? t("cardModal.blockedBy")
                           : t("cardModal.relatesTo")}
                       </span>
-                      <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                      <span className="shrink-0 whitespace-nowrap font-mono font-bold text-indigo-600 dark:text-indigo-400">
                         {rel.identifier}
                       </span>
-                      <span className="max-w-[140px] truncate text-slate-600 dark:text-slate-400">
+                      <span className="min-w-0 max-w-[140px] truncate text-slate-600 dark:text-slate-400">
                         ({rel.cardTitle})
                       </span>
                       <button
                         type="button"
                         onClick={() => handleRemoveRelation(rel.id)}
-                        className="ml-1 rounded text-slate-400 hover:text-red-500"
+                        className="ml-1 shrink-0 rounded text-slate-400 hover:text-red-500"
                       >
                         <X className="h-3 w-3" />
                       </button>

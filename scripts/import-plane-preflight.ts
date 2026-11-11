@@ -1,4 +1,4 @@
-export const MAX_PRESERVED_KEY_LENGTH = 6;
+import { MAX_PROJECT_KEY_LENGTH, sanitizeProjectKey } from "../src/lib/projectKey";
 
 export interface PreflightProject {
   sourceId: string;
@@ -6,8 +6,9 @@ export interface PreflightProject {
 }
 
 /**
- * `generateProjectKey` cuts a key to 6 characters and adds a suffix when one is taken.
- * Either would change `ABC-123` references without any error, so a live import refuses first.
+ * `generateProjectKey` keeps only A-Z and 0-9, cuts a key to 12 characters and adds a suffix
+ * when one is taken. Each would change `ABC-123` references without any error, so a live
+ * import refuses first.
  */
 export function projectKeyProblems(
   projects: PreflightProject[],
@@ -18,8 +19,10 @@ export function projectKeyProblems(
   for (const project of projects) {
     if (alreadyImportedSourceIds.has(project.sourceId) || !project.key) continue;
     const key = project.key.toUpperCase();
-    if (key.length > MAX_PRESERVED_KEY_LENGTH) {
-      problems.push(`${key}: OPM keys are limited to ${MAX_PRESERVED_KEY_LENGTH} characters, so this project's references would break.`);
+    if (key.length > MAX_PROJECT_KEY_LENGTH) {
+      problems.push(`${key}: OPM keys are limited to ${MAX_PROJECT_KEY_LENGTH} characters, so this project's references would break.`);
+    } else if (sanitizeProjectKey(key) !== key) {
+      problems.push(`${key}: OPM keys hold only letters A-Z and digits, so this project's references would break.`);
     } else if (existingKeys.has(key)) {
       problems.push(`${key}: this account already has a project with that key, so the import would rename it and break its references.`);
     }
