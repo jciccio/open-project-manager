@@ -169,7 +169,11 @@ Once seeded (via either Docker or Local development), you can log in with the fo
 | **Admin Account** | `admin@example.com` | `password123` | Open Project Manager MVP |
 | **Jose Account** | `jose@example.com` | `password123` | Jose's Autonomous Systems |
 
-> ℹ️ You can also register a brand-new custom account directly from the login page (`/login`).
+> ℹ️ On a fresh instance, the first person to open `/register` creates the first account. After that, registration is closed and an administrator with access to the server creates accounts:
+> ```bash
+> yarn user:create --email jose@example.com --name "Jose"
+> ```
+> It prints a temporary password to share privately, which the new user changes under Profile Settings. Project owners can then add them from the members modal. On an instance with SSO, people sign in through the identity provider instead.
 
 ---
 
@@ -391,12 +395,15 @@ PLANE_API_KEY=… npx tsx scripts/import-plane.ts \
 Set `PLANE_URL` for a self-hosted instance (the default is `https://api.plane.so`).
 Omit `--project` to include every project the key can see.
 
+Pass `--map-email plane@example.com=opm@example.com` (repeatable) when someone's email
+differs between the two, for example when OPM signs them in through SSO.
+
 | Plane | OPM |
 |---|---|
 | Project identifier | Project key, so `ABC-123` references keep working |
 | Work item `sequence_id` | Card number |
 | State, with group, color and description | Column |
-| Label, with color | Label |
+| Label, with color and description | Label |
 | Description and comments (HTML) | Markdown |
 | Parent | Parent card |
 | Links | Card links |
@@ -404,11 +411,16 @@ Omit `--project` to include every project the key can see.
 | `relates_to`, `duplicate` | `RELATES_TO` relation |
 | `created_at`, `completed_at`, `target_date` | Same dates on the card |
 | Integer estimates | Points |
-| Assignee names | Card owner text |
+| Attachments | Card attachments, up to `MAX_ATTACHMENT_BYTES` each |
+| Assignees | Card assignees, matched by email |
 
-**Not imported yet:** attachments, assignee accounts, label descriptions, start dates,
-cycles, modules, label parents, non-integer estimates and the `start_before`,
-`start_after`, `finish_before` and `finish_after` relations.
+**Assignees:** an assignee is matched only to the project's owner or an existing member.
+The import doesn't add anyone to a project, so anyone else's name goes in the card owner
+text. A re-run doesn't update cards that are already imported.
+
+**Not imported:** start dates, cycles, modules, label parents, non-integer estimates and
+the `start_before`, `start_after`, `finish_before` and `finish_after` relations. Dry and
+live runs both list what they found of these, with counts, under "Not carried over".
 
 **Project keys:** OPM keys are limited to 6 characters, and a key that's taken gets a
 suffix, which would break references. A live run refuses to start if any new project has
@@ -418,18 +430,25 @@ a longer key or one this account already uses. A dry run lists the same problems
 on the parent link, and the card itself still imports.
 
 **Time:** Plane allows 60 requests per minute per key, and each work item takes about
-four requests (links, relations, comments, and the page it's listed on). A few thousand
+five requests (links, relations, comments, attachments, and the page it's listed on), plus
+two for each attachment file on a live run. A few thousand
 items takes several hours, and a dry run about the same. Cards are read before any of
 them are written, so a large project writes nothing for a while. The adapter waits for
 the rate limit window to reset and retries 429 and 5xx responses.
 
-**Re-running:** a re-run skips what's already imported and adds new comments. It reads
+**Re-running:** a re-run skips what's already imported and adds new comments and
+attachments. It reads
 everything from Plane again, so it takes about as long. Use `--project` to limit it.
 
 **Relations across projects:** projects import one at a time, and a relation is created
-when the second of its two projects runs. If you pass `--project`, a relation into a
-project you left out isn't created. A dry run doesn't check these relations, and prints
-how many it left out.
+when the second of its two projects runs. That holds across separate `--project` runs too:
+importing `ABC` and later `XYZ` creates the relations between them on the second run. A
+relation into a project you never import isn't created. A dry run doesn't check these
+relations, and prints how many it left out.
+
+If Plane fails to return a work item's links or relations, the import carries on and the
+summary counts the work items affected. Re-running restores missing relations, but not
+links, because links are only written when a card is first created.
 
 Plane's public API does not return archived work items, drafts or intake items, so an
 import does not include them. Unarchive anything you need in Plane first.
@@ -696,10 +715,11 @@ This fetches upstream git tags and displays your currently running version along
 ```
 open-project-manager/
 ├── prisma/
+│   ├── migrations/         # SQLite database migrations
+│   ├── migrations-postgres/# PostgreSQL database migrations
 │   ├── schema.prisma       # Prisma database models (User, Project, Column, Card, Label, Comment)
 │   └── seed.ts             # Sample user accounts & project seed script
 ├── scripts/
-│   ├── test-all.ts         # Automated integration test suite
 │   ├── benchmark-memory.ts # Baseline Node process memory & DB profiler
 │   └── load-test.ts        # High-concurrency stress & RAM load tester
 ├── src/
@@ -709,11 +729,16 @@ open-project-manager/
 │   │   ├── projects/[id]/  # Project Kanban, List, Analytics, & Calendar views
 │   │   └── page.tsx        # Dashboard page
 │   ├── components/         # React UI components (KanbanBoard, TaskCard, Modals, Views, Header)
-│   ├── lib/                # Auth JWT session & SQLite connection client
+│   ├── lib/                # Core libraries, auth, database client, and utils
+│   │   ├── import/         # Import framework (Vikunja, Plane)
+│   │   └── services/       # Domain business logic (Projects, Cards, Columns, Labels)
+│   ├── mcp/                # Model Context Protocol (MCP) server & tool handlers
 │   └── proxy.ts            # Route protection & Bearer token check (Next.js proxy)
 ├── prisma.config.ts        # Prisma v7 configuration
 └── dev.db                  # Local SQLite database file
 ```
+
+To run the automated test suite, use `yarn test` (or `npm test`).
 
 ---
 

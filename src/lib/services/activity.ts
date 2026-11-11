@@ -2,13 +2,14 @@ import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { verifyProjectAccess } from "@/lib/permissions";
 import { triggerWebhooks } from "@/lib/webhooks";
+import type { ServiceErrorKind } from "@/lib/services/result";
 
 export async function getCardActivity(cardId: string, userId: string) {
   try {
     const card = await db.card.findUnique({ where: { id: cardId } });
 
     if (!card || !(await verifyProjectAccess(card.projectId, userId, "VIEWER"))) {
-      return { success: false, error: "Unauthorized or card not found" };
+      return { success: false, error: "Unauthorized or card not found", kind: "not_found" as ServiceErrorKind };
     }
 
     const activities = await db.activity.findMany({
@@ -19,7 +20,7 @@ export async function getCardActivity(cardId: string, userId: string) {
     return { success: true, data: activities };
   } catch (error) {
     console.error("Error fetching card activity:", error);
-    return { success: false, error: "Failed to fetch card activity" };
+    return { success: false, error: "Failed to fetch card activity", kind: "internal" as ServiceErrorKind };
   }
 }
 

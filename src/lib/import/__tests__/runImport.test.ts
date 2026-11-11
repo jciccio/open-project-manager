@@ -804,7 +804,6 @@ describe("runImport", () => {
         columnSourceId: "col-todo",
         title: "Child",
         parentSourceId: "parent-card",
-        relations: [{ targetCardSourceId: "parent-card", type: "BLOCKS" }],
       },
     ];
 
@@ -812,79 +811,18 @@ describe("runImport", () => {
 
     const childInDb = await db.card.findFirst({ where: { project: { userId }, title: "Child" } });
     expect(childInDb?.parentId).not.toBeNull();
-    expect(await db.cardRelation.count({ where: { sourceCardId: childInDb!.id } })).toBe(1);
 
-    // User manually un-parents the card and removes the relation in OPM UI
+    // User manually un-parents the card in OPM UI
     await db.card.update({ where: { id: childInDb!.id }, data: { parentId: null } });
-    await db.cardRelation.deleteMany({ where: { sourceCardId: childInDb!.id } });
 
     // Re-run import
     const live2 = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
     const childRec = live2.records.find((r) => r.sourceId === "child-card");
     expect(childRec?.status).toBe("skipped");
 
-    // ParentId and deleted relation should still be absent (not overwritten!)
+    // ParentId should still be null (not overwritten!)
     const childAfterReimport = await db.card.findUnique({ where: { id: childInDb!.id } });
     expect(childAfterReimport?.parentId).toBeNull();
-    expect(await db.cardRelation.count({ where: { sourceCardId: childInDb!.id } })).toBe(0);
-  });
-
-  it("retries missing relations/parents on subsequent import if skipped card was previously missing them", async () => {
-    const fixture1 = baseFixture();
-    fixture1.cards["proj-1"] = [
-      {
-        sourceId: "child-card",
-        columnSourceId: "col-todo",
-        title: "Child Without Parent Yet",
-        parentSourceId: "unresolved-parent",
-      },
-    ];
-
-    const run1 = (await runImport(makeFakeImporter(fixture1), userId)) as ImportSummary;
-    expect(run1.records.find((r) => r.sourceId === "child-card")?.status).toBe("created");
-    expect(run1.records.find((r) => r.sourceId === "child-card:parent")?.status).toBe("failed");
-
-    // Second run: now parent is present
-    const fixture2 = baseFixture();
-    fixture2.cards["proj-1"] = [
-      { sourceId: "unresolved-parent", columnSourceId: "col-todo", title: "Parent Card" },
-      {
-        sourceId: "child-card",
-        columnSourceId: "col-todo",
-        title: "Child Without Parent Yet",
-        parentSourceId: "unresolved-parent",
-      },
-    ];
-
-    const run2 = (await runImport(makeFakeImporter(fixture2), userId)) as ImportSummary;
-    expect(run2.records.find((r) => r.sourceId === "child-card")?.status).toBe("skipped");
-    expect(run2.records.find((r) => r.sourceId === "child-card:parent")).toBeUndefined();
-
-    const child = await db.card.findFirst({ where: { project: { userId }, title: "Child Without Parent Yet" } });
-    const parent = await db.card.findFirst({ where: { project: { userId }, title: "Parent Card" } });
-    expect(child?.parentId).toBe(parent?.id);
-  });
-
-  it("dry run matches live run when column group is invalid causing cards to fail", async () => {
-    const fixture = baseFixture();
-    fixture.columns["proj-1"] = [
-      { sourceId: "col-invalid", name: "Invalid Group Column", group: "NOT_A_GROUP" as any },
-    ];
-    fixture.cards["proj-1"] = [
-      { sourceId: "card-1", columnSourceId: "col-invalid", title: "Card in Invalid Column" },
-    ];
-
-    const dryRun = (await runImport(makeFakeImporter(fixture), userId, { dryRun: true })) as ImportDryRunSummary;
-    const colDry = dryRun.records.find((r) => r.sourceId === "col-invalid");
-    const cardDry = dryRun.records.find((r) => r.sourceId === "card-1");
-    expect(colDry?.status).toBe("would_fail");
-    expect(cardDry?.status).toBe("would_fail");
-
-    const liveRun = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
-    const colLive = liveRun.records.find((r) => r.sourceId === "col-invalid");
-    const cardLive = liveRun.records.find((r) => r.sourceId === "card-1");
-    expect(colLive?.status).toBe("failed");
-    expect(cardLive?.status).toBe("failed");
   });
 
   it("records mapping for both sides of bidirectional relation so deleting relation in OPM keeps it deleted on re-run", async () => {
@@ -904,21 +842,16 @@ describe("runImport", () => {
       },
     ];
 
-    // Run 1: imports both cards and creates 1 canonical relation (a BLOCKS b)
     await runImport(makeFakeImporter(fixture), userId);
     const cardA = await db.card.findFirst({ where: { project: { userId }, title: "Card A" } });
     const cardB = await db.card.findFirst({ where: { project: { userId }, title: "Card B" } });
     expect(await db.cardRelation.count({ where: { sourceCardId: cardA!.id, targetCardId: cardB!.id } })).toBe(1);
 
-    // Delete relation in OPM
     await db.cardRelation.deleteMany({ where: { sourceCardId: cardA!.id, targetCardId: cardB!.id } });
     expect(await db.cardRelation.count({ where: { sourceCardId: cardA!.id, targetCardId: cardB!.id } })).toBe(0);
 
-    // Run 2: re-run import
     const run2 = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
     expect(run2.totals.created).toBe(0);
-
-    // Relation should STILL be deleted
     expect(await db.cardRelation.count({ where: { sourceCardId: cardA!.id, targetCardId: cardB!.id } })).toBe(0);
   });
 
@@ -935,13 +868,9 @@ describe("runImport", () => {
     ];
 
     await runImport(makeFakeImporter(fixture1), userId);
-
-    const c1 = await db.card.findFirst({ where: { project: { userId }, title: "C1" } });
-    const c2 = await db.card.findFirst({ where: { project: { userId }, title: "C2" } });
     expect(await db.cardRelation.count({ where: { type: "RELATES_TO" } })).toBe(1);
     expect(await db.cardRelation.count({ where: { type: "BLOCKS" } })).toBe(0);
 
-    // Run 2: source now also has c2 BLOCKS c1
     const fixture2 = baseFixture();
     fixture2.cards["proj-1"] = [
       { sourceId: "c1", columnSourceId: "col-todo", title: "C1" },
@@ -958,8 +887,6 @@ describe("runImport", () => {
 
     const run2 = (await runImport(makeFakeImporter(fixture2), userId)) as ImportSummary;
     expect(run2.records.filter((r) => r.status === "failed")).toHaveLength(0);
-
-    // Both relations now exist
     expect(await db.cardRelation.count({ where: { type: "RELATES_TO" } })).toBe(1);
     expect(await db.cardRelation.count({ where: { type: "BLOCKS" } })).toBe(1);
   });
@@ -976,18 +903,75 @@ describe("runImport", () => {
     const kid = await db.card.findFirst({ where: { project: { userId }, title: "Kid" } });
     expect(kid?.parentId).toBe(parent1?.id);
 
-    // Delete parent in OPM (nulls kid.parentId)
     await db.card.delete({ where: { id: parent1!.id } });
     const kidAfterDelete = await db.card.findUnique({ where: { id: kid!.id } });
     expect(kidAfterDelete?.parentId).toBeNull();
 
-    // Re-run import: parent is recreated, kid should relink to the new parent
     await runImport(makeFakeImporter(fixture), userId);
     const parent2 = await db.card.findFirst({ where: { project: { userId }, title: "Parent" } });
     expect(parent2?.id).not.toBe(parent1?.id);
 
     const kidRelinked = await db.card.findUnique({ where: { id: kid!.id } });
     expect(kidRelinked?.parentId).toBe(parent2?.id);
+  });
+
+  it("does not overwrite manually reassigned parent when original parent is deleted and recreated", async () => {
+    const fixture = baseFixture();
+    fixture.cards["proj-1"] = [
+      { sourceId: "p-orig", columnSourceId: "col-todo", title: "Original Parent" },
+      { sourceId: "p-manual", columnSourceId: "col-todo", title: "Manual Parent" },
+      { sourceId: "k-moved", columnSourceId: "col-todo", title: "Moved Kid", parentSourceId: "p-orig" },
+    ];
+
+    await runImport(makeFakeImporter(fixture), userId);
+    const origParent = await db.card.findFirst({ where: { project: { userId }, title: "Original Parent" } });
+    const manualParent = await db.card.findFirst({ where: { project: { userId }, title: "Manual Parent" } });
+    const kid = await db.card.findFirst({ where: { project: { userId }, title: "Moved Kid" } });
+
+    await db.card.update({ where: { id: kid!.id }, data: { parentId: manualParent!.id } });
+    await db.card.delete({ where: { id: origParent!.id } });
+
+    const dry2 = (await runImport(makeFakeImporter(fixture), userId, { dryRun: true })) as ImportDryRunSummary;
+    expect(dry2.totals.wouldFail).toBe(0);
+
+    const live2 = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
+    expect(live2.totals.failed).toBe(0);
+
+    const kidAfter = await db.card.findUnique({ where: { id: kid!.id } });
+    expect(kidAfter?.parentId).toBe(manualParent!.id);
+  });
+
+  it("rebuilds one-sided relation for skipped card when target is deleted in OPM and recreated", async () => {
+    const fixture = baseFixture();
+    fixture.cards["proj-1"] = [
+      {
+        sourceId: "src-card",
+        columnSourceId: "col-todo",
+        title: "Source Card",
+        relations: [{ targetCardSourceId: "tgt-card", type: "BLOCKS" }],
+      },
+      { sourceId: "tgt-card", columnSourceId: "col-todo", title: "Target Card" },
+    ];
+
+    await runImport(makeFakeImporter(fixture), userId);
+    const src = await db.card.findFirst({ where: { project: { userId }, title: "Source Card" } });
+    const tgt1 = await db.card.findFirst({ where: { project: { userId }, title: "Target Card" } });
+    expect(await db.cardRelation.count({ where: { sourceCardId: src!.id, targetCardId: tgt1!.id, type: "BLOCKS" } })).toBe(1);
+
+    await db.card.delete({ where: { id: tgt1!.id } });
+    expect(await db.cardRelation.count({ where: { sourceCardId: src!.id } })).toBe(0);
+
+    const dry2 = (await runImport(makeFakeImporter(fixture), userId, { dryRun: true })) as ImportDryRunSummary;
+    expect(dry2.totals.wouldFail).toBe(0);
+
+    const live2 = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
+    expect(live2.totals.failed).toBe(0);
+    expect(live2.records.find((r) => r.sourceId === "src-card")?.status).toBe("skipped");
+    expect(live2.records.find((r) => r.sourceId === "tgt-card")?.status).toBe("created");
+
+    const tgt2 = await db.card.findFirst({ where: { project: { userId }, title: "Target Card" } });
+    expect(tgt2?.id).not.toBe(tgt1?.id);
+    expect(await db.cardRelation.count({ where: { sourceCardId: src!.id, targetCardId: tgt2!.id, type: "BLOCKS" } })).toBe(1);
   });
 
   it("imports card and children even when a link has an unsupported scheme like ftp://, recording failure against link only", async () => {
@@ -1046,5 +1030,94 @@ describe("runImport", () => {
     const live = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
     expect(live.records.find((r) => r.sourceId === "card-empty-link")?.status).toBe("created");
     expect(live.records.find((r) => r.sourceId === "card-empty-link:link:")?.status).toBe("failed");
+  });
+
+  it("matches dry-run and live-run failures for invalid createdAt and dependent child cards", async () => {
+    const fixture = baseFixture();
+    fixture.cards["proj-1"] = [
+      {
+        sourceId: "bad-date-parent",
+        columnSourceId: "col-todo",
+        title: "Bad Date Parent",
+        createdAt: "not-a-valid-date",
+      },
+      {
+        sourceId: "child-of-bad-date",
+        columnSourceId: "col-todo",
+        title: "Child of Bad Date",
+        parentSourceId: "bad-date-parent",
+      },
+    ];
+
+    const dry = (await runImport(makeFakeImporter(fixture), userId, { dryRun: true })) as ImportDryRunSummary;
+    const live = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
+
+    const dryFails = dry.records.filter((r) => r.status === "would_fail").map((r) => ({ sourceId: r.sourceId, error: r.error }));
+    const liveFails = live.records.filter((r) => r.status === "failed").map((r) => ({ sourceId: r.sourceId, error: r.error }));
+
+    expect(dry.totals.wouldFail).toBe(2);
+    expect(dryFails).toEqual(liveFails);
+    expect(dryFails.some((f) => f.sourceId === "bad-date-parent" && f.error?.includes('Invalid createdAt "not-a-valid-date"'))).toBe(true);
+    expect(dryFails.some((f) => f.sourceId === "child-of-bad-date:parent" && f.error?.includes('Unresolved parentSourceId "bad-date-parent"'))).toBe(true);
+  });
+
+  it("matches dry-run and live-run hierarchy validation against DB parent links on re-runs and cross-project parents", async () => {
+    // Run 1: Import Project 1 with A -> B and Top C, and Project 2 with X
+    const fixture1 = baseFixture();
+    fixture1.projects.push({ sourceId: "proj-2", name: "Project 2" });
+    fixture1.columns["proj-2"] = [{ sourceId: "col-p2", name: "Todo", group: "UNSTARTED" }];
+    fixture1.cards["proj-1"] = [
+      { sourceId: "node-a", columnSourceId: "col-todo", title: "Node A" },
+      { sourceId: "node-b", columnSourceId: "col-todo", title: "Node B", parentSourceId: "node-a" },
+      { sourceId: "node-top", columnSourceId: "col-todo", title: "Node Top" },
+    ];
+    fixture1.cards["proj-2"] = [
+      { sourceId: "p2-card", columnSourceId: "col-p2", title: "P2 Card" },
+    ];
+
+    await runImport(makeFakeImporter(fixture1), userId);
+
+    // Run 2:
+    // - node-c tries to nest under existing DB subtask node-b -> Subtasks cannot be nested under another subtask
+    // - existing DB parent node-a (has child node-b in DB) tries to get parent node-top -> A card with subtasks cannot be made a subtask
+    // - node-cross tries to use p2-card from proj-2 as parent -> Parent card not found in this project
+    // - batch 3-level chain in fresh project proj-3 -> matches live failure
+    const fixture2 = baseFixture();
+    fixture2.projects.push(
+      { sourceId: "proj-2", name: "Project 2" },
+      { sourceId: "proj-3", name: "Project 3" }
+    );
+    fixture2.columns["proj-2"] = [{ sourceId: "col-p2", name: "Todo", group: "UNSTARTED" }];
+    fixture2.columns["proj-3"] = [{ sourceId: "col-p3", name: "Todo", group: "UNSTARTED" }];
+    fixture2.cards["proj-1"] = [
+      { sourceId: "node-a", columnSourceId: "col-todo", title: "Node A", parentSourceId: "node-top" },
+      { sourceId: "node-b", columnSourceId: "col-todo", title: "Node B", parentSourceId: "node-a" },
+      { sourceId: "node-top", columnSourceId: "col-todo", title: "Node Top" },
+      { sourceId: "node-c", columnSourceId: "col-todo", title: "Node C", parentSourceId: "node-b" },
+      { sourceId: "node-cross", columnSourceId: "col-todo", title: "Node Cross", parentSourceId: "p2-card" },
+    ];
+    fixture2.cards["proj-2"] = [
+      { sourceId: "p2-card", columnSourceId: "col-p2", title: "P2 Card" },
+    ];
+    fixture2.cards["proj-3"] = [
+      { sourceId: "p3-epic", columnSourceId: "col-p3", title: "P3 Epic" },
+      { sourceId: "p3-story", columnSourceId: "col-p3", title: "P3 Story", parentSourceId: "p3-epic" },
+      { sourceId: "p3-subtask", columnSourceId: "col-p3", title: "P3 Subtask", parentSourceId: "p3-story" },
+      { sourceId: "p3-cross-to-existing", columnSourceId: "col-p3", title: "P3 Cross", parentSourceId: "node-top" },
+    ];
+
+    const dry = (await runImport(makeFakeImporter(fixture2), userId, { dryRun: true })) as ImportDryRunSummary;
+    const live = (await runImport(makeFakeImporter(fixture2), userId)) as ImportSummary;
+
+    const dryFails = dry.records.filter((r) => r.status === "would_fail").map((r) => ({ sourceId: r.sourceId, error: r.error }));
+    const liveFails = live.records.filter((r) => r.status === "failed").map((r) => ({ sourceId: r.sourceId, error: r.error }));
+
+    expect(dry.totals.wouldFail).toBe(5);
+    expect(dryFails).toEqual(liveFails);
+    expect(dryFails.some((f) => f.sourceId === "node-c:parent" && f.error?.includes("Subtasks cannot be nested under another subtask"))).toBe(true);
+    expect(dryFails.some((f) => f.sourceId === "node-a:parent" && f.error?.includes("A card with subtasks cannot be made a subtask"))).toBe(true);
+    expect(dryFails.some((f) => f.sourceId === "node-cross:parent" && f.error?.includes("Parent card not found in this project"))).toBe(true);
+    expect(dryFails.some((f) => f.sourceId === "p3-subtask:parent" && f.error?.includes("Subtasks cannot be nested under another subtask"))).toBe(true);
+    expect(dryFails.some((f) => f.sourceId === "p3-cross-to-existing:parent" && f.error?.includes("Parent card not found in this project"))).toBe(true);
   });
 });

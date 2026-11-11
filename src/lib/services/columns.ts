@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { deleteRowsAndAttachmentFiles } from "@/lib/attachmentCleanup";
 import { safeRevalidatePath } from "@/lib/revalidate";
-import { verifyProjectAccess } from "@/lib/permissions";
+import { verifyProjectAccess, accessDenial } from "@/lib/permissions";
 import {
   parseColumnCreate,
   parseColumnUpdate,
@@ -9,6 +9,7 @@ import {
   type ColumnUpdateInput,
 } from "@/lib/validation/columns";
 import { lastColumnError } from "@/lib/columnGuards";
+import type { ServiceErrorKind } from "@/lib/services/result";
 
 export async function createColumn(
   projectId: string,
@@ -17,17 +18,18 @@ export async function createColumn(
   userId: string
 ) {
   try {
-    if (!(await verifyProjectAccess(projectId, userId, "ADMIN"))) {
-      return { success: false, error: "Unauthorized" };
+    const denied = await accessDenial(projectId, userId, "ADMIN");
+    if (denied) {
+      return { success: false, error: "Unauthorized", kind: denied as ServiceErrorKind };
     }
 
     if (!name.trim()) {
-      return { success: false, error: "Column name is required" };
+      return { success: false, error: "Column name is required", kind: "invalid" as ServiceErrorKind };
     }
 
     const parsed = parseColumnCreate({ ...details, name });
     if (!parsed.success) {
-      return { success: false, error: parsed.error };
+      return { success: false, error: parsed.error, kind: "invalid" as ServiceErrorKind };
     }
 
     const lastColumn = await db.column.findFirst({
@@ -53,7 +55,7 @@ export async function createColumn(
     return { success: true, data: column };
   } catch (error) {
     console.error("Error creating column:", error);
-    return { success: false, error: "Failed to create column" };
+    return { success: false, error: "Failed to create column", kind: "internal" as ServiceErrorKind };
   }
 }
 
@@ -68,13 +70,17 @@ export async function updateColumn(
       include: { project: true },
     });
 
-    if (!column || !(await verifyProjectAccess(column.projectId, userId, "ADMIN"))) {
-      return { success: false, error: "Unauthorized" };
+    if (!column) {
+      return { success: false, error: "Unauthorized", kind: "not_found" as ServiceErrorKind };
+    }
+    const denied = await accessDenial(column.projectId, userId, "ADMIN");
+    if (denied) {
+      return { success: false, error: "Unauthorized", kind: denied as ServiceErrorKind };
     }
 
     const parsed = parseColumnUpdate(input, column.group);
     if (!parsed.success) {
-      return { success: false, error: parsed.error };
+      return { success: false, error: parsed.error, kind: "invalid" as ServiceErrorKind };
     }
     const data = parsed.data;
 
@@ -111,19 +117,20 @@ export async function updateColumn(
     return { success: true, data: updated };
   } catch (error) {
     console.error(`Error updating column ${id}:`, error);
-    return { success: false, error: "Failed to update column" };
+    return { success: false, error: "Failed to update column", kind: "internal" as ServiceErrorKind };
   }
 }
 
 export async function reorderColumns(projectId: string, orderedColumnIds: string[], userId: string) {
   try {
-    if (!(await verifyProjectAccess(projectId, userId, "ADMIN"))) {
-      return { success: false, error: "Unauthorized" };
+    const denied = await accessDenial(projectId, userId, "ADMIN");
+    if (denied) {
+      return { success: false, error: "Unauthorized", kind: denied as ServiceErrorKind };
     }
 
     const ownedCount = await db.column.count({ where: { id: { in: orderedColumnIds }, projectId } });
     if (new Set(orderedColumnIds).size !== orderedColumnIds.length || ownedCount !== orderedColumnIds.length) {
-      return { success: false, error: "Invalid column" };
+      return { success: false, error: "Invalid column", kind: "invalid" as ServiceErrorKind };
     }
 
     const updates = orderedColumnIds.map((id, index) =>
@@ -138,7 +145,7 @@ export async function reorderColumns(projectId: string, orderedColumnIds: string
     return { success: true };
   } catch (error) {
     console.error("Error reordering columns:", error);
-    return { success: false, error: "Failed to reorder columns" };
+    return { success: false, error: "Failed to reorder columns", kind: "internal" as ServiceErrorKind };
   }
 }
 
@@ -149,13 +156,17 @@ export async function deleteColumn(id: string, userId: string) {
       include: { project: true },
     });
 
-    if (!column || !(await verifyProjectAccess(column.projectId, userId, "ADMIN"))) {
-      return { success: false, error: "Unauthorized" };
+    if (!column) {
+      return { success: false, error: "Unauthorized", kind: "not_found" as ServiceErrorKind };
+    }
+    const denied = await accessDenial(column.projectId, userId, "ADMIN");
+    if (denied) {
+      return { success: false, error: "Unauthorized", kind: denied as ServiceErrorKind };
     }
 
     const lastColumn = await lastColumnError(column.projectId);
     if (lastColumn) {
-      return { success: false, error: lastColumn };
+      return { success: false, error: lastColumn, kind: "invalid" as ServiceErrorKind };
     }
 
     await deleteRowsAndAttachmentFiles({ card: { columnId: id } }, () =>
@@ -168,6 +179,6 @@ export async function deleteColumn(id: string, userId: string) {
     return { success: true };
   } catch (error) {
     console.error(`Error deleting column ${id}:`, error);
-    return { success: false, error: "Failed to delete column" };
+    return { success: false, error: "Failed to delete column", kind: "internal" as ServiceErrorKind };
   }
 }

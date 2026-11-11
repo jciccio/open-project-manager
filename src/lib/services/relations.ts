@@ -1,7 +1,8 @@
 import { isClosedColumn } from "@/lib/columnGroups";
 import { db } from "@/lib/db";
-import { verifyProjectAccess } from "@/lib/permissions";
+import { verifyProjectAccess, accessDenial } from "@/lib/permissions";
 import { safeRevalidatePath } from "@/lib/revalidate";
+import type { ServiceErrorKind } from "@/lib/services/result";
 
 export async function addCardRelation(
   sourceCardId: string,
@@ -11,13 +12,13 @@ export async function addCardRelation(
 ) {
   try {
     if (sourceCardId === targetCardId) {
-      return { success: false, error: "A card cannot relate to itself" };
+      return { success: false, error: "A card cannot relate to itself", kind: "invalid" as ServiceErrorKind };
     }
 
     const validTypes = ["BLOCKS", "BLOCKED_BY", "RELATES_TO"];
     const normalizedType = type.toUpperCase().trim();
     if (!validTypes.includes(normalizedType)) {
-      return { success: false, error: `Invalid relation type '${type}'. Expected BLOCKS, BLOCKED_BY, or RELATES_TO` };
+      return { success: false, error: `Invalid relation type '${type}'. Expected BLOCKS, BLOCKED_BY, or RELATES_TO`, kind: "invalid" as ServiceErrorKind };
     }
 
     const sourceCard = await db.card.findUnique({
@@ -26,13 +27,15 @@ export async function addCardRelation(
     });
     const targetCard = await db.card.findUnique({ where: { id: targetCardId } });
 
-    if (
-      !sourceCard ||
-      !targetCard ||
-      !(await verifyProjectAccess(sourceCard.projectId, userId, "MEMBER")) ||
-      !(await verifyProjectAccess(targetCard.projectId, userId, "VIEWER"))
-    ) {
-      return { success: false, error: "Unauthorized or card not found" };
+    if (!sourceCard || !targetCard) {
+      return { success: false, error: "Unauthorized or card not found", kind: "not_found" as ServiceErrorKind };
+    }
+    const sourceDenied = await accessDenial(sourceCard.projectId, userId, "MEMBER");
+    if (sourceDenied) {
+      return { success: false, error: "Unauthorized or card not found", kind: sourceDenied as ServiceErrorKind };
+    }
+    if (!(await verifyProjectAccess(targetCard.projectId, userId, "VIEWER"))) {
+      return { success: false, error: "Unauthorized or card not found", kind: "not_found" as ServiceErrorKind };
     }
 
     const relation = await db.cardRelation.create({
@@ -51,7 +54,7 @@ export async function addCardRelation(
     return { success: true, data: relation };
   } catch (error) {
     console.error("Error creating card relation:", error);
-    return { success: false, error: "Failed to create card relation" };
+    return { success: false, error: "Failed to create card relation", kind: "internal" as ServiceErrorKind };
   }
 }
 
@@ -65,12 +68,14 @@ export async function removeCardRelation(relationId: string, userId: string) {
       },
     });
 
-    if (
-      !relation ||
-      (!(await verifyProjectAccess(relation.sourceCard.projectId, userId, "MEMBER")) &&
-        !(await verifyProjectAccess(relation.targetCard.projectId, userId, "MEMBER")))
-    ) {
-      return { success: false, error: "Unauthorized or relation not found" };
+    if (!relation) {
+      return { success: false, error: "Unauthorized or relation not found", kind: "not_found" as ServiceErrorKind };
+    }
+    const sourceDenied = await accessDenial(relation.sourceCard.projectId, userId, "MEMBER");
+    const targetDenied = sourceDenied && (await accessDenial(relation.targetCard.projectId, userId, "MEMBER"));
+    if (sourceDenied && targetDenied) {
+      const kind = sourceDenied === "forbidden" || targetDenied === "forbidden" ? "forbidden" : "not_found";
+      return { success: false, error: "Unauthorized or relation not found", kind: kind as ServiceErrorKind };
     }
 
     await db.cardRelation.delete({ where: { id: relationId } });
@@ -78,7 +83,7 @@ export async function removeCardRelation(relationId: string, userId: string) {
     return { success: true };
   } catch (error) {
     console.error(`Error deleting card relation ${relationId}:`, error);
-    return { success: false, error: "Failed to delete card relation" };
+    return { success: false, error: "Failed to delete card relation", kind: "internal" as ServiceErrorKind };
   }
 }
 
@@ -87,7 +92,7 @@ export async function getCardRelations(cardId: string, userId: string) {
     const card = await db.card.findUnique({ where: { id: cardId } });
 
     if (!card || !(await verifyProjectAccess(card.projectId, userId, "VIEWER"))) {
-      return { success: false, error: "Unauthorized or card not found" };
+      return { success: false, error: "Unauthorized or card not found", kind: "not_found" as ServiceErrorKind };
     }
 
     const outgoing = await db.cardRelation.findMany({
@@ -144,6 +149,6 @@ export async function getCardRelations(cardId: string, userId: string) {
     };
   } catch (error) {
     console.error(`Error fetching relations for card ${cardId}:`, error);
-    return { success: false, error: "Failed to fetch card relations" };
+    return { success: false, error: "Failed to fetch card relations", kind: "internal" as ServiceErrorKind };
   }
 }
