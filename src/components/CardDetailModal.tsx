@@ -516,8 +516,8 @@ export default function CardDetailModal({
     setDeleting(false);
 
     if (report(res)) {
-      onRefresh();
       onClose();
+      onRefresh();
     }
   }
 
@@ -528,8 +528,8 @@ export default function CardDetailModal({
     setArchiving(false);
 
     if (report(res)) {
-      onRefresh();
       onClose();
+      onRefresh();
     }
   }
 
@@ -539,8 +539,8 @@ export default function CardDetailModal({
     setArchiving(false);
 
     if (report(res)) {
-      onRefresh();
       onClose();
+      onRefresh();
     }
   }
 

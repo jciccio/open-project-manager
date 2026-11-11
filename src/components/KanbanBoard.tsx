@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useDeferredValue, useMemo } from "react";
+import { useState, useEffect, useCallback, useDeferredValue, useMemo, useRef } from "react";
 import {
   Plus,
   ArrowLeft,
@@ -68,26 +68,35 @@ export default function KanbanBoard({ project, initialCardParam, initialCard }: 
     return found ? found.id : null;
   });
 
+  const deepLinkKey = initialCardParam
+    ? `param:${initialCardParam}`
+    : initialCard
+    ? `card:${initialCard.id}`
+    : null;
+  const handledDeepLinkRef = useRef<string | null>(deepLinkKey);
+
   useEffect(() => {
+    if (!deepLinkKey) {
+      handledDeepLinkRef.current = null;
+      return;
+    }
+    if (deepLinkKey === handledDeepLinkRef.current) {
+      return;
+    }
+    handledDeepLinkRef.current = deepLinkKey;
     if (initialCard) {
       setStandaloneCard(initialCard);
       setActiveCardId(initialCard.id);
       return;
     }
-    const cardParam =
-      initialCardParam ||
-      (typeof window !== "undefined"
-        ? new URLSearchParams(window.location.search).get("card") ||
-          new URLSearchParams(window.location.search).get("cardId")
-        : null);
-    if (cardParam) {
+    if (initialCardParam) {
       const allCards = project.columns.flatMap((col: any) => col.cards || []);
-      const found = findCardByParam(allCards, cardParam, project.key);
+      const found = findCardByParam(allCards, initialCardParam, project.key);
       if (found) {
         setActiveCardId(found.id);
       }
     }
-  }, [initialCardParam, initialCard, project.columns, project.key]);
+  }, [deepLinkKey, initialCard, initialCardParam, project.columns, project.key]);
 
   function handleOpenCard(cardId: string) {
     setActiveCardId(cardId);
@@ -386,6 +395,7 @@ export default function KanbanBoard({ project, initialCardParam, initialCard }: 
     ? project.columns
         .flatMap((col: any) => col.cards || [])
         .find((c: any) => c.id === activeCardId) ||
+      (initialCard && initialCard.id === activeCardId ? initialCard : null) ||
       (standaloneCard && standaloneCard.id === activeCardId ? standaloneCard : null)
     : null;
 

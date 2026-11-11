@@ -620,7 +620,30 @@ export async function getCardByProjectAndParam(projectId: string, param: string,
       activities: { orderBy: { createdAt: "desc" as const } },
       assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
       parent: { select: { id: true, number: true, title: true } },
-      children: { select: { id: true, number: true, title: true, completedAt: true } },
+      children: {
+        where: { isArchived: false },
+        orderBy: { order: "asc" as const },
+        select: {
+          id: true,
+          number: true,
+          title: true,
+          dueDate: true,
+          completedAt: true,
+          columnId: true,
+          column: {
+            select: {
+              id: true,
+              name: true,
+              isDone: true,
+            },
+          },
+          assignees: {
+            include: {
+              user: { select: { id: true, name: true, email: true } },
+            },
+          },
+        },
+      },
       links: true,
     };
 

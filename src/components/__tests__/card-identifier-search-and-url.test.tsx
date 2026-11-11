@@ -13,6 +13,18 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/projects/p1",
 }));
 
+const { mockUnarchiveCard } = vi.hoisted(() => ({
+  mockUnarchiveCard: vi.fn(),
+}));
+
+vi.mock("@/actions/cards", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/actions/cards")>();
+  return {
+    ...actual,
+    unarchiveCard: (...args: Parameters<typeof actual.unarchiveCard>) => mockUnarchiveCard(...args),
+  };
+});
+
 function renderWithProviders(ui: React.ReactNode) {
   return render(
     <ThemeProvider>
@@ -246,5 +258,73 @@ describe("Deep linking and Copy link in modal (#270)", () => {
     expect(screen.getByDisplayValue("Archived ticket")).toBeInTheDocument();
     expect(screen.getByText("Archived")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /restore card/i })).toBeInTheDocument();
+  });
+
+  it("stays closed when restoring an archived card from a deep link and board re-renders", async () => {
+    const previousUrl = window.location.pathname + window.location.search;
+    window.history.replaceState({}, "", "/projects/p1?card=OPM-99");
+    mockUnarchiveCard.mockResolvedValue({ success: true });
+
+    try {
+      const archivedCard = {
+        id: "card-archived",
+        title: "Archived ticket",
+        description: "Old work",
+        number: 99,
+        isArchived: true,
+        priority: "LOW",
+        projectId: "p1",
+        columnId: "col-1",
+        project: { id: "p1", key: "OPM", name: "My Project" },
+        labels: [],
+        assignees: [],
+        comments: [],
+        activities: [],
+        links: [],
+        attachments: [],
+        outgoingRelations: [],
+        incomingRelations: [],
+      };
+
+      const { rerender } = renderWithProviders(
+        <KanbanBoard project={mockProject} initialCardParam="OPM-99" initialCard={archivedCard} />
+      );
+
+      expect(screen.getByDisplayValue("Archived ticket")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: /restore card/i }));
+
+      await waitFor(() => {
+        expect(mockUnarchiveCard).toHaveBeenCalledWith("card-archived");
+        expect(screen.queryByDisplayValue("Archived ticket")).not.toBeInTheDocument();
+      });
+
+      expect(window.location.search).toBe("");
+
+      // Simulate Next.js Server Action revalidation re-rendering with the restored card
+      // now active in project.columns while stale initialCardParam is still present
+      const restoredCard = { ...archivedCard, isArchived: false };
+      const refreshedProject = {
+        ...mockProject,
+        columns: [
+          {
+            ...mockProject.columns[0],
+            cards: [...mockProject.columns[0].cards, restoredCard],
+          },
+        ],
+      };
+
+      rerender(
+        <ThemeProvider>
+          <LanguageProvider>
+            <KanbanBoard project={refreshedProject} initialCardParam="OPM-99" initialCard={restoredCard} />
+          </LanguageProvider>
+        </ThemeProvider>
+      );
+
+      expect(screen.queryByDisplayValue("Archived ticket")).not.toBeInTheDocument();
+    } finally {
+      window.history.replaceState({}, "", previousUrl);
+    }
   });
 });
