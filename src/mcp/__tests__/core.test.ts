@@ -998,6 +998,33 @@ describe("MCP Server Core Tools", () => {
     const fetchedClearedCard = fetchedCleared.card as any;
     expect(fetchedClearedCard?.labels?.length).toBe(0);
 
+    // 8. create_card with duplicate labelIds dedupes and succeeds
+    const dupCard = await executeMcpTool("create_card", {
+      projectId,
+      columnId: colId,
+      title: "Duplicate Label Test",
+      labelIds: [l1.label!.id, l1.label!.id],
+    }, { userId });
+    expect(dupCard.success).toBe(true);
+    expect((dupCard.card as any).labels?.length).toBe(1);
+
+    // 9. update_card with duplicate labelIds dedupes atomically without data loss
+    const dupUpdate = await executeMcpTool("update_card", {
+      id: dupCard.card!.id,
+      labelIds: [l1.label!.id, l1.label!.id, l2.label!.id],
+    }, { userId });
+    expect(dupUpdate.success).toBe(true);
+    expect((dupUpdate.card as any).labels?.length).toBe(2);
+
+    // 10. update_card omitting labelIds preserves existing labels
+    const preserved = await executeMcpTool("update_card", {
+      id: dupCard.card!.id,
+      title: "Title updated, labels preserved",
+    }, { userId });
+    expect(preserved.success).toBe(true);
+    const fetchedPreserved = await executeMcpTool("get_card", { id: dupCard.card!.id }, { userId });
+    expect((fetchedPreserved.card as any).labels?.length).toBe(2);
+
     await executeMcpTool("delete_project", { id: otherProj.project!.id }, { userId });
     await executeMcpTool("delete_project", { id: projectId }, { userId });
   });

@@ -1178,6 +1178,9 @@ export async function executeMcpTool(
         if (parentError) throw new Error(parentError);
       }
 
+      const uniqueLabelIds = input.labelIds ? Array.from(new Set(input.labelIds)) : undefined;
+      const uniqueAssigneeIds = input.assigneeIds ? Array.from(new Set(input.assigneeIds)) : undefined;
+
       const firstAttemptNumber = await nextCardNumber(input.projectId);
       const card = await withCardNumberRetry(input.projectId, firstAttemptNumber, (number) =>
         db.card.create({
@@ -1196,15 +1199,15 @@ export async function executeMcpTool(
             parentId: input.parentId || null,
             typeId: input.typeId || null,
             labels:
-              input.labelIds && input.labelIds.length > 0
+              uniqueLabelIds && uniqueLabelIds.length > 0
                 ? {
-                    create: input.labelIds.map((labelId) => ({ labelId })),
+                    create: uniqueLabelIds.map((labelId) => ({ labelId })),
                   }
                 : undefined,
             assignees:
-              input.assigneeIds && input.assigneeIds.length > 0
+              uniqueAssigneeIds && uniqueAssigneeIds.length > 0
                 ? {
-                    create: input.assigneeIds.map((assigneeId) => ({ userId: assigneeId })),
+                    create: uniqueAssigneeIds.map((assigneeId) => ({ userId: assigneeId })),
                   }
                 : undefined,
           },
@@ -1233,6 +1236,9 @@ export async function executeMcpTool(
       });
       if (referenceError) throw new Error(referenceError);
 
+      const uniqueLabelIds = input.labelIds !== undefined ? Array.from(new Set(input.labelIds)) : undefined;
+      const uniqueAssigneeIds = input.assigneeIds !== undefined ? Array.from(new Set(input.assigneeIds)) : undefined;
+
       const data: any = {};
       if (input.title !== undefined) data.title = input.title;
       if (input.description !== undefined) data.description = input.description;
@@ -1258,25 +1264,19 @@ export async function executeMcpTool(
         data.typeId = input.typeId || null;
       }
 
-      if (input.labelIds !== undefined) {
-        await db.cardLabel.deleteMany({ where: { cardId: args.id } });
-        if (input.labelIds.length > 0) {
-          data.labels = {
-            create: input.labelIds.map((labelId) => ({ labelId })),
-          };
-        }
+      if (uniqueLabelIds !== undefined && uniqueLabelIds.length > 0) {
+        data.labels = {
+          create: uniqueLabelIds.map((labelId) => ({ labelId })),
+        };
       }
 
-      if (input.assigneeIds !== undefined) {
-        await db.cardAssignee.deleteMany({ where: { cardId: args.id } });
-        if (input.assigneeIds.length > 0) {
-          data.assignees = {
-            create: input.assigneeIds.map((assigneeId) => ({ userId: assigneeId })),
-          };
-        }
+      if (uniqueAssigneeIds !== undefined && uniqueAssigneeIds.length > 0) {
+        data.assignees = {
+          create: uniqueAssigneeIds.map((assigneeId) => ({ userId: assigneeId })),
+        };
       }
 
-      const card = await db.card.update({
+      const updateCardQuery = db.card.update({
         where: { id: args.id },
         data,
         include: {
@@ -1287,6 +1287,15 @@ export async function executeMcpTool(
           children: { select: { id: true, number: true, title: true, completedAt: true } },
         },
       });
+
+      const transactionOps: any[] = [
+        ...(uniqueLabelIds !== undefined ? [db.cardLabel.deleteMany({ where: { cardId: args.id } })] : []),
+        ...(uniqueAssigneeIds !== undefined ? [db.cardAssignee.deleteMany({ where: { cardId: args.id } })] : []),
+        updateCardQuery,
+      ];
+
+      const results = await db.$transaction(transactionOps);
+      const card = results[results.length - 1];
       return { success: true, card };
     }
 
