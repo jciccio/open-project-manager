@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { executeMcpTool, MCP_TOOLS, createMcpServer } from "../core";
 import { createTestUser, cleanupTestUser } from "@/test/helpers";
+import { CardCreateSchema, CardUpdateSchema } from "@/lib/validation/cards";
 import { db } from "@/lib/db";
 
 describe("MCP Server Core Tools", () => {
@@ -1024,6 +1025,53 @@ describe("MCP Server Core Tools", () => {
     expect(preserved.success).toBe(true);
     const fetchedPreserved = await executeMcpTool("get_card", { id: dupCard.card!.id }, { userId });
     expect((fetchedPreserved.card as any).labels?.length).toBe(2);
+
+    // 11. update_card duplicate assigneeIds dedupe cleanly
+    const dupAssigneeUpdate = await executeMcpTool("update_card", {
+      id: dupCard.card!.id,
+      assigneeIds: [userId, userId],
+    }, { userId });
+    expect(dupAssigneeUpdate.success).toBe(true);
+    expect((dupAssigneeUpdate.card as any).assignees?.map((a: any) => a.userId)).toEqual([userId]);
+
+    // 12. update_card rolls back label deletion when card update fails inside $transaction
+    const origCardUpdate = db.card.update.bind(db.card);
+    const updateSpy = vi.spyOn(db.card, "update").mockImplementationOnce((params: any) =>
+      origCardUpdate({
+        ...params,
+        data: { ...params.data, title: null as never },
+      })
+    );
+    try {
+      await expect(
+        executeMcpTool("update_card", {
+          id: dupCard.card!.id,
+          labelIds: [l1.label!.id],
+        }, { userId })
+      ).rejects.toThrow();
+    } finally {
+      updateSpy.mockRestore();
+    }
+    const afterFailedUpdate = await executeMcpTool("get_card", { id: dupCard.card!.id }, { userId });
+    expect((afterFailedUpdate.card as any).labels?.map((l: any) => l.label.name).sort()).toEqual(["Bug", "Frontend"]);
+
+    // 13. CardCreateSchema & CardUpdateSchema deduplicate labelIds and assigneeIds across callers
+    const parsedCreate = CardCreateSchema.parse({
+      projectId,
+      columnId: colId,
+      title: "Schema dedupe",
+      labelIds: [l1.label!.id, l1.label!.id, l2.label!.id],
+      assigneeIds: [userId, userId],
+    });
+    expect(parsedCreate.labelIds).toEqual([l1.label!.id, l2.label!.id]);
+    expect(parsedCreate.assigneeIds).toEqual([userId]);
+
+    const parsedUpdate = CardUpdateSchema.parse({
+      labelIds: [l2.label!.id, l2.label!.id],
+      assigneeIds: [userId, userId],
+    });
+    expect(parsedUpdate.labelIds).toEqual([l2.label!.id]);
+    expect(parsedUpdate.assigneeIds).toEqual([userId]);
 
     await executeMcpTool("delete_project", { id: otherProj.project!.id }, { userId });
     await executeMcpTool("delete_project", { id: projectId }, { userId });
