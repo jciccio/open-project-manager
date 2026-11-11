@@ -7,6 +7,7 @@ import { cardPage, cardPageQuery, decodeCardCursor } from "@/lib/cardPagination"
 import { verifyProjectAccess } from "@/lib/permissions";
 import { parseColumnGroupFilter } from "@/lib/columnGroups";
 import { cardTextSearch } from "@/lib/cardSearch";
+import { serviceErrorResponse } from "@/lib/api/serviceErrorResponse";
 
 const DEFAULT_LIST_CARDS_LIMIT = 100;
 
@@ -143,7 +144,7 @@ export async function POST(request: NextRequest) {
     );
 
     if (!res.success) {
-      return NextResponse.json({ error: res.error }, { status: 400 });
+      return serviceErrorResponse(res);
     }
 
     return NextResponse.json({ success: true, data: res.data }, { status: 201 });

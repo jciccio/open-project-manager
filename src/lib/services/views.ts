@@ -1,9 +1,10 @@
 import { db } from "@/lib/db";
 import { safeRevalidatePath } from "@/lib/revalidate";
-import { verifyProjectAccess } from "@/lib/permissions";
+import { verifyProjectAccess, accessDenial } from "@/lib/permissions";
 import { Prisma } from "@prisma/client";
 import { parseInput } from "@/lib/validation/errors";
 import { SavedViewCreateSchema, SavedViewUpdateSchema } from "@/lib/validation/views";
+import type { ServiceErrorKind } from "@/lib/services/result";
 
 // Serializable so two concurrent "make this the default" calls can't both
 // clear the old default and both set theirs.
@@ -17,7 +18,7 @@ function isSerializationConflict(error: unknown): boolean {
 export async function getSavedViews(projectId: string, userId: string) {
   try {
     const hasAccess = await verifyProjectAccess(projectId, userId, "VIEWER");
-    if (!hasAccess) return { success: false, error: "Project not found or access denied" };
+    if (!hasAccess) return { success: false, error: "Project not found or access denied", kind: "not_found" as ServiceErrorKind };
 
     const savedViews = await db.savedView.findMany({
       where: { projectId },
@@ -26,7 +27,7 @@ export async function getSavedViews(projectId: string, userId: string) {
     return { success: true, data: savedViews };
   } catch (error) {
     console.error("Error fetching saved views:", error);
-    return { success: false, error: "Failed to fetch saved views" };
+    return { success: false, error: "Failed to fetch saved views", kind: "internal" as ServiceErrorKind };
   }
 }
 
@@ -44,8 +45,8 @@ export async function createSavedView(
     if (!parsed.success) return parsed;
     const input = parsed.data;
 
-    const hasAccess = await verifyProjectAccess(projectId, userId, "MEMBER");
-    if (!hasAccess) return { success: false, error: "Project not found or access denied" };
+    const denied = await accessDenial(projectId, userId, "MEMBER");
+    if (denied) return { success: false, error: "Project not found or access denied", kind: denied as ServiceErrorKind };
 
     const savedView = await db.$transaction(async (tx) => {
       // If setting as default, unset other defaults in the project
@@ -70,9 +71,9 @@ export async function createSavedView(
 
     return { success: true, data: savedView };
   } catch (error) {
-    if (isSerializationConflict(error)) return { success: false, error: CONCURRENT_CHANGE_ERROR };
+    if (isSerializationConflict(error)) return { success: false, error: CONCURRENT_CHANGE_ERROR, kind: "conflict" as ServiceErrorKind };
     console.error("Error creating saved view:", error);
-    return { success: false, error: "Failed to create saved view or name already exists" };
+    return { success: false, error: "Failed to create saved view or name already exists", kind: "internal" as ServiceErrorKind };
   }
 }
 
@@ -94,8 +95,12 @@ export async function updateSavedView(
       where: { id },
       include: { project: true },
     });
-    if (!existing || !(await verifyProjectAccess(existing.projectId, userId, "MEMBER"))) {
-      return { success: false, error: "Saved view not found or access denied" };
+    if (!existing) {
+      return { success: false, error: "Saved view not found or access denied", kind: "not_found" as ServiceErrorKind };
+    }
+    const denied = await accessDenial(existing.projectId, userId, "MEMBER");
+    if (denied) {
+      return { success: false, error: "Saved view not found or access denied", kind: denied as ServiceErrorKind };
     }
 
     const savedView = await db.$transaction(async (tx) => {
@@ -120,9 +125,9 @@ export async function updateSavedView(
 
     return { success: true, data: savedView };
   } catch (error) {
-    if (isSerializationConflict(error)) return { success: false, error: CONCURRENT_CHANGE_ERROR };
+    if (isSerializationConflict(error)) return { success: false, error: CONCURRENT_CHANGE_ERROR, kind: "conflict" as ServiceErrorKind };
     console.error(`Error updating saved view ${id}:`, error);
-    return { success: false, error: "Failed to update saved view" };
+    return { success: false, error: "Failed to update saved view", kind: "internal" as ServiceErrorKind };
   }
 }
 
@@ -132,8 +137,12 @@ export async function deleteSavedView(id: string, userId: string) {
       where: { id },
       include: { project: true },
     });
-    if (!existing || !(await verifyProjectAccess(existing.projectId, userId, "MEMBER"))) {
-      return { success: false, error: "Saved view not found or access denied" };
+    if (!existing) {
+      return { success: false, error: "Saved view not found or access denied", kind: "not_found" as ServiceErrorKind };
+    }
+    const denied = await accessDenial(existing.projectId, userId, "MEMBER");
+    if (denied) {
+      return { success: false, error: "Saved view not found or access denied", kind: denied as ServiceErrorKind };
     }
 
     await db.savedView.delete({
@@ -145,6 +154,6 @@ export async function deleteSavedView(id: string, userId: string) {
     return { success: true, deletedId: id };
   } catch (error) {
     console.error(`Error deleting saved view ${id}:`, error);
-    return { success: false, error: "Failed to delete saved view" };
+    return { success: false, error: "Failed to delete saved view", kind: "internal" as ServiceErrorKind };
   }
 }

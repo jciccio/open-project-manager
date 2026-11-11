@@ -7,9 +7,10 @@ import { DEFAULT_PROJECT_COLUMNS } from "@/lib/columnGroups";
 import { triggerWebhooks } from "@/lib/webhooks";
 import { generateProjectKey } from "@/lib/projectKey";
 import { parseInput } from "@/lib/validation/errors";
-import { ProjectNameSchema } from "@/lib/validation/projects";
+import { ProjectNameSchema, ProjectVisibilitySchema } from "@/lib/validation/projects";
 import { getProjectAccess } from "@/lib/permissions";
 import { isHexColor, INVALID_COLOR_ERROR } from "@/lib/colors";
+import type { ServiceErrorKind } from "@/lib/services/result";
 
 export async function getProjects(userId: string, isArchived = false) {
   try {
@@ -52,7 +53,7 @@ export async function getProjects(userId: string, isArchived = false) {
     return { success: true, data: projects, archivedCount };
   } catch (error) {
     console.error("Error fetching projects:", error);
-    return { success: false, error: "Failed to fetch projects" };
+    return { success: false, error: "Failed to fetch projects", kind: "internal" as ServiceErrorKind };
   }
 }
 
@@ -60,7 +61,7 @@ export async function getProjectById(id: string, userId: string) {
   try {
     const access = await getProjectAccess(id, userId, "VIEWER");
     if (!access.hasAccess) {
-      return { success: false, error: "Project not found or access denied" };
+      return { success: false, error: "Project not found or access denied", kind: access.role ? "forbidden" : "not_found" as ServiceErrorKind };
     }
 
     const project = await db.project.findUnique({
@@ -166,13 +167,13 @@ export async function getProjectById(id: string, userId: string) {
     });
 
     if (!project) {
-      return { success: false, error: "Project not found or access denied" };
+      return { success: false, error: "Project not found or access denied", kind: "not_found" as ServiceErrorKind };
     }
 
     return { success: true, data: { ...project, currentUserRole: access.role } };
   } catch (error) {
     console.error(`Error fetching project ${id}:`, error);
-    return { success: false, error: "Failed to fetch project details", kind: "internal" as const };
+    return { success: false, error: "Failed to fetch project details", kind: "internal" as ServiceErrorKind };
   }
 }
 
@@ -335,10 +336,14 @@ export async function createProject(
   try {
     const name = parseInput(ProjectNameSchema, data.name);
     if (!name.success) {
-      return { success: false, error: name.error };
+      return { success: false, error: name.error, kind: "invalid" as ServiceErrorKind };
     }
     if (data.color !== undefined && !isHexColor(data.color)) {
-      return { success: false, error: INVALID_COLOR_ERROR };
+      return { success: false, error: INVALID_COLOR_ERROR, kind: "invalid" as ServiceErrorKind };
+    }
+    const visibility = parseInput(ProjectVisibilitySchema, data.visibility ?? "PRIVATE");
+    if (!visibility.success) {
+      return { success: false, error: visibility.error };
     }
 
     const projectKey = await generateProjectKey(name.data, data.key, userId);
@@ -350,7 +355,7 @@ export async function createProject(
         key: projectKey,
         description: data.description,
         color: data.color || "#6366f1",
-        visibility: data.visibility || "PRIVATE",
+        visibility: visibility.data,
         columns: {
           create: DEFAULT_PROJECT_COLUMNS.map((column) => ({ ...column })),
         },
@@ -380,10 +385,10 @@ export async function createProject(
     return { success: true, data: project };
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      return { success: false, error: "A project with that key already exists" };
+      return { success: false, error: "A project with that key already exists", kind: "conflict" as ServiceErrorKind };
     }
     console.error("Error creating project:", error);
-    return { success: false, error: "Failed to create project" };
+    return { success: false, error: "Failed to create project", kind: "internal" as ServiceErrorKind };
   }
 }
 
@@ -395,19 +400,23 @@ export async function updateProject(
   try {
     const name = data.name === undefined ? undefined : parseInput(ProjectNameSchema, data.name);
     if (name && !name.success) {
-      return { success: false, error: name.error };
+      return { success: false, error: name.error, kind: "invalid" as ServiceErrorKind };
     }
     if (data.color !== undefined && !isHexColor(data.color)) {
-      return { success: false, error: INVALID_COLOR_ERROR };
+      return { success: false, error: INVALID_COLOR_ERROR, kind: "invalid" as ServiceErrorKind };
+    }
+    const visibility = data.visibility === undefined ? undefined : parseInput(ProjectVisibilitySchema, data.visibility);
+    if (visibility && !visibility.success) {
+      return { success: false, error: visibility.error };
     }
 
     const access = await getProjectAccess(id, userId, "ADMIN");
     if (!access.hasAccess) {
-      return { success: false, error: "Project not found or access denied" };
+      return { success: false, error: "Project not found or access denied", kind: access.role ? "forbidden" : "not_found" as ServiceErrorKind };
     }
 
     if (data.visibility !== undefined && !access.isOwner) {
-      return { success: false, error: "Only the project owner can change project visibility" };
+      return { success: false, error: "Only the project owner can change project visibility", kind: "forbidden" as ServiceErrorKind };
     }
 
     const project = await db.project.update({
@@ -416,6 +425,7 @@ export async function updateProject(
         name: name?.data,
         description: data.description,
         color: data.color,
+        visibility: visibility?.data,
       },
     });
 
@@ -425,7 +435,7 @@ export async function updateProject(
     return { success: true, data: project };
   } catch (error) {
     console.error(`Error updating project ${id}:`, error);
-    return { success: false, error: "Failed to update project" };
+    return { success: false, error: "Failed to update project", kind: "internal" as ServiceErrorKind };
   }
 }
 
@@ -433,7 +443,7 @@ export async function archiveProject(id: string, userId: string) {
   try {
     const access = await getProjectAccess(id, userId, "ADMIN");
     if (!access.hasAccess) {
-      return { success: false, error: "Project not found or access denied" };
+      return { success: false, error: "Project not found or access denied", kind: access.role ? "forbidden" : "not_found" as ServiceErrorKind };
     }
 
     const project = await db.project.update({
@@ -447,7 +457,7 @@ export async function archiveProject(id: string, userId: string) {
     return { success: true, data: project };
   } catch (error) {
     console.error(`Error archiving project ${id}:`, error);
-    return { success: false, error: "Failed to archive project" };
+    return { success: false, error: "Failed to archive project", kind: "internal" as ServiceErrorKind };
   }
 }
 
@@ -455,7 +465,7 @@ export async function unarchiveProject(id: string, userId: string) {
   try {
     const access = await getProjectAccess(id, userId, "ADMIN");
     if (!access.hasAccess) {
-      return { success: false, error: "Project not found or access denied" };
+      return { success: false, error: "Project not found or access denied", kind: access.role ? "forbidden" : "not_found" as ServiceErrorKind };
     }
 
     const project = await db.project.update({
@@ -469,7 +479,7 @@ export async function unarchiveProject(id: string, userId: string) {
     return { success: true, data: project };
   } catch (error) {
     console.error(`Error unarchiving project ${id}:`, error);
-    return { success: false, error: "Failed to restore project" };
+    return { success: false, error: "Failed to restore project", kind: "internal" as ServiceErrorKind };
   }
 }
 
@@ -477,7 +487,7 @@ export async function deleteProject(id: string, userId: string) {
   try {
     const access = await getProjectAccess(id, userId, "OWNER");
     if (!access.hasAccess) {
-      return { success: false, error: "Project not found or access denied" };
+      return { success: false, error: "Project not found or access denied", kind: access.role ? "forbidden" : "not_found" as ServiceErrorKind };
     }
 
     await deleteRowsAndAttachmentFiles({ card: { projectId: id } }, () =>
@@ -491,6 +501,6 @@ export async function deleteProject(id: string, userId: string) {
     return { success: true };
   } catch (error) {
     console.error(`Error deleting project ${id}:`, error);
-    return { success: false, error: "Failed to delete project" };
+    return { success: false, error: "Failed to delete project", kind: "internal" as ServiceErrorKind };
   }
 }

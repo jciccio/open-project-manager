@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   X,
   Trash2,
@@ -45,6 +45,7 @@ import { priorityLabel } from "@/lib/priority";
 import MarkdownEditor from "./MarkdownEditor";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import CardTypeManagerModal from "./CardTypeManagerModal";
+import ErrorBanner from "./ErrorBanner";
 import { CardTypeIcon } from "./cardTypeIcons";
 
 interface Props {
@@ -206,6 +207,9 @@ export default function CardDetailModal({
   const [editingCommentText, setEditingCommentText] = useState("");
 
   const [isSaving, setIsSaving] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
+  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [actionError, setActionError] = useState("");
   const [deleting, setDeleting] = useState(false);
 
   const [links, setLinks] = useState<Array<any>>((card as any).links || []);
@@ -228,6 +232,15 @@ export default function CardDetailModal({
 
   const { t, locale } = useTranslation();
 
+  function report(res: { success: boolean; error?: string }) {
+    setActionError(res.success ? "" : res.error || t("kanban.actionFailed"));
+    return res.success;
+  }
+
+  useEffect(() => () => {
+    if (savedTimer.current) clearTimeout(savedTimer.current);
+  }, []);
+
   const fetchComments = useCallback(async () => {
     setIsLoadingComments(true);
     setCommentsError(null);
@@ -237,7 +250,7 @@ export default function CardDetailModal({
         setComments((prev) => {
           const fetchedMap = new Map((res.data || []).map((c: any) => [c.id, c]));
           const extras = prev.filter((c: any) => !fetchedMap.has(c.id));
-          return [...(res.data || []), ...extras];
+          return [...extras, ...(res.data || [])];
         });
         setCommentsLoaded(true);
       } else {
@@ -325,7 +338,7 @@ export default function CardDetailModal({
 
   const handleDeleteAttachment = async (attachmentId: string) => {
     const res = await deleteAttachment(attachmentId);
-    if (res.success) {
+    if (report(res)) {
       setAttachments((prev) => prev.filter((a) => a.id !== attachmentId));
       onRefresh();
     }
@@ -447,7 +460,7 @@ export default function CardDetailModal({
 
     setSubtaskLoadingId(null);
 
-    if (res.success && res.data) {
+    if (report(res) && res.data) {
       setSubtasks((prev) =>
         prev.map((s) =>
           s.id === subtaskId
@@ -468,7 +481,7 @@ export default function CardDetailModal({
     const res = await updateCard(subtaskId, {
       parentId: null,
     });
-    if (res.success) {
+    if (report(res)) {
       setSubtasks((prev) => prev.filter((s) => s.id !== subtaskId));
       onRefresh();
     }
@@ -478,7 +491,7 @@ export default function CardDetailModal({
     const res = await updateCard(card.id, {
       parentId: null,
     });
-    if (res.success) {
+    if (report(res)) {
       setParentCard(null);
       onRefresh();
     }
@@ -519,7 +532,10 @@ export default function CardDetailModal({
     });
     setIsSaving(false);
 
-    if (res.success) {
+    if (report(res)) {
+      setJustSaved(true);
+      if (savedTimer.current) clearTimeout(savedTimer.current);
+      savedTimer.current = setTimeout(() => setJustSaved(false), 2000);
       onRefresh();
     }
   }
@@ -532,7 +548,7 @@ export default function CardDetailModal({
     const res = await deleteCard(card.id);
     setDeleting(false);
 
-    if (res.success) {
+    if (report(res)) {
       onRefresh();
       onClose();
     }
@@ -544,7 +560,7 @@ export default function CardDetailModal({
     const res = await archiveCard(card.id);
     setArchiving(false);
 
-    if (res.success) {
+    if (report(res)) {
       onRefresh();
       onClose();
     }
@@ -561,7 +577,7 @@ export default function CardDetailModal({
     );
     setIsSubmittingComment(false);
 
-    if (res.success && res.data) {
+    if (report(res) && res.data) {
       setComments((prev) => [res.data, ...prev]);
       setCommentContent("");
       setCommentsError(null);
@@ -574,7 +590,7 @@ export default function CardDetailModal({
   async function handleSaveEditComment(commentId: string) {
     if (!editingCommentText.trim()) return;
     const res = await updateComment(commentId, editingCommentText.trim());
-    if (res.success && res.data) {
+    if (report(res) && res.data) {
       setComments((prev) => prev.map((c) => (c.id === commentId ? res.data : c)));
       setEditingCommentId(null);
       setEditingCommentText("");
@@ -584,7 +600,7 @@ export default function CardDetailModal({
 
   async function handleDeleteComment(commentId: string) {
     const res = await deleteComment(commentId);
-    if (res.success) {
+    if (report(res)) {
       setComments((prev) => prev.filter((c) => c.id !== commentId));
       onRefresh();
     }
@@ -664,7 +680,7 @@ export default function CardDetailModal({
 
   async function handleRemoveLink(linkId: string) {
     const res = await removeCardLink(linkId);
-    if (res.success) {
+    if (report(res)) {
       setLinks((prev) => prev.filter((l) => l.id !== linkId));
       onRefresh();
     }
@@ -1660,6 +1676,12 @@ export default function CardDetailModal({
           </div>
         </div>
 
+        {actionError && (
+          <div className="px-6 pt-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50">
+            <ErrorBanner id="card-action-error" message={actionError} />
+          </div>
+        )}
+
         {/* Modal Footer Actions */}
         <div className="flex items-center justify-end gap-2 px-6 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50">
           <button
@@ -1675,8 +1697,11 @@ export default function CardDetailModal({
             disabled={isSaving}
             className="rounded-lg bg-indigo-600 px-5 py-2 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 transition-all shadow-md shadow-indigo-600/20"
           >
-            {isSaving ? t("cardModal.saving") : t("cardModal.saveChanges")}
+            {isSaving ? t("cardModal.saving") : justSaved ? t("cardModal.saved") : t("cardModal.saveChanges")}
           </button>
+          <span role="status" className="sr-only">
+            {justSaved ? t("cardModal.saved") : ""}
+          </span>
         </div>
       </div>
 

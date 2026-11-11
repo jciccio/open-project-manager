@@ -5,11 +5,12 @@ import { validateParentCard } from "@/lib/cardParent";
 import { safeRevalidatePath } from "@/lib/revalidate";
 import { createActivities, notifyActivity, type ActivityEntry } from "@/lib/services/activity";
 import { nextCardNumber, withCardNumberRetry } from "@/lib/cardNumbering";
-import { verifyProjectAccess } from "@/lib/permissions";
+import { verifyProjectAccess, accessDenial } from "@/lib/permissions";
 import { deriveCompletedAt } from "@/lib/cardCompletion";
 import { INVALID_LINK_URL_ERROR, SafeUrlSchema } from "@/lib/validation/safeUrl";
 import { CardCreateSchema, CardReorderSchema, CardUpdateSchema } from "@/lib/validation/cards";
 import { parseInput } from "@/lib/validation/errors";
+import type { ServiceErrorKind } from "@/lib/services/result";
 
 export async function validateReferencedIds(
   projectId: string,
@@ -84,14 +85,15 @@ export async function createCard(
     if (!parsed.success) return parsed;
     const data = parsed.data;
 
-    if (!(await verifyProjectAccess(data.projectId, userId, "MEMBER"))) {
-      return { success: false, error: "Unauthorized" };
+    const denied = await accessDenial(data.projectId, userId, "MEMBER");
+    if (denied) {
+      return { success: false, error: "Unauthorized", kind: denied as ServiceErrorKind };
     }
 
     if (data.parentId) {
       const parentError = await validateParentCard(data.projectId, data.parentId);
       if (parentError) {
-        return { success: false, error: parentError };
+        return { success: false, error: parentError, kind: "invalid" as ServiceErrorKind };
       }
     }
 
@@ -102,7 +104,7 @@ export async function createCard(
       assigneeIds: data.assigneeIds,
     });
     if (referenceError) {
-      return { success: false, error: referenceError };
+      return { success: false, error: referenceError, kind: "invalid" as ServiceErrorKind };
     }
 
     const ORDER_GAP = 10000;
@@ -182,7 +184,7 @@ export async function createCard(
     return { success: true, data: card };
   } catch (error) {
     console.error("Error creating card:", error);
-    return { success: false, error: "Failed to create card" };
+    return { success: false, error: "Failed to create card", kind: "internal" as ServiceErrorKind };
   }
 }
 
@@ -220,14 +222,18 @@ export async function updateCard(
       },
     });
 
-    if (!existingCard || !(await verifyProjectAccess(existingCard.projectId, userId, "MEMBER"))) {
-      return { success: false, error: "Unauthorized" };
+    if (!existingCard) {
+      return { success: false, error: "Unauthorized", kind: "not_found" as ServiceErrorKind };
+    }
+    const denied = await accessDenial(existingCard.projectId, userId, "MEMBER");
+    if (denied) {
+      return { success: false, error: "Unauthorized", kind: denied as ServiceErrorKind };
     }
 
     if (data.parentId) {
       const parentError = await validateParentCard(existingCard.projectId, data.parentId, id);
       if (parentError) {
-        return { success: false, error: parentError };
+        return { success: false, error: parentError, kind: "invalid" as ServiceErrorKind };
       }
     }
 
@@ -238,7 +244,7 @@ export async function updateCard(
       assigneeIds: data.assigneeIds,
     });
     if (referenceError) {
-      return { success: false, error: referenceError };
+      return { success: false, error: referenceError, kind: "invalid" as ServiceErrorKind };
     }
 
     let targetColumn = null;
@@ -405,7 +411,7 @@ export async function updateCard(
     return { success: true, data: card };
   } catch (error) {
     console.error(`Error updating card ${id}:`, error);
-    return { success: false, error: "Failed to update card" };
+    return { success: false, error: "Failed to update card", kind: "internal" as ServiceErrorKind };
   }
 }
 
@@ -416,13 +422,17 @@ export async function moveCard(cardId: string, targetColumnId: string, newOrder:
       include: { project: true, column: true },
     });
 
-    if (!existingCard || !(await verifyProjectAccess(existingCard.projectId, userId, "MEMBER"))) {
-      return { success: false, error: "Unauthorized" };
+    if (!existingCard) {
+      return { success: false, error: "Unauthorized", kind: "not_found" as ServiceErrorKind };
+    }
+    const denied = await accessDenial(existingCard.projectId, userId, "MEMBER");
+    if (denied) {
+      return { success: false, error: "Unauthorized", kind: denied as ServiceErrorKind };
     }
 
     const targetColumn = await db.column.findUnique({ where: { id: targetColumnId } });
     if (!targetColumn || targetColumn.projectId !== existingCard.projectId) {
-      return { success: false, error: "Invalid column" };
+      return { success: false, error: "Invalid column", kind: "invalid" as ServiceErrorKind };
     }
     const completedAt = deriveCompletedAt(targetColumn.isDone, existingCard.completedAt);
 
@@ -450,7 +460,7 @@ export async function moveCard(cardId: string, targetColumnId: string, newOrder:
     return { success: true, data: card };
   } catch (error) {
     console.error(`Error moving card ${cardId}:`, error);
-    return { success: false, error: "Failed to move card" };
+    return { success: false, error: "Failed to move card", kind: "internal" as ServiceErrorKind };
   }
 }
 
@@ -461,8 +471,12 @@ export async function deleteCard(id: string, userId: string) {
       include: { project: true },
     });
 
-    if (!existingCard || !(await verifyProjectAccess(existingCard.projectId, userId, "MEMBER"))) {
-      return { success: false, error: "Unauthorized" };
+    if (!existingCard) {
+      return { success: false, error: "Unauthorized", kind: "not_found" as ServiceErrorKind };
+    }
+    const denied = await accessDenial(existingCard.projectId, userId, "MEMBER");
+    if (denied) {
+      return { success: false, error: "Unauthorized", kind: denied as ServiceErrorKind };
     }
 
     await deleteRowsAndAttachmentFiles({ cardId: id }, () =>
@@ -475,15 +489,19 @@ export async function deleteCard(id: string, userId: string) {
     return { success: true };
   } catch (error) {
     console.error(`Error deleting card ${id}:`, error);
-    return { success: false, error: "Failed to delete card" };
+    return { success: false, error: "Failed to delete card", kind: "internal" as ServiceErrorKind };
   }
 }
 
 async function setCardArchived(id: string, isArchived: boolean, userId: string) {
   const card = await db.card.findUnique({ where: { id }, select: { projectId: true } });
 
-  if (!card || !(await verifyProjectAccess(card.projectId, userId, "MEMBER"))) {
-    return { success: false, error: "Card not found or access denied" };
+  if (!card) {
+    return { success: false, error: "Card not found or access denied", kind: "not_found" as ServiceErrorKind };
+  }
+  const denied = await accessDenial(card.projectId, userId, "MEMBER");
+  if (denied) {
+    return { success: false, error: "Card not found or access denied", kind: denied as ServiceErrorKind };
   }
 
   const activityEntries: ActivityEntry[] = [
@@ -510,7 +528,7 @@ export async function archiveCard(id: string, userId: string) {
     return await setCardArchived(id, true, userId);
   } catch (error) {
     console.error(`Error archiving card ${id}:`, error);
-    return { success: false, error: "Failed to archive card" };
+    return { success: false, error: "Failed to archive card", kind: "internal" as ServiceErrorKind };
   }
 }
 
@@ -519,7 +537,7 @@ export async function unarchiveCard(id: string, userId: string) {
     return await setCardArchived(id, false, userId);
   } catch (error) {
     console.error(`Error unarchiving card ${id}:`, error);
-    return { success: false, error: "Failed to unarchive card" };
+    return { success: false, error: "Failed to unarchive card", kind: "internal" as ServiceErrorKind };
   }
 }
 
@@ -528,14 +546,14 @@ export async function getCardByIdentifier(identifier: string, userId: string) {
     const clean = identifier.trim();
     const lastDash = clean.lastIndexOf("-");
     if (lastDash === -1) {
-      return { success: false, error: "Invalid identifier format. Expected KEY-NUMBER (e.g. OPM-42)" };
+      return { success: false, error: "Invalid identifier format. Expected KEY-NUMBER (e.g. OPM-42)", kind: "invalid" as ServiceErrorKind };
     }
 
     const key = clean.slice(0, lastDash).toUpperCase();
     const num = parseInt(clean.slice(lastDash + 1), 10);
 
     if (isNaN(num)) {
-      return { success: false, error: "Invalid card number in identifier" };
+      return { success: false, error: "Invalid card number in identifier", kind: "invalid" as ServiceErrorKind };
     }
 
     const card = await db.card.findFirst({
@@ -573,7 +591,7 @@ export async function getCardByIdentifier(identifier: string, userId: string) {
     });
 
     if (!card || !(await verifyProjectAccess(card.projectId, userId, "VIEWER"))) {
-      return { success: false, error: `Card '${identifier}' not found` };
+      return { success: false, error: `Card '${identifier}' not found`, kind: "not_found" as ServiceErrorKind };
     }
 
     return {
@@ -585,7 +603,7 @@ export async function getCardByIdentifier(identifier: string, userId: string) {
     };
   } catch (error) {
     console.error(`Error looking up card by identifier '${identifier}':`, error);
-    return { success: false, error: "Failed to fetch card by identifier" };
+    return { success: false, error: "Failed to fetch card by identifier", kind: "internal" as ServiceErrorKind };
   }
 }
 
@@ -593,7 +611,7 @@ export async function addCardLink(cardId: string, url: string, title: string | u
   try {
     const parsedUrl = SafeUrlSchema.safeParse(url);
     if (!parsedUrl.success) {
-      return { success: false, error: INVALID_LINK_URL_ERROR };
+      return { success: false, error: INVALID_LINK_URL_ERROR, kind: "invalid" as ServiceErrorKind };
     }
     url = parsedUrl.data;
 
@@ -602,8 +620,12 @@ export async function addCardLink(cardId: string, url: string, title: string | u
       include: { project: true },
     });
 
-    if (!card || !(await verifyProjectAccess(card.projectId, userId, "MEMBER"))) {
-      return { success: false, error: "Unauthorized" };
+    if (!card) {
+      return { success: false, error: "Unauthorized", kind: "not_found" as ServiceErrorKind };
+    }
+    const denied = await accessDenial(card.projectId, userId, "MEMBER");
+    if (denied) {
+      return { success: false, error: "Unauthorized", kind: denied as ServiceErrorKind };
     }
 
     const link = await db.cardLink.create({
@@ -618,7 +640,7 @@ export async function addCardLink(cardId: string, url: string, title: string | u
     return { success: true, data: link };
   } catch (error) {
     console.error("Error adding card link:", error);
-    return { success: false, error: "Failed to add card link" };
+    return { success: false, error: "Failed to add card link", kind: "internal" as ServiceErrorKind };
   }
 }
 
@@ -649,13 +671,13 @@ export async function reorderCards(rawItems: ReorderItem[], userId: string) {
     });
 
     if (existingCards.length !== cardIds.length) {
-      return { success: false, error: "Unauthorized or card not found" };
+      return { success: false, error: "Unauthorized or card not found", kind: "not_found" as ServiceErrorKind };
     }
 
     for (const card of existingCards) {
-      const canEdit = await verifyProjectAccess(card.projectId, userId, "MEMBER");
-      if (!canEdit) {
-        return { success: false, error: "Unauthorized or card not found" };
+      const denied = await accessDenial(card.projectId, userId, "MEMBER");
+      if (denied) {
+        return { success: false, error: "Unauthorized or card not found", kind: denied as ServiceErrorKind };
       }
     }
 
@@ -668,7 +690,7 @@ export async function reorderCards(rawItems: ReorderItem[], userId: string) {
     const columnById = new Map(columns.map((c) => [c.id, c]));
     for (const item of items) {
       if (item.columnId && columnById.get(item.columnId)?.projectId !== cardById.get(item.id)!.projectId) {
-        return { success: false, error: "Invalid column" };
+        return { success: false, error: "Invalid column", kind: "invalid" as ServiceErrorKind };
       }
     }
 
@@ -727,7 +749,7 @@ export async function reorderCards(rawItems: ReorderItem[], userId: string) {
     return { success: true };
   } catch (error) {
     console.error("Error reordering cards:", error);
-    return { success: false, error: "Failed to reorder cards" };
+    return { success: false, error: "Failed to reorder cards", kind: "internal" as ServiceErrorKind };
   }
 }
 
@@ -738,8 +760,12 @@ export async function removeCardLink(linkId: string, userId: string) {
       include: { card: { include: { project: true } } },
     });
 
-    if (!link || !(await verifyProjectAccess(link.card.projectId, userId, "MEMBER"))) {
-      return { success: false, error: "Unauthorized or link not found" };
+    if (!link) {
+      return { success: false, error: "Unauthorized or link not found", kind: "not_found" as ServiceErrorKind };
+    }
+    const denied = await accessDenial(link.card.projectId, userId, "MEMBER");
+    if (denied) {
+      return { success: false, error: "Unauthorized or link not found", kind: denied as ServiceErrorKind };
     }
 
     await db.cardLink.delete({ where: { id: linkId } });
@@ -747,6 +773,6 @@ export async function removeCardLink(linkId: string, userId: string) {
     return { success: true };
   } catch (error) {
     console.error("Error removing card link:", error);
-    return { success: false, error: "Failed to remove card link" };
+    return { success: false, error: "Failed to remove card link", kind: "internal" as ServiceErrorKind };
   }
 }

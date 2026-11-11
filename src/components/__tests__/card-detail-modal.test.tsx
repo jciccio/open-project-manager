@@ -258,4 +258,105 @@ describe("CardDetailModal", () => {
     expect(await screen.findByText("Verified User")).toBeInTheDocument();
     expect(await screen.findByText("Old Author")).toBeInTheDocument();
   });
+
+  it("displays _count.comments rather than card.comments.length before full comments finish loading", async () => {
+    let resolveComments!: (value: unknown) => void;
+    vi.mocked(listComments).mockImplementationOnce(
+      () => new Promise((resolve) => {
+        resolveComments = resolve;
+      }) as never
+    );
+
+    const card = buildCard({
+      comments: [
+        { id: "c-inline", author: "Bob", content: "Inline only", createdAt: new Date().toISOString() },
+      ],
+      _count: { comments: 5 },
+    });
+    renderWithProviders(
+      <CardDetailModal card={card} columns={columns} onClose={vi.fn()} onRefresh={vi.fn()} />
+    );
+
+    expect(screen.getByRole("button", { name: /comments/i })).toHaveTextContent("5");
+    resolveComments({ success: true, data: [] });
+    await waitFor(() => expect(listComments).toHaveBeenCalled());
+  });
+
+  it("keeps a comment posted during initial load at the top above fetched snapshot comments", async () => {
+    let resolveComments!: (value: unknown) => void;
+    vi.mocked(listComments).mockImplementationOnce(
+      () => new Promise((resolve) => {
+        resolveComments = resolve;
+      }) as never
+    );
+    vi.mocked(addComment).mockResolvedValueOnce({
+      success: true,
+      data: {
+        id: "c-posted-early",
+        author: "Alice",
+        content: "Posted while loading",
+        createdAt: new Date().toISOString(),
+      },
+    } as never);
+
+    renderWithProviders(
+      <CardDetailModal card={buildCard()} columns={columns} onClose={vi.fn()} onRefresh={vi.fn()} />
+    );
+
+    fireEvent.change(screen.getByPlaceholderText("Write a comment..."), {
+      target: { value: "Posted while loading" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /post/i }));
+
+    await waitFor(() => expect(addComment).toHaveBeenCalledWith("card1", "Posted while loading"));
+
+    resolveComments({
+      success: true,
+      data: [
+        {
+          id: "c-snapshot",
+          author: "Bob",
+          content: "Older snapshot comment",
+          createdAt: new Date(Date.now() - 60_000).toISOString(),
+        },
+      ],
+    });
+
+    const earlyComment = await screen.findByText("Posted while loading");
+    const snapshotComment = await screen.findByText("Older snapshot comment");
+    expect(earlyComment).toBeInTheDocument();
+    expect(
+      earlyComment.compareDocumentPosition(snapshotComment) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).not.toBe(0);
+  });
+
+  it("clears commentsError when posting a comment after initial comment load fails", async () => {
+    vi.mocked(listComments).mockResolvedValueOnce({
+      success: false,
+      error: "Failed to load",
+    } as never);
+    vi.mocked(addComment).mockResolvedValueOnce({
+      success: true,
+      data: {
+        id: "c-after-fail",
+        author: "Alice",
+        content: "Recovered comment",
+        createdAt: new Date().toISOString(),
+      },
+    } as never);
+
+    renderWithProviders(
+      <CardDetailModal card={buildCard({ _count: { comments: 2 } })} columns={columns} onClose={vi.fn()} onRefresh={vi.fn()} />
+    );
+
+    expect(await screen.findByText("Failed to load comments.")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText("Write a comment..."), {
+      target: { value: "Recovered comment" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /post/i }));
+
+    expect(await screen.findByText("Recovered comment")).toBeInTheDocument();
+    expect(screen.queryByText("Failed to load comments.")).not.toBeInTheDocument();
+  });
 });
