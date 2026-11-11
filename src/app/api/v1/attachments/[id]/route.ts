@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { verifyProjectAccess } from "@/lib/permissions";
 import fs from "fs";
 import { getAttachmentFilePath, canRenderInline, contentDispositionHeader } from "@/lib/attachmentStorage";
+import { serviceErrorResponse } from "@/lib/api/serviceErrorResponse";
 
 export async function GET(
   request: NextRequest,
@@ -55,7 +56,7 @@ export async function DELETE(
   const res = await deleteAttachment(attachmentId, session.userId);
 
   if (!res.success) {
-    return NextResponse.json({ error: res.error }, { status: 400 });
+    return serviceErrorResponse(res);
   }
 
   return NextResponse.json({ success: true, data: res.data });
