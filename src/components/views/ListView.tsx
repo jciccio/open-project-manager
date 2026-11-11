@@ -10,6 +10,7 @@ import ErrorBanner from "../ErrorBanner";
 import { getPriorityStyle } from "@/lib/priority";
 import { filterCards } from "@/lib/cardFilter";
 import { chipTextColor } from "@/lib/colors";
+import ColumnGroupIcon from "../ColumnGroupIcon";
 
 interface Props {
   project: any;
@@ -77,7 +78,12 @@ export default function ListView({
             {/* Group Header */}
             <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800/80 pb-3">
               <div className="flex items-center gap-2.5">
-                <span className="flex h-3 w-3 rounded-full bg-indigo-600 dark:bg-indigo-500" />
+                <ColumnGroupIcon
+                  group={col.group}
+                  isDone={col.isDone}
+                  color={col.color}
+                  label={t(`kanban.columnGroups.${col.group ?? (col.isDone ? "COMPLETED" : "UNSTARTED")}`)}
+                />
                 <h3 className="font-bold text-sm text-slate-900 dark:text-white">{col.name}</h3>
                 <span className="rounded-full bg-slate-200 dark:bg-slate-800 px-2.5 py-0.5 text-xs font-semibold text-slate-700 dark:text-slate-400">
                   {filteredCards.length} {t("kanban.tasks")}

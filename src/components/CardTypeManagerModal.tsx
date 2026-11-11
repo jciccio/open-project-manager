@@ -7,7 +7,7 @@ import { useTranslation } from "./LanguageProvider";
 import { CARD_TYPE_ICON_NAMES, CardTypeIcon } from "./cardTypeIcons";
 import ColorPicker from "./ColorPicker";
 import ErrorBanner from "./ErrorBanner";
-import { DEFAULT_PROJECT_COLOR } from "@/lib/colors";
+import { DEFAULT_PROJECT_COLOR, chipTextColor } from "@/lib/colors";
 
 interface Props {
   projectId: string;
@@ -243,7 +243,7 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
                     ) : (
                       <>
                         <span
-                          className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-0.5 font-bold text-white shadow-2xs"
+                          className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-0.5 font-bold shadow-2xs ${chipTextColor(ct.color)}`}
                           style={{ backgroundColor: ct.color }}
                         >
                           <CardTypeIcon name={ct.icon} className="h-3 w-3" />

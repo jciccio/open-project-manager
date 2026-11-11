@@ -60,7 +60,7 @@ describe("Mutation error handling", () => {
 
   it("LabelManagerModal: shows an error when createLabel returns success: false", async () => {
     vi.mocked(getLabels).mockResolvedValue({ success: true, data: [] });
-    vi.mocked(createLabel).mockResolvedValueOnce({ success: false, error: "Label already exists" });
+    vi.mocked(createLabel).mockResolvedValueOnce({ success: false, error: "Label already exists", kind: "conflict" });
 
     renderWithProviders(<LabelManagerModal onClose={vi.fn()} />);
 
@@ -71,7 +71,7 @@ describe("Mutation error handling", () => {
   });
 
   it("ProjectCard: does not call onDeleteSuccess when archiving fails", async () => {
-    vi.mocked(archiveProject).mockResolvedValueOnce({ success: false, error: "Cannot archive right now" });
+    vi.mocked(archiveProject).mockResolvedValueOnce({ success: false, error: "Cannot archive right now", kind: "internal" });
     const onDeleteSuccess = vi.fn();
 
     renderWithProviders(

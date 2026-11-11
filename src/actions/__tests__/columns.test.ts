@@ -118,10 +118,10 @@ describe("Columns Server Actions", () => {
     expect(col).toMatchObject({ color: "#ec4899", description: "Mockups go here" });
 
     const bad = await updateColumn(col.id, { color: "pink" });
-    expect(bad).toEqual({ success: false, error: "Color must be a hex value like #6366f1" });
+    expect(bad).toEqual({ success: false, error: "Color must be a hex value like #6366f1", kind: "invalid" });
 
     const blankName = await updateColumn(col.id, { name: "   " });
-    expect(blankName).toEqual({ success: false, error: "Column name is required" });
+    expect(blankName).toEqual({ success: false, error: "Column name is required", kind: "invalid" });
 
     const cleared = await updateColumn(col.id, { color: null, description: null });
     expect(cleared.data).toMatchObject({ color: null, description: null, group: "UNSTARTED" });

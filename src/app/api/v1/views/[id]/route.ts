@@ -3,6 +3,7 @@ import { getApiSession } from "@/lib/auth";
 import { updateSavedView, deleteSavedView } from "@/lib/services/views";
 import { db } from "@/lib/db";
 import { verifyProjectAccess } from "@/lib/permissions";
+import { serviceErrorResponse } from "@/lib/api/serviceErrorResponse";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -51,7 +52,7 @@ export async function PUT(request: NextRequest, { params }: Props) {
     );
 
     if (!res.success) {
-      return NextResponse.json({ error: res.error }, { status: 400 });
+      return serviceErrorResponse(res);
     }
     return NextResponse.json({ success: true, data: res.data });
   } catch (err) {
@@ -68,7 +69,7 @@ export async function DELETE(request: NextRequest, { params }: Props) {
   const { id } = await params;
   const res = await deleteSavedView(id, session.userId);
   if (!res.success) {
-    return NextResponse.json({ error: res.error }, { status: 400 });
+    return serviceErrorResponse(res);
   }
 
   return NextResponse.json({ success: true, deletedId: id });
