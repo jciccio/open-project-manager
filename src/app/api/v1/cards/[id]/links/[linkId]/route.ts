@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
 import { removeCardLink } from "@/lib/services/cards";
+import { serviceErrorResponse } from "@/lib/api/serviceErrorResponse";
 
 export async function DELETE(
   request: NextRequest,
@@ -17,7 +18,7 @@ export async function DELETE(
     const res = await removeCardLink(linkId, session.userId);
 
     if (!res.success) {
-      return NextResponse.json({ error: res.error }, { status: 400 });
+      return serviceErrorResponse(res);
     }
 
     return NextResponse.json({ success: true, deletedId: linkId }, { status: 200 });
