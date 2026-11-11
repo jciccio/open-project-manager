@@ -170,6 +170,7 @@ export const en = {
     noTasks: "No tasks in this column.",
     deleteColumnTooltip: "Delete column",
     deleteColumnFailed: "Failed to delete column.",
+    actionFailed: "That didn't go through. Please try again.",
     allTypes: "All Types",
     noTypeFilter: "No Type",
     columnGroups: {
@@ -265,6 +266,7 @@ export const en = {
     post: "Post",
     noComments: "No comments yet.",
     saveChanges: "Save Changes",
+    saved: "Saved",
     saving: "Saving...",
     deleteConfirm: "Are you sure you want to delete this card?",
     subtasks: "Subtasks",
