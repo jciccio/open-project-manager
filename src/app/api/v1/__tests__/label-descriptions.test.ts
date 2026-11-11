@@ -83,7 +83,7 @@ describe("REST API: label descriptions", () => {
     const other = await createTestUser(`api-label-other-${Date.now()}`);
     try {
       const res = await updateLabel(label.id, { description: "hijacked" }, other.token);
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(404);
       expect(res.body.error).toBe("Unauthorized");
     } finally {
       await cleanupTestUser(other.user.id);

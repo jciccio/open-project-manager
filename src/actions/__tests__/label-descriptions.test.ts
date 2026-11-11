@@ -51,7 +51,7 @@ describe("Label descriptions", () => {
 
   it("rejects a non-hex color and an over-long description", async () => {
     const badCreate = await createLabel("Bad", "red");
-    expect(badCreate).toEqual({ success: false, error: "Color must be a hex value like #6366f1" });
+    expect(badCreate).toEqual({ success: false, error: "Color must be a hex value like #6366f1", kind: "invalid" });
 
     const label = (await createLabel("Long", "#3b82f6")).data!;
     const tooLong = await updateLabel(label.id, { description: "x".repeat(2_001) });

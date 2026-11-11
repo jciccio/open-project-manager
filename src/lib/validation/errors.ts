@@ -1,6 +1,6 @@
 import type { z } from "zod";
 
-export type ParseResult<T> = { success: true; data: T } | { success: false; error: string };
+export type ParseResult<T> = { success: true; data: T } | { success: false; error: string; kind: "invalid" };
 
 export function formatInputError(error: z.ZodError): string {
   return error.issues
@@ -10,5 +10,5 @@ export function formatInputError(error: z.ZodError): string {
 
 export function parseInput<T>(schema: z.ZodType<T>, input: unknown): ParseResult<T> {
   const parsed = schema.safeParse(input);
-  return parsed.success ? { success: true, data: parsed.data } : { success: false, error: formatInputError(parsed.error) };
+  return parsed.success ? { success: true, data: parsed.data } : { success: false, error: formatInputError(parsed.error), kind: "invalid" };
 }
