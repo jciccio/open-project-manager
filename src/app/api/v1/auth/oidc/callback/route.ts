@@ -41,22 +41,27 @@ export async function GET(request: NextRequest) {
 
   const idpError = request.nextUrl.searchParams.get("error");
   const returnedState = request.nextUrl.searchParams.get("state");
+
+  const validState = returnedState && OIDC_STATE_REGEX.test(returnedState) ? returnedState : null;
+  const stateCookie = validState ? request.cookies.get(`${OIDC_FLOW_COOKIE_PREFIX}${validState}`)?.value : undefined;
+  const flow = validState ? await readOidcFlow(stateCookie, validState) : null;
+  const linkMode = flow?.link === 1;
+
   if (idpError) {
     console.error("OIDC IdP returned error:", idpError, request.nextUrl.searchParams.get("error_description"));
-    return redirectToLogin(publicOrigin, "oidc_failed", returnedState);
+    if (linkMode) {
+      return redirectClearingFlow(new URL("/?sso_link=failed", publicOrigin), validState);
+    }
+    return redirectToLogin(publicOrigin, "oidc_failed", validState);
   }
 
-  if (!returnedState || !OIDC_STATE_REGEX.test(returnedState)) {
+  if (!validState) {
     return redirectToLogin(publicOrigin, "oidc_session_expired", null);
   }
 
-  const stateCookie = request.cookies.get(`${OIDC_FLOW_COOKIE_PREFIX}${returnedState}`)?.value;
-  const flow = await readOidcFlow(stateCookie, returnedState);
   if (!flow) {
-    return redirectToLogin(publicOrigin, "oidc_session_expired", returnedState);
+    return redirectToLogin(publicOrigin, "oidc_session_expired", validState);
   }
-
-  const linkMode = flow.link === 1;
 
   try {
     const config = await getOidcConfig();

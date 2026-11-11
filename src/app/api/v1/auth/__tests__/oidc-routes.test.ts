@@ -397,4 +397,46 @@ describe("OIDC routes", () => {
     expect(del?.value).toBe("");
     expect(del?.path).toBe(getOidcFlowCookiePath());
   });
+
+  it("redirects cancelled link flow IdP errors to /?sso_link=failed instead of /login", async () => {
+    const user = await db.user.create({ data: { email: `cancel-link-${Date.now()}@example.com`, name: "Cancel Link" } });
+    userIds.push(user.id);
+    await createSession({ userId: user.id, email: user.email, name: user.name });
+
+    verifierQueue.push("verifier_cancel");
+    stateQueue.push("state_cancel");
+    nonceQueue.push("nonce_cancel");
+
+    const loginRes = await oidcLogin(new NextRequest("https://opm.example.com/api/v1/auth/oidc/login?link=1"));
+    const flowCookie = loginRes.cookies.get("opm_oidc_flow_state_cancel");
+    expect(flowCookie).toBeDefined();
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await oidcCallback(
+      new NextRequest("https://opm.example.com/api/v1/auth/oidc/callback?error=access_denied&state=state_cancel", {
+        headers: { cookie: `opm_oidc_flow_state_cancel=${flowCookie!.value}` },
+      })
+    );
+    errorSpy.mockRestore();
+
+    expect(res.headers.get("location")).toBe("https://opm.example.com/?sso_link=failed");
+    const del = res.cookies.get("opm_oidc_flow_state_cancel");
+    expect(del?.value).toBe("");
+  });
+
+  it("falls back to '/' for root-level and rewritten redirect URIs so cookies reach both login and callback", () => {
+    const prevRedirect = process.env.OIDC_REDIRECT_URI;
+    try {
+      process.env.OIDC_REDIRECT_URI = "https://opm.example.com/api/v1/auth/oidc/callback";
+      expect(getOidcFlowCookiePath()).toBe("/api/v1/auth/oidc");
+
+      process.env.OIDC_REDIRECT_URI = "https://opm.example.com/callback";
+      expect(getOidcFlowCookiePath()).toBe("/");
+
+      process.env.OIDC_REDIRECT_URI = "https://opm.example.com/sso/callback";
+      expect(getOidcFlowCookiePath()).toBe("/");
+    } finally {
+      process.env.OIDC_REDIRECT_URI = prevRedirect;
+    }
+  });
 });

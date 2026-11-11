@@ -9,11 +9,18 @@ export const OIDC_COOKIE_MAX_AGE = 600; // 10 minutes — long enough to complet
 export const OIDC_STATE_REGEX = /^[A-Za-z0-9_-]{1,128}$/;
 export const OIDC_FLOW_COOKIE_PREFIX = "opm_oidc_flow_";
 
+const LOGIN_PATH_SEGMENTS = ["api", "v1", "auth", "oidc", "login"];
+
 export function getOidcFlowCookiePath(): string {
   try {
     const pathname = new URL(getOidcRedirectUri()).pathname;
-    const parentPath = pathname.replace(/\/[^/]+$/, "");
-    return parentPath || "/api/v1/auth/oidc";
+    const parentSegments = pathname.replace(/\/[^/]+$/, "").split("/").filter(Boolean);
+    const shared: string[] = [];
+    for (let i = 0; i < parentSegments.length && i < LOGIN_PATH_SEGMENTS.length; i++) {
+      if (parentSegments[i] !== LOGIN_PATH_SEGMENTS[i]) break;
+      shared.push(parentSegments[i]);
+    }
+    return shared.length > 0 ? `/${shared.join("/")}` : "/";
   } catch {
     return "/api/v1/auth/oidc";
   }
