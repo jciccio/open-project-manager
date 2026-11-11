@@ -8,7 +8,6 @@ import { createTestUser, createTestProject, cleanupTestUser } from "@/test/helpe
 import {
   verifySlackSignature,
   formatCardUnfurl,
-  formatEventNotification,
   handleSlackSlashCommand,
   linkSlackUser,
   escapeSlackMrkdwn,
@@ -123,17 +122,6 @@ describe("Slack Integration", () => {
       expect(unfurl.blocks[0].fields?.some((f) => f.text.includes("In Progress"))).toBe(true);
       expect(unfurl.blocks[0].fields?.some((f) => f.text.includes("HIGH"))).toBe(true);
     });
-
-    it("formats event notifications", () => {
-      const notification = formatEventNotification("card_created", "Engine", {
-        cardIdentifier: "ENG-1",
-        cardTitle: "Refactor database",
-        actorName: "Bob",
-      });
-
-      expect(notification.text).toContain("*Bob* created card");
-      expect(notification.text).toContain("ENG-1");
-    });
   });
 
   describe("handleSlackSlashCommand", () => {
@@ -247,6 +235,7 @@ describe("Slack Integration", () => {
         text: `link ${userToken}`,
         user_id: "U_REVOKE_TARGET",
       });
+      await linkSlackUser("U_REVOKE_STANDALONE", userId);
 
       const whoBefore = await handleSlackSlashCommand({
         command: "/opm",
@@ -257,12 +246,30 @@ describe("Slack Integration", () => {
 
       await revokeUserAccess(userId);
 
+      // Verify ImportRecord rows themselves are deleted (not merely failing because ApiToken is gone)
+      expect(
+        await db.importRecord.count({
+          where: {
+            source: "slack",
+            entityType: "user",
+            sourceId: { in: ["U_REVOKE_TARGET", "U_REVOKE_STANDALONE"] },
+          },
+        })
+      ).toBe(0);
+
       const whoAfter = await handleSlackSlashCommand({
         command: "/opm",
         text: "whoami",
         user_id: "U_REVOKE_TARGET",
       });
       expect(whoAfter.text).toContain("Your Slack account is not linked");
+
+      const standaloneAfter = await handleSlackSlashCommand({
+        command: "/opm",
+        text: "whoami",
+        user_id: "U_REVOKE_STANDALONE",
+      });
+      expect(standaloneAfter.text).toContain("Your Slack account is not linked");
     });
 
     it("replaces existing link on re-link avoiding duplicate mappings", async () => {
@@ -348,7 +355,8 @@ describe("Slack Integration", () => {
       const card = await db.card.findFirst({
         where: { projectId, title: "Dedicated Key Card" },
       });
-      expect(card).toBeDefined();
+      expect(card).not.toBeNull();
+      expect(card?.title).toBe("Dedicated Key Card");
     });
 
     it("looks up a card ephemerally via /opm get <KEY-1>", async () => {
@@ -604,7 +612,8 @@ describe("Slack Integration", () => {
       const card = await db.card.findFirst({
         where: { projectId, title: "Fix A & B <feature> docs" },
       });
-      expect(card).toBeDefined();
+      expect(card).not.toBeNull();
+      expect(card?.title).toBe("Fix A & B <feature> docs");
     });
 
     it("invalidates linked user when the underlying API token is deleted", async () => {
@@ -687,7 +696,8 @@ describe("Slack Integration", () => {
         const cardIn2 = await db.card.findFirst({
           where: { projectId: project2.id, title: "Card in Owner2 Project" },
         });
-        expect(cardIn2).toBeDefined();
+        expect(cardIn2).not.toBeNull();
+        expect(cardIn2?.title).toBe("Card in Owner2 Project");
 
         // Get card using owner/KEY-number syntax
         const resGet = await handleSlackSlashCommand({
@@ -699,6 +709,94 @@ describe("Slack Integration", () => {
         expect(resGet.text).toContain("Card in Owner2 Project");
       } finally {
         await cleanupTestUser(owner2Res.user.id);
+      }
+    });
+
+    it("rejects empty owner in /KEY and rejects ambiguous owner prefixes like a/KEY", async () => {
+      const alice = await createTestUser(`alice-slack-${Date.now()}`);
+      const alan = await createTestUser(`alan-slack-${Date.now()}`);
+      try {
+        const prefix = `AMBIG${Date.now().toString().slice(-4)}`;
+        const pAlice = await db.project.create({
+          data: { userId: alice.user.id, name: "Alice Project", key: prefix, color: "#6366f1" },
+        });
+        const pAlan = await db.project.create({
+          data: { userId: alan.user.id, name: "Alan Project", key: prefix, color: "#ec4899" },
+        });
+
+        const colAlice = await db.column.create({
+          data: { projectId: pAlice.id, name: "Backlog", group: "BACKLOG", order: 1 },
+        });
+        const colAlan = await db.column.create({
+          data: { projectId: pAlan.id, name: "Backlog", group: "BACKLOG", order: 1 },
+        });
+
+        await db.projectMember.createMany({
+          data: [
+            { projectId: pAlice.id, userId, role: "MEMBER" },
+            { projectId: pAlan.id, userId, role: "MEMBER" },
+          ],
+        });
+
+        await db.card.create({
+          data: { projectId: pAlice.id, columnId: colAlice.id, title: "Alice Card", number: 1, order: 1000 },
+        });
+        await db.card.create({
+          data: { projectId: pAlan.id, columnId: colAlan.id, title: "Alan Card", number: 1, order: 1000 },
+        });
+
+        // Empty owner prefix `/KEY` must fail validation rather than falling through
+        const emptyOwnerCreate = await handleSlackSlashCommand({
+          command: "/opm",
+          text: `create /${prefix} Bad Card`,
+          user_id: "U_TEST_USER",
+        });
+        expect(emptyOwnerCreate.response_type).toBe("ephemeral");
+        expect(emptyOwnerCreate.text).toContain("Invalid target format");
+
+        const emptyOwnerGet = await handleSlackSlashCommand({
+          command: "/opm",
+          text: `get /${prefix}-1`,
+          user_id: "U_TEST_USER",
+        });
+        expect(emptyOwnerGet.response_type).toBe("ephemeral");
+        expect(emptyOwnerGet.text).toContain("Invalid target format");
+
+        // Shared prefix matching both test users (both emails contain/start with `al` if we use exact email prefix: wait — test user helper prefixes emails; use exact common prefix)
+        const commonPrefix = alice.user.email.slice(0, 2); // fails if alan starts with "al" and alice starts with "al" -> both start with "al"!
+        const ambigCreate = await handleSlackSlashCommand({
+          command: "/opm",
+          text: `create ${commonPrefix}/${prefix} Ambiguous Card`,
+          user_id: "U_TEST_USER",
+        });
+        expect(ambigCreate.response_type).toBe("ephemeral");
+        expect(ambigCreate.text).toContain("Multiple projects");
+
+        const ambigGet = await handleSlackSlashCommand({
+          command: "/opm",
+          text: `get ${commonPrefix}/${prefix}-1`,
+          user_id: "U_TEST_USER",
+        });
+        expect(ambigGet.response_type).toBe("ephemeral");
+        expect(ambigGet.text).toContain("Multiple projects");
+
+        // Exact local-part match succeeds unambiguously
+        const aliceLocalPart = alice.user.email.split("@")[0];
+        const exactCreate = await handleSlackSlashCommand({
+          command: "/opm",
+          text: `create ${aliceLocalPart}/${prefix} Alice Unambiguous Card`,
+          user_id: "U_TEST_USER",
+        });
+        expect(exactCreate.text).toContain("Created card");
+
+        const aliceCard = await db.card.findFirst({
+          where: { projectId: pAlice.id, title: "Alice Unambiguous Card" },
+        });
+        expect(aliceCard).not.toBeNull();
+        expect(aliceCard?.title).toBe("Alice Unambiguous Card");
+      } finally {
+        await cleanupTestUser(alice.user.id);
+        await cleanupTestUser(alan.user.id);
       }
     });
 

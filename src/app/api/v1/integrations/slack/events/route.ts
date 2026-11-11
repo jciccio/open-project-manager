@@ -34,10 +34,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ challenge: body.challenge });
   }
 
-  // Handle events (e.g. link_shared, app_mention)
-  if (body.type === "event_callback") {
-    return NextResponse.json({ ok: true });
-  }
-
+  // Acknowledge signed event callbacks (automatic link_shared unfurling and
+  // channel notifications require Bot Token subscription wiring in follow-up work).
   return NextResponse.json({ ok: true });
 }

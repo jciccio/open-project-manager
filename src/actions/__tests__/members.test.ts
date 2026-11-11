@@ -185,6 +185,6 @@ describe("Project Members Server Actions", () => {
 
   it("reports a missing member instead of a generic failure", async () => {
     const res = await updateMemberRole(projectId, outsiderId, "VIEWER");
-    expect(res).toEqual({ success: false, error: "Member not found in project" });
+    expect(res).toEqual({ success: false, error: "Member not found in project", kind: "not_found" });
   });
 });

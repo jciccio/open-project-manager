@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import crypto from "crypto";
 import { NextRequest } from "next/server";
 import { POST as eventsHandler } from "../events/route";
@@ -32,6 +32,7 @@ describe("Slack Routes", () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     delete process.env.SLACK_SIGNING_SECRET;
     await cleanupTestUser(userId);
   });
@@ -123,6 +124,82 @@ describe("Slack Routes", () => {
     const body = await res.json();
     expect(body.response_type).toBe("ephemeral");
     expect(body.text).toContain("Created card");
+  });
+
+  it("acknowledges immediately and dispatches command result via response_url when provided", async () => {
+    process.env.SLACK_SIGNING_SECRET = testSecret;
+    const responseUrl = "https://hooks.slack.com/commands/T0001/B0001/secret-token";
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("ok", { status: 200 }));
+
+    const formData = new URLSearchParams({
+      command: "/opm",
+      text: "new Deferred Slack Card",
+      user_id: "U_ROUTE_TEST",
+      response_url: responseUrl,
+    });
+    const rawBody = formData.toString();
+    const headers = makeSlackHeaders(testSecret, rawBody);
+    const req = new NextRequest("http://localhost/api/v1/integrations/slack/commands", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        ...headers,
+      },
+      body: rawBody,
+    });
+
+    const res = await commandsHandler(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.response_type).toBe("ephemeral");
+    expect(body.text).toContain("Processing command");
+
+    await vi.waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    const [calledUrl, init] = fetchSpy.mock.calls[0];
+    expect(calledUrl).toBe(responseUrl);
+    expect(init?.method).toBe("POST");
+    const callbackPayload = JSON.parse(String(init?.body));
+    expect(callbackPayload.response_type).toBe("ephemeral");
+    expect(callbackPayload.text).toContain("Created card");
+    expect(callbackPayload.text).toContain("Deferred Slack Card");
+  });
+
+  it("rejects non-Slack or non-HTTPS response_url values with 400", async () => {
+    process.env.SLACK_SIGNING_SECRET = testSecret;
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    for (const badUrl of [
+      "http://hooks.slack.com/commands/123",
+      "https://evil.example.com/hook",
+      "https://169.254.169.254/latest/meta-data",
+    ]) {
+      const formData = new URLSearchParams({
+        command: "/opm",
+        text: "help",
+        user_id: "U_ROUTE_TEST",
+        response_url: badUrl,
+      });
+      const rawBody = formData.toString();
+      const headers = makeSlackHeaders(testSecret, rawBody);
+      const req = new NextRequest("http://localhost/api/v1/integrations/slack/commands", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          ...headers,
+        },
+        body: rawBody,
+      });
+
+      const res = await commandsHandler(req);
+      expect(res.status).toBe(400);
+    }
+
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("allows Slack routes through the proxy middleware without cookie or authorization header", async () => {

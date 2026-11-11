@@ -183,66 +183,78 @@ export function formatCardUnfurl(card: {
   };
 }
 
-export function formatEventNotification(
-  event: string,
-  projectName: string,
-  payload: {
-    cardIdentifier?: string;
-    cardTitle?: string;
-    actorName?: string;
-    toValue?: string | null;
-    fromValue?: string | null;
-  }
-) {
-  const actor = escapeSlackMrkdwn(payload.actorName || "A team member");
-  const safeProject = escapeSlackMrkdwn(projectName);
-  const safeId = escapeSlackMrkdwn(payload.cardIdentifier || "");
-  const safeTitle = escapeSlackMrkdwn(payload.cardTitle || "");
-  const safeTo = escapeSlackMrkdwn(payload.toValue || "");
-  let message = "";
+interface OwnedProjectLike {
+  id: string;
+  user: { name: string | null; email: string };
+}
 
-  switch (event) {
-    case "card_created":
-      message = `*${actor}* created card *${safeId}* in *${safeProject}*: "${safeTo || safeTitle}"`;
-      break;
-    case "moved":
-      message = `*${actor}* moved *${safeId || "card"}* to *${safeTo || "a new column"}*`;
-      break;
-    case "comment_added":
-      message = `*${actor}* commented on *${safeId || "card"}*`;
-      break;
-    case "priority_changed":
-      message = `*${actor}* changed priority of *${safeId || "card"}* to *${safeTo || "NONE"}*`;
-      break;
-    default:
-      message = `*${actor}* triggered event \`${event}\` on *${safeId || safeProject}*`;
+function parseOwnerTarget(
+  raw: string,
+  formatExample: string
+): { ownerFilter: string | null; value: string } | { error: string } {
+  const trimmed = raw.trim();
+  if (!trimmed.includes("/")) {
+    return { ownerFilter: null, value: trimmed };
   }
 
-  return {
-    text: message,
-    blocks: [
-      {
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: message,
-        },
-      },
-    ],
-  };
+  const slashIdx = trimmed.indexOf("/");
+  const owner = trimmed.slice(0, slashIdx).trim().toLowerCase();
+  const value = trimmed.slice(slashIdx + 1).trim();
+
+  if (!owner || !value || value.includes("/")) {
+    return {
+      error: `Invalid target format "${raw}". Expected ${formatExample}.`,
+    };
+  }
+
+  return { ownerFilter: owner, value };
+}
+
+function filterByOwner<T>(
+  items: T[],
+  ownerFilter: string,
+  getProject: (item: T) => OwnedProjectLike
+): { match: T } | { ambiguous: T[] } | { notFound: true } {
+  const needle = ownerFilter.toLowerCase();
+
+  const exactMatches = items.filter((item) => {
+    const p = getProject(item);
+    const email = p.user.email.toLowerCase();
+    const localPart = email.split("@")[0] || "";
+    const name = p.user.name?.toLowerCase() || "";
+    return (
+      p.id.toLowerCase() === needle ||
+      email === needle ||
+      localPart === needle ||
+      name === needle
+    );
+  });
+
+  if (exactMatches.length === 1) return { match: exactMatches[0] };
+  if (exactMatches.length > 1) return { ambiguous: exactMatches };
+
+  const prefixMatches = items.filter((item) => {
+    const p = getProject(item);
+    const email = p.user.email.toLowerCase();
+    const name = p.user.name?.toLowerCase() || "";
+    return email.startsWith(needle) || name.startsWith(needle);
+  });
+
+  if (prefixMatches.length === 1) return { match: prefixMatches[0] };
+  if (prefixMatches.length > 1) return { ambiguous: prefixMatches };
+
+  return { notFound: true };
 }
 
 async function resolveProject(target: string, opmUserId: string) {
-  let ownerFilter: string | null = null;
-  let keyOrId = target.trim();
-
-  if (target.includes("/")) {
-    const slashIdx = target.indexOf("/");
-    ownerFilter = target.slice(0, slashIdx).trim().toLowerCase();
-    keyOrId = target.slice(slashIdx + 1).trim();
+  const parsed = parseOwnerTarget(target, '"<KEY>" or "<owner>/<KEY>"');
+  if ("error" in parsed) {
+    return { error: parsed.error };
   }
 
-  // 1. Try resolving by projectId directly
+  const { ownerFilter, value: keyOrId } = parsed;
+
+  // 1. Try resolving by projectId directly (respecting ownerFilter if specified)
   const byId = await db.project.findFirst({
     where: {
       id: keyOrId,
@@ -257,7 +269,14 @@ async function resolveProject(target: string, opmUserId: string) {
       user: { select: { id: true, name: true, email: true } },
     },
   });
-  if (byId) return { project: byId };
+  if (byId) {
+    if (!ownerFilter) return { project: byId };
+    const matchedById = filterByOwner([byId], ownerFilter, (p) => p);
+    if ("match" in matchedById) return { project: matchedById.match };
+    return {
+      error: `No project "${keyOrId}" owned by "${ownerFilter}" found.`,
+    };
+  }
 
   // 2. Query candidates by key
   const candidates = await db.project.findMany({
@@ -280,13 +299,14 @@ async function resolveProject(target: string, opmUserId: string) {
   }
 
   if (ownerFilter) {
-    const matched = candidates.find(
-      (p) =>
-        p.user.name?.toLowerCase() === ownerFilter ||
-        p.user.email.toLowerCase() === ownerFilter ||
-        p.user.email.toLowerCase().startsWith(ownerFilter)
-    );
-    if (matched) return { project: matched };
+    const filtered = filterByOwner(candidates, ownerFilter, (p) => p);
+    if ("match" in filtered) return { project: filtered.match };
+    if ("ambiguous" in filtered) {
+      const owners = filtered.ambiguous.map((p) => p.user.email).join(", ");
+      return {
+        error: `Multiple projects with key "${keyOrId.toUpperCase()}" match owner "${ownerFilter}" (${owners}). Please specify the full owner email or project ID.`,
+      };
+    }
     return { error: `No project with key "${keyOrId.toUpperCase()}" owned by "${ownerFilter}" found.` };
   }
 
@@ -473,13 +493,15 @@ export async function handleSlackSlashCommand(params: {
       };
     }
 
-    let ownerFilter: string | null = null;
-    let identifierArg = parts[1].trim();
-    if (identifierArg.includes("/")) {
-      const slashIdx = identifierArg.indexOf("/");
-      ownerFilter = identifierArg.slice(0, slashIdx).trim().toLowerCase();
-      identifierArg = identifierArg.slice(slashIdx + 1).trim();
+    const parsedTarget = parseOwnerTarget(parts[1], '"PROJ-12" or "owner/PROJ-12"');
+    if ("error" in parsedTarget) {
+      return {
+        response_type: "ephemeral",
+        text: parsedTarget.error,
+      };
     }
+
+    const { ownerFilter, value: identifierArg } = parsedTarget;
 
     const match = identifierArg.toUpperCase().match(/^([A-Z0-9]+)-(\d{1,9})$/);
     if (!match) {
@@ -525,18 +547,24 @@ export async function handleSlackSlashCommand(params: {
 
     let card = null;
     if (ownerFilter) {
-      card =
-        matchingCards.find(
-          (c) =>
-            c.project.user.name?.toLowerCase() === ownerFilter ||
-            c.project.user.email.toLowerCase() === ownerFilter ||
-            c.project.user.email.toLowerCase().startsWith(ownerFilter) ||
-            c.project.id === ownerFilter
-        ) || null;
+      const filtered = filterByOwner(matchingCards, ownerFilter, (c) => c.project);
+      if ("ambiguous" in filtered) {
+        const owners = filtered.ambiguous.map((c) => c.project.user.email).join(", ");
+        return {
+          response_type: "ephemeral",
+          text: `Multiple projects with card "${identifier}" match owner "${ownerFilter}" (${owners}). Please specify the full owner email or project ID.`,
+        };
+      }
+      if ("match" in filtered) {
+        card = filtered.match;
+      }
     } else {
-      card =
-        matchingCards.find((c) => c.project.userId === opmUser.id) ||
-        (matchingCards.length === 1 ? matchingCards[0] : null);
+      const owned = matchingCards.find((c) => c.project.userId === opmUser.id);
+      if (owned) {
+        card = owned;
+      } else if (matchingCards.length === 1) {
+        card = matchingCards[0];
+      }
     }
 
     if (!card) {

@@ -2,24 +2,18 @@ import { db } from "@/lib/db";
 import { removeAttachmentFiles } from "@/lib/attachmentCleanup";
 import { safeRevalidatePath } from "@/lib/revalidate";
 import fs from "fs";
-import { UPLOADS_DIR, MAX_ATTACHMENT_BYTES, getAttachmentFilePath } from "@/lib/attachmentStorage";
-import { verifyProjectAccess } from "@/lib/permissions";
-
-function ensureUploadsDir() {
-  if (!fs.existsSync(UPLOADS_DIR)) {
-    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-  }
-}
+import { MAX_ATTACHMENT_BYTES, getAttachmentFilePath, writeAttachmentFile } from "@/lib/attachmentStorage";
+import { verifyProjectAccess, accessDenial } from "@/lib/permissions";
+import type { ServiceErrorKind } from "@/lib/services/result";
 
 async function verifyCardAccess(cardId: string, userId: string, minRole: "VIEWER" | "MEMBER" = "MEMBER") {
   const card = await db.card.findUnique({
     where: { id: cardId },
     include: { project: true },
   });
-  if (!card) return null;
-  const hasAccess = await verifyProjectAccess(card.projectId, userId, minRole);
-  if (!hasAccess) return null;
-  return card;
+  if (!card) return { denied: "not_found" as const };
+  const denied = await accessDenial(card.projectId, userId, minRole);
+  return denied ? { denied } : { card };
 }
 
 export async function uploadAttachment(
@@ -33,26 +27,17 @@ export async function uploadAttachment(
   userId: string
 ) {
   try {
-    const card = await verifyCardAccess(data.cardId, userId);
+    const { card, denied } = await verifyCardAccess(data.cardId, userId);
     if (!card) {
-      return { success: false, error: "Card not found or access denied" };
+      return { success: false, error: "Card not found or access denied", kind: denied as ServiceErrorKind };
     }
 
     if (data.contentBuffer.length > MAX_ATTACHMENT_BYTES) {
-      return {
-        success: false,
-        error: `File exceeds the ${Math.floor(MAX_ATTACHMENT_BYTES / (1024 * 1024))}MB attachment size limit`,
-      };
+      return { success: false, error: `File exceeds the ${Math.floor(MAX_ATTACHMENT_BYTES / (1024 * 1024))}MB attachment size limit`, kind: "invalid" as ServiceErrorKind };
     }
 
-    ensureUploadsDir();
-
-    const sanitizedFilename = data.filename.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const uniquePrefix = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
-    const storageKey = `${uniquePrefix}-${sanitizedFilename}`;
+    const storageKey = writeAttachmentFile(data.filename, data.contentBuffer);
     const filePath = getAttachmentFilePath(storageKey);
-
-    fs.writeFileSync(filePath, data.contentBuffer);
 
     let updated;
     try {
@@ -83,15 +68,15 @@ export async function uploadAttachment(
     return { success: true, data: updated };
   } catch (error) {
     console.error("Error uploading attachment:", error);
-    return { success: false, error: "Failed to upload attachment" };
+    return { success: false, error: "Failed to upload attachment", kind: "internal" as ServiceErrorKind };
   }
 }
 
 export async function listAttachments(cardId: string, userId: string) {
   try {
-    const card = await verifyCardAccess(cardId, userId, "VIEWER");
+    const { card, denied } = await verifyCardAccess(cardId, userId, "VIEWER");
     if (!card) {
-      return { success: false, error: "Card not found or access denied" };
+      return { success: false, error: "Card not found or access denied", kind: denied as ServiceErrorKind };
     }
 
     const attachments = await db.attachment.findMany({
@@ -102,7 +87,7 @@ export async function listAttachments(cardId: string, userId: string) {
     return { success: true, data: attachments };
   } catch (error) {
     console.error("Error listing attachments:", error);
-    return { success: false, error: "Failed to list attachments" };
+    return { success: false, error: "Failed to list attachments", kind: "internal" as ServiceErrorKind };
   }
 }
 
@@ -113,8 +98,12 @@ export async function deleteAttachment(attachmentId: string, userId: string) {
       include: { card: { include: { project: true } } },
     });
 
-    if (!attachment || !(await verifyProjectAccess(attachment.card.projectId, userId, "MEMBER"))) {
-      return { success: false, error: "Attachment not found or access denied" };
+    if (!attachment) {
+      return { success: false, error: "Attachment not found or access denied", kind: "not_found" as ServiceErrorKind };
+    }
+    const denied = await accessDenial(attachment.card.projectId, userId, "MEMBER");
+    if (denied) {
+      return { success: false, error: "Attachment not found or access denied", kind: denied as ServiceErrorKind };
     }
 
     await db.attachment.delete({ where: { id: attachmentId } });
@@ -125,6 +114,6 @@ export async function deleteAttachment(attachmentId: string, userId: string) {
     return { success: true, data: { id: attachmentId } };
   } catch (error) {
     console.error("Error deleting attachment:", error);
-    return { success: false, error: "Failed to delete attachment" };
+    return { success: false, error: "Failed to delete attachment", kind: "internal" as ServiceErrorKind };
   }
 }
