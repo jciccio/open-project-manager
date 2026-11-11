@@ -584,6 +584,100 @@ describe("MCP Server Core Tools", () => {
     }
   });
 
+  it("returns full get_card_by_identifier response with comments, labels, assignees, parent, children and identifier", async () => {
+    const proj = await executeMcpTool("create_project", { name: "Full Card Identifier Project", userId }, { userId });
+    const projectId = proj.project!.id;
+    const colId = (proj.project as any).columns[0].id;
+    const projectKey = proj.project!.key;
+
+    // Create parent card
+    const parentRes = await executeMcpTool("create_card", { projectId, columnId: colId, title: "Parent Card" }, { userId });
+    const parentId = parentRes.card!.id;
+
+    // Create label
+    const labelRes = await executeMcpTool("create_label", { projectId, name: "CoreBug", color: "#ef4444" }, { userId });
+    const labelId = labelRes.label!.id;
+
+    // Create target card with parent, assignee, and description
+    const mainRes = await executeMcpTool("create_card", {
+      projectId,
+      columnId: colId,
+      title: "Target Card",
+      description: "Detailed description of the card",
+      parentId,
+      assigneeIds: [userId],
+    }, { userId });
+    const cardId = mainRes.card!.id;
+    const cardNumber = mainRes.card!.number;
+
+    // Attach label
+    await db.cardLabel.create({ data: { cardId, labelId } });
+
+    // Create two comments with distinct timestamps on Target Card
+    await db.comment.create({
+      data: {
+        cardId,
+        author: "User 1",
+        content: "Older comment",
+        createdAt: new Date(Date.now() - 5000),
+      },
+    });
+    await db.comment.create({
+      data: {
+        cardId,
+        author: "User 1",
+        content: "Newest comment",
+        createdAt: new Date(Date.now()),
+      },
+    });
+
+    // 1. Inspect Target Card via get_card_by_identifier (asserts identifier, description, column, project, labels, assignees, parent, comments)
+    const identifier = `${projectKey}-${cardNumber}`;
+    const res = await executeMcpTool("get_card_by_identifier", { identifier }, { userId });
+    expect(res.success).toBe(true);
+
+    const card = res.card as any;
+    expect(card).toBeDefined();
+
+    expect(card.identifier).toBe(identifier);
+    expect(card.description).toBe("Detailed description of the card");
+
+    expect(card.column).toBeDefined();
+    expect(card.column.id).toBe(colId);
+    expect(card.project).toBeDefined();
+    expect(card.project.id).toBe(projectId);
+
+    expect(card.labels).toBeDefined();
+    expect(card.labels).toHaveLength(1);
+    expect(card.labels[0].label.name).toBe("CoreBug");
+
+    expect(card.assignees).toBeDefined();
+    expect(card.assignees).toHaveLength(1);
+    expect(card.assignees[0].user.id).toBe(userId);
+
+    expect(card.parent).toBeDefined();
+    expect(card.parent).toMatchObject({ id: parentId, title: "Parent Card" });
+
+    expect(card.comments).toBeDefined();
+    expect(card.comments).toHaveLength(2);
+    expect(card.comments[0].content).toBe("Newest comment");
+    expect(card.comments[1].content).toBe("Older comment");
+    expect(new Date(card.comments[0].createdAt).getTime()).toBeGreaterThan(
+      new Date(card.comments[1].createdAt).getTime()
+    );
+
+    // 2. Inspect Parent Card via get_card_by_identifier (asserts children relation)
+    const parentIdentifier = `${projectKey}-${parentRes.card!.number}`;
+    const parentLookup = await executeMcpTool("get_card_by_identifier", { identifier: parentIdentifier }, { userId });
+    expect(parentLookup.success).toBe(true);
+    const parentCard = parentLookup.card as any;
+    expect(parentCard.children).toBeDefined();
+    expect(parentCard.children).toHaveLength(1);
+    expect(parentCard.children[0]).toMatchObject({ id: cardId, title: "Target Card" });
+
+    await executeMcpTool("delete_project", { id: projectId }, { userId });
+  });
+
   it("marks the default Done column isDone: true on create_project", async () => {
     const projRes = await executeMcpTool("create_project", { name: "Done Column Check", userId }, { userId });
     expect(projRes.success).toBe(true);

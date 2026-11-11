@@ -66,6 +66,7 @@ export function cardPage<T extends CardPosition>(
 
 const PRIORITIES_DESC = ["URGENT", "HIGH", "MEDIUM", "LOW", "NONE"] as const;
 const PRIORITIES_ASC = ["NONE", "LOW", "MEDIUM", "HIGH", "URGENT"] as const;
+const ALL_STANDARD_PRIORITIES = [...PRIORITIES_DESC];
 
 export async function fetchCardsByPriority(
   where: object,
@@ -76,6 +77,19 @@ export async function fetchCardsByPriority(
   const priorities = direction === "asc" ? PRIORITIES_ASC : PRIORITIES_DESC;
   const cards: any[] = [];
 
+  if (direction === "asc") {
+    // Include any non-standard legacy/imported priority values before NONE in ascending order
+    const unrecognized = await db.card.findMany({
+      where: {
+        AND: [where, { priority: { notIn: ALL_STANDARD_PRIORITIES } }],
+      },
+      orderBy: [{ order: "asc" }, { id: "asc" }],
+      take: limit,
+      include,
+    });
+    cards.push(...unrecognized);
+  }
+
   for (const priority of priorities) {
     const remaining = limit - cards.length;
     if (remaining <= 0) break;
@@ -84,12 +98,25 @@ export async function fetchCardsByPriority(
       where: {
         AND: [where, { priority }],
       },
-      orderBy: [{ id: "asc" }],
+      orderBy: [{ order: "asc" }, { id: "asc" }],
       take: remaining,
       include,
     });
 
     cards.push(...rows);
+  }
+
+  if (direction === "desc" && cards.length < limit) {
+    const remaining = limit - cards.length;
+    const unrecognized = await db.card.findMany({
+      where: {
+        AND: [where, { priority: { notIn: ALL_STANDARD_PRIORITIES } }],
+      },
+      orderBy: [{ order: "asc" }, { id: "asc" }],
+      take: remaining,
+      include,
+    });
+    cards.push(...unrecognized);
   }
 
   return { cards, nextCursor: null };

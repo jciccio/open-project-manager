@@ -350,4 +350,100 @@ describe("MCP Rich Card Filters & Counts (#135)", () => {
       executeMcpTool("update_card", { id: "nonexistent-card", title: "Test" }, { userId })
     ).rejects.toThrow("Card with ID nonexistent-card not found.");
   });
+
+  it("finds URGENT cards past first page by board order, omits cursor on due sort, and rejects invalid MCP filter/sort arg types", async () => {
+    for (let i = 0; i < 4; i++) {
+      await executeMcpTool(
+        "create_card",
+        { projectId, columnId: colTodoId, title: `Low ${i}`, priority: "LOW", dueDate: `2026-06-0${i + 1}T00:00:00Z` },
+        { userId }
+      );
+    }
+    await executeMcpTool(
+      "create_card",
+      { projectId, columnId: colTodoId, title: "Late Urgent", priority: "URGENT", dueDate: "2026-07-01T00:00:00Z" },
+      { userId }
+    );
+
+    const topPrio = await executeMcpTool(
+      "list_cards",
+      { projectId, orderBy: "priority", orderDirection: "desc", limit: 1 },
+      { userId }
+    );
+    expect(topPrio.cards).toHaveLength(1);
+    expect(topPrio.cards[0].title).toBe("Late Urgent");
+    expect(topPrio.nextCursor).toBeNull();
+
+    // Reach cardPage guard directly via orderBy="due"
+    const byDueLimited = await executeMcpTool(
+      "list_cards",
+      { projectId, orderBy: "due", limit: 1 },
+      { userId }
+    );
+    expect(byDueLimited.cards).toHaveLength(1);
+    expect(byDueLimited.nextCursor).toBeNull();
+
+    // Non-boolean strings / non-string orderBy / bad dates / empty labelIds are rejected explicitly
+    await expect(
+      executeMcpTool("list_cards", { projectId, hasParent: "true" as unknown as boolean }, { userId })
+    ).rejects.toThrow();
+    await expect(
+      executeMcpTool("list_cards", { projectId, isOverdue: "true" as unknown as boolean }, { userId })
+    ).rejects.toThrow();
+    await expect(
+      executeMcpTool("list_cards", { projectId, count: "true" as unknown as boolean }, { userId })
+    ).rejects.toThrow();
+    await expect(
+      executeMcpTool("list_cards", { projectId, orderBy: 5 as unknown as string }, { userId })
+    ).rejects.toThrow();
+    await expect(
+      executeMcpTool("count_cards", { projectId, groupBy: 5 as unknown as string }, { userId })
+    ).rejects.toThrow();
+    await expect(
+      executeMcpTool("list_cards", { projectId, labelIds: [] }, { userId })
+    ).rejects.toThrow(/labelIds cannot be empty/);
+    await expect(
+      executeMcpTool("list_cards", { projectId, dueBefore: "2026-02-31" }, { userId })
+    ).rejects.toThrow(/Invalid dueBefore date/);
+    await expect(
+      executeMcpTool("list_cards", { projectId, orderBy: "created:sideways" }, { userId })
+    ).rejects.toThrow(/Invalid orderDirection/);
+  });
+
+  it("enforces UTC start-of-day, open non-cancelled rule for isOverdue and end-of-day for date-only dueBefore", async () => {
+    const cancelledCol = await db.column.create({
+      data: { projectId, name: "Cancelled", order: 2, isDone: false, group: "CANCELLED" },
+    });
+
+    const now = new Date();
+    const utcTodayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const yesterdayEnd = new Date(utcTodayStart.getTime() - 1);
+
+    await executeMcpTool(
+      "create_card",
+      { projectId, columnId: colTodoId, title: "Due Yesterday Open", dueDate: yesterdayEnd.toISOString() },
+      { userId }
+    );
+    await executeMcpTool(
+      "create_card",
+      { projectId, columnId: cancelledCol.id, title: "Due Yesterday Cancelled", dueDate: yesterdayEnd.toISOString() },
+      { userId }
+    );
+    await executeMcpTool(
+      "create_card",
+      { projectId, columnId: colTodoId, title: "Due Today UTC Start", dueDate: utcTodayStart.toISOString() },
+      { userId }
+    );
+
+    const overdueRes = await executeMcpTool("list_cards", { projectId, isOverdue: true }, { userId });
+    expect(overdueRes.cards.map((c: any) => c.title)).toEqual(["Due Yesterday Open"]);
+
+    await executeMcpTool(
+      "create_card",
+      { projectId, columnId: colTodoId, title: "End Of Day", dueDate: "2026-05-10T23:59:59.000Z" },
+      { userId }
+    );
+    const eodRes = await executeMcpTool("list_cards", { projectId, dueBefore: "2026-05-10" }, { userId });
+    expect(eodRes.cards.some((c: any) => c.title === "End Of Day")).toBe(true);
+  });
 });

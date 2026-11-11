@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
 import { moveCard } from "@/lib/services/cards";
+import { serviceErrorResponse } from "@/lib/api/serviceErrorResponse";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -23,7 +24,7 @@ export async function POST(request: NextRequest, { params }: Props) {
 
     const res = await moveCard(cardId, targetColumnId, newOrder, session.userId);
     if (!res.success) {
-      return NextResponse.json({ error: res.error }, { status: 400 });
+      return serviceErrorResponse(res);
     }
 
     return NextResponse.json({ success: true, data: res.data });

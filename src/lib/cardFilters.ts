@@ -1,20 +1,66 @@
+import { z } from "zod";
 import { db } from "@/lib/db";
 import { cardTextSearch } from "@/lib/cardSearch";
 import { parseColumnGroupFilter } from "@/lib/columnGroups";
+import { startOfUtcToday } from "@/lib/services/projectStats";
+import { MAX_CARD_REFERENCE_IDS } from "@/lib/validation/cards";
 
 export const CARD_SORT_FIELDS = ["order", "createdAt", "updatedAt", "dueDate", "priority"] as const;
 export type CardSortField = (typeof CARD_SORT_FIELDS)[number];
 
-export const PRIORITY_RANK: Record<string, number> = {
-  NONE: 0,
-  LOW: 1,
-  MEDIUM: 2,
-  HIGH: 3,
-  URGENT: 4,
-};
+/** Parse YYYY-MM-DD (expanding to UTC start/end of day) or full ISO date, rejecting rollover dates like 2026-02-31. */
+function parseIsoOrDateOnly(value: string | Date, bound: "start" | "end"): Date | null {
+  if (value instanceof Date) {
+    return isNaN(value.getTime()) ? null : value;
+  }
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
 
-export function startOfUtcToday(date = new Date()): Date {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+  if (dateOnlyMatch) {
+    const year = Number(dateOnlyMatch[1]);
+    const month = Number(dateOnlyMatch[2]);
+    const day = Number(dateOnlyMatch[3]);
+    const d = new Date(
+      Date.UTC(
+        year,
+        month - 1,
+        day,
+        bound === "end" ? 23 : 0,
+        bound === "end" ? 59 : 0,
+        bound === "end" ? 59 : 0,
+        bound === "end" ? 999 : 0
+      )
+    );
+    if (d.getUTCFullYear() !== year || d.getUTCMonth() !== month - 1 || d.getUTCDate() !== day) {
+      return null;
+    }
+    return d;
+  }
+
+  // Also reject calendar rollovers on ISO date prefixes like 2026-02-31T00:00:00Z.
+  const isoPrefixMatch = /^(\d{4})-(\d{2})-(\d{2})[T\s]/.exec(trimmed);
+  if (isoPrefixMatch) {
+    const year = Number(isoPrefixMatch[1]);
+    const month = Number(isoPrefixMatch[2]);
+    const day = Number(isoPrefixMatch[3]);
+    const check = new Date(Date.UTC(year, month - 1, day));
+    if (
+      check.getUTCFullYear() !== year ||
+      check.getUTCMonth() !== month - 1 ||
+      check.getUTCDate() !== day
+    ) {
+      return null;
+    }
+  }
+
+  const d = new Date(trimmed);
+  return isNaN(d.getTime()) ? null : d;
 }
 
 export interface CardFilterInput {
@@ -111,64 +157,53 @@ export function buildCardWhere(
   }
 
   // Label filtering
-  let labelIds: string[] = [];
-  if (Array.isArray(input.labelIds)) {
-    labelIds = input.labelIds
-      .flatMap((id) => String(id).split(","))
-      .map((s) => s.trim())
-      .filter(Boolean);
-  } else if (typeof input.labelIds === "string") {
-    labelIds = input.labelIds
-      .split(",")
-      .map((id) => id.trim())
-      .filter(Boolean);
-  }
-  if (labelIds.length > 0) {
+  if (input.labelIds !== undefined && input.labelIds !== null) {
+    const rawIds = Array.isArray(input.labelIds)
+      ? input.labelIds.flatMap((id) => String(id).split(","))
+      : typeof input.labelIds === "string"
+        ? input.labelIds.split(",")
+        : [];
+    const labelIds = Array.from(new Set(rawIds.map((id) => id.trim()).filter(Boolean)));
+    if (labelIds.length === 0) {
+      return { success: false, error: "labelIds cannot be empty" };
+    }
+    if (labelIds.length > MAX_CARD_REFERENCE_IDS) {
+      return { success: false, error: `labelIds cannot exceed ${MAX_CARD_REFERENCE_IDS} items` };
+    }
     conditions.push({ labels: { some: { labelId: { in: labelIds } } } });
   }
 
   // Due date & overdue filtering
   const dueDateCondition: any = {};
-  if (input.dueBefore) {
-    let d: Date;
-    if (typeof input.dueBefore === "string" && /^\d{4}-\d{2}-\d{2}$/.test(input.dueBefore.trim())) {
-      d = new Date(`${input.dueBefore.trim()}T23:59:59.999Z`);
-    } else {
-      d = new Date(input.dueBefore);
-    }
-    if (isNaN(d.getTime())) {
+  if (input.dueBefore !== undefined && input.dueBefore !== null) {
+    const d = parseIsoOrDateOnly(input.dueBefore, "end");
+    if (!d) {
       return { success: false, error: "Invalid dueBefore date" };
     }
     dueDateCondition.lte = d;
   }
 
-  if (input.dueAfter) {
-    let d: Date;
-    if (typeof input.dueAfter === "string" && /^\d{4}-\d{2}-\d{2}$/.test(input.dueAfter.trim())) {
-      d = new Date(`${input.dueAfter.trim()}T00:00:00.000Z`);
-    } else {
-      d = new Date(input.dueAfter);
-    }
-    if (isNaN(d.getTime())) {
+  if (input.dueAfter !== undefined && input.dueAfter !== null) {
+    const d = parseIsoOrDateOnly(input.dueAfter, "start");
+    if (!d) {
       return { success: false, error: "Invalid dueAfter date" };
     }
     dueDateCondition.gte = d;
   }
 
+  // Matches dashboard stats rule (projectStats.ts): dueDate < startOfUtcToday, open, non-cancelled.
   if (input.isOverdue === true) {
-    const today = startOfUtcToday();
+    const today = startOfUtcToday(new Date());
     dueDateCondition.lt = today;
     conditions.push({
-      completedAt: null,
       column: { isDone: false, group: { not: "CANCELLED" } },
     });
   } else if (input.isOverdue === false) {
-    const today = startOfUtcToday();
+    const today = startOfUtcToday(new Date());
     conditions.push({
       OR: [
         { dueDate: null },
         { dueDate: { gte: today } },
-        { completedAt: { not: null } },
         { column: { isDone: true } },
         { column: { group: "CANCELLED" } },
       ],
@@ -188,24 +223,54 @@ export type ParseCardOrderByResult =
   | { success: false; error: string };
 
 export function parseCardOrderBy(
-  orderBy?: string | null,
-  orderDirection?: string | null
+  orderBy?: unknown,
+  orderDirection?: unknown
 ): ParseCardOrderByResult {
-  if (!orderBy) {
-    if (orderDirection && orderDirection !== "asc" && orderDirection !== "desc") {
-      return { success: false, error: `Invalid orderDirection '${orderDirection}'. Expected asc or desc.` };
-    }
-    return { success: true, sort: { field: "order", direction: (orderDirection as "asc" | "desc") || "asc" } };
+  if (orderBy !== undefined && orderBy !== null && typeof orderBy !== "string") {
+    return { success: false, error: "orderBy must be a string." };
+  }
+  if (orderDirection !== undefined && orderDirection !== null && typeof orderDirection !== "string") {
+    return { success: false, error: "orderDirection must be a string." };
+  }
+
+  let dirPart = typeof orderDirection === "string" ? orderDirection.trim().toLowerCase() : undefined;
+  if (typeof orderDirection === "string" && !dirPart) {
+    return { success: false, error: `Invalid orderDirection '${orderDirection}'. Expected asc or desc.` };
+  }
+  if (dirPart && dirPart !== "asc" && dirPart !== "desc") {
+    return { success: false, error: `Invalid orderDirection '${orderDirection}'. Expected asc or desc.` };
+  }
+
+  if (orderBy === undefined || orderBy === null) {
+    return { success: true, sort: { field: "order", direction: (dirPart as "asc" | "desc") || "asc" } };
   }
 
   let fieldPart = orderBy.trim();
-  let dirPart = orderDirection ? orderDirection.trim().toLowerCase() : undefined;
+  if (!fieldPart) {
+    return {
+      success: false,
+      error: `Invalid orderBy '${orderBy}'. Expected one of created, createdAt, updated, updatedAt, due, dueDate, priority, order.`,
+    };
+  }
 
   if (fieldPart.includes(":")) {
-    const [f, d] = fieldPart.split(":");
-    fieldPart = f.trim();
-    if (!dirPart && (d.toLowerCase() === "asc" || d.toLowerCase() === "desc")) {
-      dirPart = d.toLowerCase();
+    const parts = fieldPart.split(":");
+    if (parts.length !== 2 || !parts[0].trim() || !parts[1].trim()) {
+      return {
+        success: false,
+        error: `Invalid orderBy '${orderBy}'. Expected field or field:asc|desc.`,
+      };
+    }
+    fieldPart = parts[0].trim();
+    const colonDir = parts[1].trim().toLowerCase();
+    if (colonDir !== "asc" && colonDir !== "desc") {
+      return {
+        success: false,
+        error: `Invalid orderDirection '${colonDir}'. Expected asc or desc.`,
+      };
+    }
+    if (!dirPart) {
+      dirPart = colonDir;
     }
   }
 
@@ -231,13 +296,6 @@ export function parseCardOrderBy(
     };
   }
 
-  if (dirPart && dirPart !== "asc" && dirPart !== "desc") {
-    return {
-      success: false,
-      error: `Invalid orderDirection '${dirPart}'. Expected asc or desc.`,
-    };
-  }
-
   const direction: "asc" | "desc" = dirPart === "desc" ? "desc" : "asc";
   return { success: true, sort: { field, direction } };
 }
@@ -245,10 +303,16 @@ export function parseCardOrderBy(
 export type CardGroupBy = "column" | "priority" | "label";
 
 export function validateCardGroupBy(
-  groupBy?: string | null
+  groupBy?: unknown
 ): { success: true; groupBy?: CardGroupBy } | { success: false; error: string } {
-  if (!groupBy || !groupBy.trim()) return { success: true };
+  if (groupBy === undefined || groupBy === null) return { success: true };
+  if (typeof groupBy !== "string") {
+    return { success: false, error: "groupBy must be a string." };
+  }
   const normalized = groupBy.trim().toLowerCase();
+  if (!normalized) {
+    return { success: false, error: `Invalid groupBy '${groupBy}'. Expected one of column, priority, label.` };
+  }
   if (normalized === "column" || normalized === "columnid") return { success: true, groupBy: "column" };
   if (normalized === "priority") return { success: true, groupBy: "priority" };
   if (normalized === "label" || normalized === "labelid") return { success: true, groupBy: "label" };
@@ -308,3 +372,125 @@ export async function countCards(
 
   return { count: total };
 }
+
+function parseBoolParam(raw: string | null, name: string): { ok: true; value?: boolean } | { ok: false; error: string } {
+  if (raw === null) return { ok: true, value: undefined };
+  if (raw === "true") return { ok: true, value: true };
+  if (raw === "false") return { ok: true, value: false };
+  return { ok: false, error: `${name} must be true or false` };
+}
+
+export interface ParsedCardQueryParams {
+  projectId: string | null;
+  filterInput: CardFilterInput;
+  groupBy: string | null;
+  orderBy: string | null;
+  orderDirection: string | null;
+  limit: number;
+  cursor: string | null;
+  count: boolean;
+}
+
+export function parseCardFilterParams(
+  searchParams: URLSearchParams,
+  defaultLimit = 100
+): { success: true; data: ParsedCardQueryParams } | { success: false; error: string } {
+  const isArchived = parseBoolParam(searchParams.get("isArchived"), "isArchived");
+  if (!isArchived.ok) return { success: false, error: isArchived.error };
+
+  const hasParent = parseBoolParam(searchParams.get("hasParent"), "hasParent");
+  if (!hasParent.ok) return { success: false, error: hasParent.error };
+
+  const isOverdue = parseBoolParam(searchParams.get("isOverdue"), "isOverdue");
+  if (!isOverdue.ok) return { success: false, error: isOverdue.error };
+
+  const count = parseBoolParam(searchParams.get("count"), "count");
+  if (!count.ok) return { success: false, error: count.error };
+
+  let limit = defaultLimit;
+  const limitParam = searchParams.get("limit");
+  if (limitParam) {
+    const parsed = parseInt(limitParam, 10);
+    if (!isNaN(parsed)) {
+      limit = Math.min(Math.max(1, parsed), 100);
+    }
+  }
+
+  const hasLabelIds = searchParams.has("labelIds") || searchParams.has("labelId");
+  const labelIdsParam = [
+    ...searchParams.getAll("labelIds"),
+    ...(searchParams.get("labelId") ? [searchParams.get("labelId")!] : []),
+  ];
+
+  const projectId = searchParams.get("projectId");
+
+  return {
+    success: true,
+    data: {
+      projectId,
+      filterInput: {
+        projectId,
+        columnId: searchParams.get("columnId"),
+        priority: searchParams.get("priority"),
+        owner: searchParams.get("owner"),
+        parentId: searchParams.has("parentId") ? searchParams.get("parentId") : undefined,
+        hasParent: hasParent.value,
+        typeId: searchParams.get("typeId"),
+        columnGroup: searchParams.has("columnGroup") ? searchParams.get("columnGroup") : undefined,
+        stateGroup: searchParams.has("stateGroup") ? searchParams.get("stateGroup") : undefined,
+        assignedTo: searchParams.get("assignedUserId") || searchParams.get("assignedTo"),
+        query: searchParams.get("query"),
+        isArchived: isArchived.value ?? false,
+        isOverdue: isOverdue.value,
+        dueBefore: searchParams.has("dueBefore") ? searchParams.get("dueBefore") : undefined,
+        dueAfter: searchParams.has("dueAfter") ? searchParams.get("dueAfter") : undefined,
+        labelIds: hasLabelIds ? labelIdsParam : undefined,
+      },
+      groupBy: searchParams.has("groupBy") ? searchParams.get("groupBy") : null,
+      orderBy: searchParams.has("orderBy") ? searchParams.get("orderBy") : null,
+      orderDirection: searchParams.has("orderDirection") ? searchParams.get("orderDirection") : null,
+      limit,
+      cursor: searchParams.get("cursor") || searchParams.get("after"),
+      count: count.value === true,
+    },
+  };
+}
+
+const cardFilterArgsShape = {
+  projectId: z.string().optional(),
+  columnId: z.string().optional(),
+  priority: z.string().optional(),
+  owner: z.string().optional(),
+  assignedTo: z.string().optional(),
+  query: z.string().optional(),
+  parentId: z.string().nullable().optional(),
+  hasParent: z.boolean().optional(),
+  typeId: z.string().optional(),
+  columnGroup: z.union([z.string(), z.array(z.string())]).optional(),
+  stateGroup: z.union([z.string(), z.array(z.string())]).optional(),
+  labelIds: z.union([z.string(), z.array(z.string())]).optional(),
+  dueBefore: z.string().optional(),
+  dueAfter: z.string().optional(),
+  isOverdue: z.boolean().optional(),
+  isArchived: z.boolean().optional(),
+};
+
+export const McpCountCardsArgsSchema = z
+  .object({
+    ...cardFilterArgsShape,
+    groupBy: z.string().optional(),
+  })
+  .passthrough();
+
+export const McpListCardsArgsSchema = z
+  .object({
+    ...cardFilterArgsShape,
+    orderBy: z.string().optional(),
+    orderDirection: z.string().optional(),
+    count: z.boolean().optional(),
+    groupBy: z.string().optional(),
+    limit: z.union([z.number(), z.string().regex(/^\d+$/)]).optional(),
+    cursor: z.string().optional(),
+    after: z.string().optional(),
+  })
+  .passthrough();

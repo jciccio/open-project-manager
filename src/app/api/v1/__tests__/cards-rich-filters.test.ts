@@ -349,4 +349,151 @@ describe("REST API: Rich Card Filters & Counts (#135)", () => {
     expect(descData.data[0].title).toBe("Dated Card");
     expect(descData.data[1].title).toBe("Undated Card");
   });
+
+  it("finds URGENT cards past first page by board order and preserves non-standard priorities", async () => {
+    for (let i = 0; i < 4; i++) {
+      await db.card.create({
+        data: {
+          projectId,
+          columnId: colTodoId,
+          number: 200 + i,
+          title: `Low Early ${i}`,
+          priority: "LOW",
+          order: i,
+        },
+      });
+    }
+    await db.card.create({
+      data: {
+        projectId,
+        columnId: colTodoId,
+        number: 250,
+        title: "Urgent Later",
+        priority: "URGENT",
+        order: 50,
+      },
+    });
+    await db.card.create({
+      data: {
+        projectId,
+        columnId: colTodoId,
+        number: 251,
+        title: "Legacy Custom Priority",
+        priority: "CRITICAL",
+        order: 51,
+      },
+    });
+
+    const prioDesc = await authGet(`http://localhost/api/v1/cards?projectId=${projectId}&orderBy=priority&orderDirection=desc&limit=2`);
+    const descBody = await prioDesc.json();
+    expect(descBody.data[0].title).toBe("Urgent Later");
+    expect(descBody.nextCursor).toBeNull();
+
+    const prioAll = await authGet(`http://localhost/api/v1/cards?projectId=${projectId}&orderBy=priority&orderDirection=desc`);
+    const allBody = await prioAll.json();
+    expect(allBody.data.some((c: any) => c.title === "Legacy Custom Priority")).toBe(true);
+  });
+
+  it("omits nextCursor on non-order cardPage sorts like orderBy=due and rejects cursor with orderBy=due", async () => {
+    await postCard({ projectId, columnId: colTodoId, title: "Due 1", dueDate: "2026-04-01T00:00:00Z" });
+    await postCard({ projectId, columnId: colTodoId, title: "Due 2", dueDate: "2026-04-02T00:00:00Z" });
+
+    const limitedRes = await authGet(`http://localhost/api/v1/cards?projectId=${projectId}&orderBy=due&limit=1`);
+    const limitedBody = await limitedRes.json();
+    expect(limitedBody.data).toHaveLength(1);
+    expect(limitedBody.nextCursor).toBeNull();
+
+    const cursorRes = await authGet(`http://localhost/api/v1/cards?projectId=${projectId}&orderBy=due&cursor=abc`);
+    expect(cursorRes.status).toBe(400);
+  });
+
+  it("matches projectStats overdue definition (UTC day start, open non-cancelled) and supports date-only dueBefore", async () => {
+    const cancelledCol = await db.column.create({
+      data: { projectId, name: "Cancelled", order: 2, isDone: false, group: "CANCELLED" },
+    });
+
+    const now = new Date();
+    const utcTodayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const yesterdayEnd = new Date(utcTodayStart.getTime() - 1);
+
+    await db.card.create({
+      data: {
+        projectId,
+        columnId: colTodoId,
+        number: 300,
+        title: "Overdue Open With CompletedAt",
+        dueDate: yesterdayEnd,
+        completedAt: yesterdayEnd,
+      },
+    });
+    await db.card.create({
+      data: {
+        projectId,
+        columnId: cancelledCol.id,
+        number: 301,
+        title: "Yesterday Cancelled",
+        dueDate: yesterdayEnd,
+      },
+    });
+    await db.card.create({
+      data: {
+        projectId,
+        columnId: colTodoId,
+        number: 302,
+        title: "Due Today Midnight UTC",
+        dueDate: utcTodayStart,
+      },
+    });
+    await db.card.create({
+      data: {
+        projectId,
+        columnId: colTodoId,
+        number: 303,
+        title: "Same Day Late Night",
+        dueDate: new Date("2027-06-15T23:59:59.000Z"),
+      },
+    });
+
+    const overdueRes = await authGet(`http://localhost/api/v1/cards?projectId=${projectId}&isOverdue=true`);
+    const overdueBody = await overdueRes.json();
+    expect(overdueBody.data.map((c: any) => c.title)).toEqual(["Overdue Open With CompletedAt"]);
+
+    const eodRes = await authGet(`http://localhost/api/v1/cards?projectId=${projectId}&dueBefore=2027-06-15&dueAfter=2027-06-15`);
+    const eodBody = await eodRes.json();
+    expect(eodBody.data.map((c: any) => c.title)).toEqual(["Same Day Late Night"]);
+  });
+
+  it("supports priority/owner filters on REST routes, validates edge inputs, and preserves inaccessible project parity", async () => {
+    await postCard({ projectId, columnId: colTodoId, title: "Alice Urgent", priority: "URGENT", owner: "Alice" });
+    await postCard({ projectId, columnId: colTodoId, title: "Bob Low", priority: "LOW", owner: "Bob" });
+
+    const prioList = await authGet(`http://localhost/api/v1/cards?projectId=${projectId}&priority=URGENT&owner=Alice`);
+    const prioListBody = await prioList.json();
+    expect(prioListBody.data.map((c: any) => c.title)).toEqual(["Alice Urgent"]);
+
+    const ownerCount = await authGetCount(`http://localhost/api/v1/cards/count?projectId=${projectId}&priority=URGENT&owner=Alice`);
+    const ownerCountBody = await ownerCount.json();
+    expect(ownerCountBody.count).toBe(1);
+
+    // Case-insensitive orderDirection without orderBy works; invalid direction or colon direction rejected
+    const descNoField = await authGet(`http://localhost/api/v1/cards?projectId=${projectId}&orderDirection=DESC`);
+    expect(descNoField.status).toBe(200);
+
+    expect((await authGet(`http://localhost/api/v1/cards?projectId=${projectId}&dueBefore=`)).status).toBe(400);
+    expect((await authGet(`http://localhost/api/v1/cards?projectId=${projectId}&dueBefore=2026-02-31`)).status).toBe(400);
+    expect((await authGet(`http://localhost/api/v1/cards?projectId=${projectId}&labelIds=`)).status).toBe(400);
+    expect((await authGet(`http://localhost/api/v1/cards?projectId=${projectId}&orderBy=created:sideways`)).status).toBe(400);
+
+    const tooManyLabels = Array.from({ length: 1001 }, (_, i) => `lbl-${i}`).join(",");
+    expect((await authGet(`http://localhost/api/v1/cards?projectId=${projectId}&labelIds=${tooManyLabels}`)).status).toBe(400);
+
+    // Inaccessible project still validates groupBy and returns empty groups array when valid
+    const badGroupInaccessible = await authGetCount(`http://localhost/api/v1/cards/count?projectId=no-such-proj&groupBy=bogus`);
+    expect(badGroupInaccessible.status).toBe(400);
+
+    const emptyGroupInaccessible = await authGetCount(`http://localhost/api/v1/cards/count?projectId=no-such-proj&groupBy=column`);
+    expect(emptyGroupInaccessible.status).toBe(200);
+    const emptyGroupBody = await emptyGroupInaccessible.json();
+    expect(emptyGroupBody).toEqual({ success: true, count: 0, groups: [] });
+  });
 });

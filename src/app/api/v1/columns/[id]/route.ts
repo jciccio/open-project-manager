@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
 import { updateColumn, deleteColumn } from "@/lib/services/columns";
+import { serviceErrorResponse } from "@/lib/api/serviceErrorResponse";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -28,7 +29,7 @@ export async function PUT(request: NextRequest, { params }: Props) {
       session.userId
     );
     if (!res.success) {
-      return NextResponse.json({ error: res.error }, { status: 400 });
+      return serviceErrorResponse(res);
     }
 
     return NextResponse.json({ success: true, data: res.data });
@@ -46,7 +47,7 @@ export async function DELETE(request: NextRequest, { params }: Props) {
   const { id } = await params;
   const res = await deleteColumn(id, session.userId);
   if (!res.success) {
-    return NextResponse.json({ error: res.error }, { status: 400 });
+    return serviceErrorResponse(res);
   }
 
   return NextResponse.json({ success: true });

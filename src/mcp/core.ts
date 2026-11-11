@@ -37,7 +37,14 @@ import { validateReferencedIds } from "@/lib/services/cards";
 import * as commentsService from "@/lib/services/comments";
 import * as projectsService from "@/lib/services/projects";
 import type { z } from "zod";
-import { buildCardWhere, parseCardOrderBy, countCards, validateCardGroupBy } from "@/lib/cardFilters";
+import {
+  buildCardWhere,
+  parseCardOrderBy,
+  countCards,
+  validateCardGroupBy,
+  McpCountCardsArgsSchema,
+  McpListCardsArgsSchema,
+} from "@/lib/cardFilters";
 
 const DEFAULT_LIST_CARDS_LIMIT = 100;
 
@@ -303,7 +310,7 @@ export const MCP_TOOLS = [
         },
         dueBefore: { type: "string", description: "Filter cards due on or before this ISO date" },
         dueAfter: { type: "string", description: "Filter cards due on or after this ISO date" },
-        isOverdue: { type: "boolean", description: "Filter cards that are overdue (due in the past and uncompleted)" },
+        isOverdue: { type: "boolean", description: "Filter cards that are overdue (due before the start of today UTC, in open non-cancelled columns)" },
         orderBy: {
           type: "string",
           enum: ["created", "createdAt", "updated", "updatedAt", "due", "dueDate", "priority", "order"],
@@ -368,7 +375,7 @@ export const MCP_TOOLS = [
         },
         dueBefore: { type: "string", description: "Filter cards due on or before this ISO date" },
         dueAfter: { type: "string", description: "Filter cards due on or after this ISO date" },
-        isOverdue: { type: "boolean", description: "Filter cards that are overdue (due in the past and uncompleted)" },
+        isOverdue: { type: "boolean", description: "Filter cards that are overdue (due before the start of today UTC, in open non-cancelled columns)" },
         isArchived: { type: "boolean", description: "Filter by archived status (default: false)" },
         groupBy: {
           type: "string",
@@ -1122,38 +1129,40 @@ export async function executeMcpTool(
     }
 
     case "count_cards": {
-      const groupValidation = validateCardGroupBy(args.groupBy);
+      const validatedArgs = parseToolInput(McpCountCardsArgsSchema, args);
+      const groupValidation = validateCardGroupBy(validatedArgs.groupBy);
       if (!groupValidation.success) throw new Error(groupValidation.error);
-      const filterRes = buildCardWhere(args, { project: { OR: accessibleProjectsFilter(userId) } });
+      const filterRes = buildCardWhere(validatedArgs, { project: { OR: accessibleProjectsFilter(userId) } });
       if (!filterRes.success) throw new Error(filterRes.error);
       const res = await countCards(filterRes.where, groupValidation.groupBy);
       return { success: true, count: res.count, ...(res.groups ? { groups: res.groups } : {}) };
     }
 
     case "list_cards": {
-      const filterRes = buildCardWhere(args, { project: { OR: accessibleProjectsFilter(userId) } });
+      const validatedArgs = parseToolInput(McpListCardsArgsSchema, args);
+      const filterRes = buildCardWhere(validatedArgs, { project: { OR: accessibleProjectsFilter(userId) } });
       if (!filterRes.success) throw new Error(filterRes.error);
 
-      if (args.count === true) {
-        const groupValidation = validateCardGroupBy(args.groupBy);
+      if (validatedArgs.count === true) {
+        const groupValidation = validateCardGroupBy(validatedArgs.groupBy);
         if (!groupValidation.success) throw new Error(groupValidation.error);
         const countRes = await countCards(filterRes.where, groupValidation.groupBy);
         return { success: true, count: countRes.count, ...(countRes.groups ? { groups: countRes.groups } : {}) };
       }
 
       let limit: number = DEFAULT_LIST_CARDS_LIMIT;
-      if (typeof args.limit === "number") {
-        limit = Math.min(Math.max(1, Math.floor(args.limit)), 100);
-      } else if (args.limit) {
-        const parsed = parseInt(String(args.limit), 10);
+      if (typeof validatedArgs.limit === "number") {
+        limit = Math.min(Math.max(1, Math.floor(validatedArgs.limit)), 100);
+      } else if (validatedArgs.limit) {
+        const parsed = parseInt(String(validatedArgs.limit), 10);
         if (!isNaN(parsed)) {
           limit = Math.min(Math.max(1, parsed), 100);
         }
       }
 
-      const cursorVal = args.cursor ?? args.after;
+      const cursorVal = validatedArgs.cursor ?? validatedArgs.after;
 
-      const sortRes = parseCardOrderBy(args.orderBy, args.orderDirection);
+      const sortRes = parseCardOrderBy(validatedArgs.orderBy, validatedArgs.orderDirection);
       if (!sortRes.success) throw new Error(sortRes.error);
 
       if (cursorVal && sortRes.sort.field !== "order") {

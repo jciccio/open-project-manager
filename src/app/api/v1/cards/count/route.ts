@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
 import { verifyProjectAccess } from "@/lib/permissions";
-import { buildCardWhere, countCards, validateCardGroupBy } from "@/lib/cardFilters";
+import {
+  buildCardWhere,
+  countCards,
+  parseCardFilterParams,
+  validateCardGroupBy,
+} from "@/lib/cardFilters";
 
 export async function GET(request: NextRequest) {
   const session = await getApiSession(request);
@@ -10,44 +15,14 @@ export async function GET(request: NextRequest) {
   }
 
   const { searchParams } = new URL(request.url);
-  const projectId = searchParams.get("projectId");
-  const columnId = searchParams.get("columnId");
-  const parentId = searchParams.get("parentId");
-  const hasParentParam = searchParams.get("hasParent");
-  const typeId = searchParams.get("typeId");
-  const columnGroup = searchParams.get("columnGroup");
-  const stateGroup = searchParams.get("stateGroup");
-  const assignedUserId = searchParams.get("assignedUserId") || searchParams.get("assignedTo");
-  const query = searchParams.get("query");
-  const isArchivedParam = searchParams.get("isArchived");
-  const isOverdueParam = searchParams.get("isOverdue");
-  const dueBefore = searchParams.get("dueBefore");
-  const dueAfter = searchParams.get("dueAfter");
-  const groupBy = searchParams.get("groupBy");
+  const parsedParams = parseCardFilterParams(searchParams);
+  if (!parsedParams.success) {
+    return NextResponse.json({ error: parsedParams.error }, { status: 400 });
+  }
 
-  const labelIdsParam = [
-    ...searchParams.getAll("labelIds"),
-    ...(searchParams.get("labelId") ? [searchParams.get("labelId")!] : []),
-  ];
-
-  if (isArchivedParam !== null && isArchivedParam !== "true" && isArchivedParam !== "false") {
-    return NextResponse.json({ error: "isArchived must be true or false" }, { status: 400 });
-  }
-  if (hasParentParam !== null && hasParentParam !== "true" && hasParentParam !== "false") {
-    return NextResponse.json({ error: "hasParent must be true or false" }, { status: 400 });
-  }
-  if (isOverdueParam !== null && isOverdueParam !== "true" && isOverdueParam !== "false") {
-    return NextResponse.json({ error: "isOverdue must be true or false" }, { status: 400 });
-  }
+  const { projectId, filterInput, groupBy } = parsedParams.data;
 
   try {
-    if (projectId) {
-      const hasAccess = await verifyProjectAccess(projectId, session.userId, "VIEWER");
-      if (!hasAccess) {
-        return NextResponse.json({ success: true, count: 0 });
-      }
-    }
-
     const accessibleScope = projectId
       ? undefined
       : {
@@ -59,26 +34,7 @@ export async function GET(request: NextRequest) {
           },
         };
 
-    const filterRes = buildCardWhere(
-      {
-        projectId,
-        columnId,
-        parentId: searchParams.has("parentId") ? searchParams.get("parentId") : undefined,
-        hasParent: hasParentParam === "true" ? true : hasParentParam === "false" ? false : undefined,
-        typeId,
-        columnGroup: columnGroup ?? undefined,
-        stateGroup: stateGroup ?? undefined,
-        assignedTo: assignedUserId,
-        query,
-        isArchived: isArchivedParam === "true",
-        isOverdue: isOverdueParam === "true" ? true : isOverdueParam === "false" ? false : undefined,
-        dueBefore,
-        dueAfter,
-        labelIds: labelIdsParam.length > 0 ? labelIdsParam : undefined,
-      },
-      accessibleScope
-    );
-
+    const filterRes = buildCardWhere(filterInput, accessibleScope);
     if (!filterRes.success) {
       return NextResponse.json({ error: filterRes.error }, { status: 400 });
     }
@@ -88,9 +44,21 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: groupValidation.error }, { status: 400 });
     }
 
+    if (projectId) {
+      const hasAccess = await verifyProjectAccess(projectId, session.userId, "VIEWER");
+      if (!hasAccess) {
+        return NextResponse.json({
+          success: true,
+          count: 0,
+          ...(groupValidation.groupBy ? { groups: [] } : {}),
+        });
+      }
+    }
+
     const countRes = await countCards(filterRes.where, groupValidation.groupBy);
     return NextResponse.json({ success: true, ...countRes });
   } catch (err) {
+    console.error("Failed to count cards:", err);
     return NextResponse.json({ error: "Failed to count cards" }, { status: 500 });
   }
 }
