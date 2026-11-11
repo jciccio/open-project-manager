@@ -38,6 +38,7 @@ interface Props {
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
   isFiltered?: boolean;
+  members?: Array<{ userId: string; user: { id: string; name: string; email: string } }>;
 }
 
 export default function KanbanColumn({
@@ -53,12 +54,13 @@ export default function KanbanColumn({
   collapsed = false,
   onToggleCollapsed,
   isFiltered = false,
+  members = [],
 }: Props) {
   const [isAdding, setIsAdding] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newPriority, setNewPriority] = useState("NONE");
   const [newPoints, setNewPoints] = useState<number | "">("");
-  const [newOwner, setNewOwner] = useState("");
+  const [newAssigneeId, setNewAssigneeId] = useState("");
   const [isHoveredOver, setIsHoveredOver] = useState(false);
   const dragCounter = useRef(0);
   const [dragOverCardId, setDragOverCardId] = useState<string | null>(null);
@@ -76,19 +78,21 @@ export default function KanbanColumn({
     setLoading(true);
     setError("");
     try {
+      const assignee = members.find((m) => m.user.id === newAssigneeId)?.user;
       const res = await createCard({
         projectId: column.projectId,
         columnId: column.id,
         title: newTitle.trim(),
         priority: newPriority,
         points: newPoints === "" ? null : Number(newPoints),
-        owner: newOwner.trim() || null,
+        owner: assignee ? assignee.name || assignee.email : null,
+        assigneeIds: assignee ? [assignee.id] : [],
       });
 
       if (res.success) {
         setNewTitle("");
         setNewPoints("");
-        setNewOwner("");
+        setNewAssigneeId("");
         setIsAdding(false);
         onRefresh();
       } else {
@@ -349,13 +353,19 @@ export default function KanbanColumn({
             />
           </div>
 
-          <input
-            type="text"
-            placeholder={t("kanban.assigneePlaceholder")}
-            value={newOwner}
-            onChange={(e) => setNewOwner(e.target.value)}
-            className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
-          />
+          <select
+            aria-label={t("cardModal.owner")}
+            value={newAssigneeId}
+            onChange={(e) => setNewAssigneeId(e.target.value)}
+            className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
+          >
+            <option value="">{t("cardModal.unassigned")}</option>
+            {members.map((m) => (
+              <option key={m.user.id} value={m.user.id}>
+                {m.user.name || m.user.email}
+              </option>
+            ))}
+          </select>
 
           <div className="flex items-center justify-end gap-2 pt-1">
             <button

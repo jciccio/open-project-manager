@@ -3,8 +3,15 @@ import { describe, it, expect, vi } from "vitest";
 import ProjectCard from "../ProjectCard";
 import TaskCard from "../TaskCard";
 import KanbanColumn from "../KanbanColumn";
+import KanbanBoard from "../KanbanBoard";
 import { LanguageProvider } from "../LanguageProvider";
 import { ThemeProvider } from "../ThemeProvider";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
+  usePathname: () => "/projects/p1",
+}));
 
 function renderWithProviders(ui: React.ReactNode) {
   return render(
@@ -169,6 +176,99 @@ describe("Kanban & Project UI Components", () => {
 
     expect(screen.getByText("No cards match")).toBeInTheDocument();
     expect(screen.queryByText("Drop cards here")).not.toBeInTheDocument();
+  });
+
+  it("shows match count and 'No cards match' for filtered columns, while truly empty columns keep 'Drop cards here'", () => {
+    const mockProject = {
+      id: "p1",
+      name: "Board Test",
+      key: "BRD",
+      columns: [
+        {
+          id: "col-1",
+          name: "To Do",
+          group: "UNSTARTED",
+          order: 0,
+          cards: [
+            {
+              id: "c1",
+              title: "Alpha Task",
+              number: 1,
+              priority: "HIGH",
+              projectId: "p1",
+              columnId: "col-1",
+            },
+          ],
+        },
+        {
+          id: "col-2",
+          name: "In Review",
+          group: "STARTED",
+          order: 1,
+          cards: [], // truly empty column
+        },
+      ],
+      members: [],
+      cardTypes: [],
+      savedViews: [],
+    };
+
+    renderWithProviders(<KanbanBoard project={mockProject} />);
+
+    // Initially no filter is active: col-1 shows "Alpha Task", col-2 shows "Drop cards here"
+    expect(screen.getByText("Alpha Task")).toBeInTheDocument();
+    expect(screen.getByText("Drop cards here")).toBeInTheDocument();
+    expect(screen.queryByText(/matching card/i)).not.toBeInTheDocument();
+
+    // Type a query that matches nothing
+    const searchInput = screen.getByPlaceholderText(/search/i);
+    fireEvent.change(searchInput, { target: { value: "NonExistent" } });
+
+    // Match count appears near the search box
+    expect(screen.getByText("0 matching cards")).toBeInTheDocument();
+
+    // Column 1 (which had cards) now shows "No cards match" instead of "Drop cards here"
+    expect(screen.getByText("No cards match")).toBeInTheDocument();
+
+    // Column 2 (which was originally empty) still shows "Drop cards here"
+    expect(screen.getByText("Drop cards here")).toBeInTheDocument();
+
+    // Change search to match Alpha Task
+    fireEvent.change(searchInput, { target: { value: "Alpha" } });
+    expect(screen.getByText("1 matching card")).toBeInTheDocument();
+    expect(screen.getByText("Alpha Task")).toBeInTheDocument();
+  });
+
+  it("does not show match count when only hideSubtasks is toggled", () => {
+    const mockProject = {
+      id: "p1",
+      name: "Subtask Test",
+      key: "SUB",
+      columns: [
+        {
+          id: "col-1",
+          name: "To Do",
+          group: "UNSTARTED",
+          order: 0,
+          cards: [
+            { id: "c1", title: "Parent Task", number: 1, priority: "NONE", projectId: "p1", columnId: "col-1" },
+            { id: "c2", title: "Subtask", number: 2, parentId: "c1", priority: "NONE", projectId: "p1", columnId: "col-1" },
+          ],
+        },
+      ],
+      members: [],
+      cardTypes: [],
+      savedViews: [],
+    };
+
+    renderWithProviders(<KanbanBoard project={mockProject} />);
+
+    // Toggle hide subtasks
+    const hideBtn = screen.getByRole("button", { name: /hide subtasks/i });
+    fireEvent.click(hideBtn);
+
+    // Subtask is hidden, but match count indicator should NOT be shown because search/filter is not active
+    expect(screen.queryByText(/matching card/i)).not.toBeInTheDocument();
   });
 });
 

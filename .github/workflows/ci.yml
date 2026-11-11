@@ -65,3 +65,18 @@ jobs:
 
       - name: Test
         run: yarn test
+
+      # The build refuses to run without JWT_SECRET; nothing reads this value at
+      # runtime, the same placeholder the Dockerfile uses.
+      - name: Build
+        env:
+          JWT_SECRET: build-time-placeholder-never-used-at-runtime
+        run: yarn build
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the Docker image
+        run: docker build -t open-project-manager:ci .
