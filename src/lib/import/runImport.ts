@@ -9,7 +9,7 @@ import {
 } from "@/lib/columnGroups";
 import { generateProjectKey } from "@/lib/projectKey";
 import { withCardNumberRetry } from "@/lib/cardNumbering";
-import { validateParentCard } from "@/lib/cardParent";
+import { validateParentCard, type CardParentReader } from "@/lib/cardParent";
 import { SafeUrlSchema } from "@/lib/validation/safeUrl";
 import { removeAttachmentFiles } from "@/lib/attachmentCleanup";
 import { MAX_ATTACHMENT_BYTES, writeAttachmentFile } from "@/lib/attachmentStorage";
@@ -79,6 +79,39 @@ interface RunCtx {
   tally: DroppedTally;
 }
 
+interface CreateOrSkipOptions {
+  mappingKey?: string;
+  findLegacy?: () => Promise<string | undefined>;
+  /** Runs only for a record that would be created. A returned message fails the record instead. */
+  validate?: () => Promise<string | undefined>;
+}
+
+type CreateOrSkipResult = { localId?: string; result: ImportRecordResult };
+
+/**
+ * What a run does with each decision the traversal makes. The live plan writes; the dry
+ * plan records the same decisions without writing, so both modes share every rule.
+ */
+interface ImportPlan {
+  readonly records: ImportRecordResult[];
+  readonly parentReader?: CardParentReader;
+  createOrSkip(
+    entityType: ImportEntityType,
+    sourceId: string,
+    create: () => Promise<string>,
+    options?: CreateOrSkipOptions
+  ): Promise<CreateOrSkipResult>;
+  /** The local id of a record imported earlier (or planned earlier in this dry run). */
+  resolve(entityType: ImportEntityType, mappingKey: string): Promise<string | undefined>;
+  cardCreated(cardLocalId: string, projectLocalId: string): void;
+  setParent(cardLocalId: string, parentLocalId: string): Promise<void>;
+  addRelation(sourceCardId: string, targetCardId: string, type: ValidRelationType): Promise<void>;
+}
+
+interface TraversalCtx extends RunCtx {
+  plan: ImportPlan;
+}
+
 interface DroppedTally {
   unmatchedAssignees: number;
 }
@@ -93,12 +126,13 @@ function droppedReport(importer: Importer, tally: DroppedTally): ImportDroppedFi
 }
 
 /** Lowercased email to user id, for the users a card in this project can be assigned to. */
-async function assignableUsersByEmail(projectLocalId: string): Promise<Map<string, string>> {
+async function assignableUsersByEmail(projectLocalId: string, importingUserId: string): Promise<Map<string, string>> {
   const project = await db.project.findUnique({
     where: { id: projectLocalId },
     select: { userId: true, members: { select: { userId: true } } },
   });
-  const ids = [project?.userId, ...(project?.members.map((member) => member.userId) ?? [])].filter(
+  // A project a dry run would create doesn't exist yet; the importing user would own it.
+  const ids = [project?.userId ?? importingUserId, ...(project?.members.map((member) => member.userId) ?? [])].filter(
     (id): id is string => !!id
   );
   return usersByEmail(ids);
@@ -155,17 +189,21 @@ async function storeImportedAttachment(attachment: ImportAttachment, cardLocalId
   }
 }
 
-async function importCardAttachments(
-  ctx: RunCtx,
-  cardSourceId: string,
-  cardLocalId: string,
-  records: ImportRecordResult[]
-) {
+async function importCardAttachments(ctx: TraversalCtx, cardSourceId: string, cardLocalId: string) {
+  const records = ctx.plan.records;
   if (!ctx.importer.fetchAttachments) return;
   try {
     for await (const attachment of ctx.importer.fetchAttachments(cardSourceId)) {
-      const { result } = await createOrSkip(ctx, "attachment", attachment.sourceId, () =>
-        storeImportedAttachment(attachment, cardLocalId)
+      const { result } = await ctx.plan.createOrSkip(
+        "attachment",
+        attachment.sourceId,
+        () => storeImportedAttachment(attachment, cardLocalId),
+        {
+          validate: async () =>
+            attachment.size !== undefined && attachment.size > MAX_ATTACHMENT_BYTES
+              ? attachmentTooLargeError(attachment.filename)
+              : undefined,
+        }
       );
       records.push(result);
     }
@@ -286,8 +324,8 @@ async function createOrSkip(
   entityType: ImportEntityType,
   sourceId: string,
   create: () => Promise<string>,
-  options: { mappingKey?: string; findLegacy?: () => Promise<string | undefined> } = {}
-): Promise<{ localId?: string; result: ImportRecordResult }> {
+  options: CreateOrSkipOptions = {}
+): Promise<CreateOrSkipResult> {
   const mappingKey = options.mappingKey ?? sourceId;
   try {
     const existing = await findExistingMapping(ctx.userId, ctx.source, entityType, mappingKey);
@@ -306,6 +344,9 @@ async function createOrSkip(
         result: { entityType, sourceId, status: "skipped", localId: legacyLocalId },
       };
     }
+
+    const invalid = await options.validate?.();
+    if (invalid) return { result: { entityType, sourceId, status: "failed", error: invalid } };
 
     const localId = await create();
     try {
@@ -336,12 +377,36 @@ async function createOrSkip(
   }
 }
 
-async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
+async function liveLocalId(ctx: RunCtx, entityType: ImportEntityType, mappingKey: string): Promise<string | undefined> {
+  const existing = await findExistingMapping(ctx.userId, ctx.source, entityType, mappingKey);
+  return existing && (await rowStillExists(entityType, existing.localId)) ? existing.localId : undefined;
+}
+
+function livePlan(ctx: RunCtx): ImportPlan {
+  return {
+    records: [],
+    createOrSkip: (entityType, sourceId, create, options) => createOrSkip(ctx, entityType, sourceId, create, options),
+    resolve: (entityType, mappingKey) => liveLocalId(ctx, entityType, mappingKey),
+    cardCreated: () => {},
+    setParent: async (cardLocalId, parentLocalId) => {
+      await db.card.update({ where: { id: cardLocalId }, data: { parentId: parentLocalId } });
+    },
+    addRelation: async (sourceCardId, targetCardId, type) => {
+      await db.cardRelation.upsert({
+        where: { sourceCardId_targetCardId_type: { sourceCardId, targetCardId, type } },
+        create: { sourceCardId, targetCardId, type },
+        update: {},
+      });
+    },
+  };
+}
+
+async function importProject(ctx: TraversalCtx) {
+  const records = ctx.plan.records;
   try {
     for await (const projectRec of ctx.importer.fetchProjects()) {
       try {
-        const { localId: projectLocalId, result: projectResult } = await createOrSkip(
-          ctx,
+        const { localId: projectLocalId, result: projectResult } = await ctx.plan.createOrSkip(
           "project",
           projectRec.sourceId,
           async () => {
@@ -387,7 +452,7 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
               continue;
             }
 
-            const { localId, result } = await createOrSkip(ctx, "column", col.sourceId, async () => {
+            const { localId, result } = await ctx.plan.createOrSkip("column", col.sourceId, async () => {
               const created = await db.column.create({
                 data: {
                   projectId: projectLocalId,
@@ -416,8 +481,7 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
         const cardTypeMap = new Map<string, string>();
         try {
           for await (const ct of ctx.importer.fetchCardTypes(projectRec.sourceId)) {
-            const { localId, result } = await createOrSkip(
-              ctx,
+            const { localId, result } = await ctx.plan.createOrSkip(
               "cardType",
               ct.sourceId,
               async () => {
@@ -443,8 +507,7 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
         const labelMap = new Map<string, string>();
         try {
           for await (const lbl of ctx.importer.fetchLabels(projectRec.sourceId)) {
-            const { localId, result } = await createOrSkip(
-              ctx,
+            const { localId, result } = await ctx.plan.createOrSkip(
               "label",
               lbl.sourceId,
               async () => {
@@ -509,7 +572,7 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
         const cardMap = new Map<string, string>();
         const pendingParents: Array<{ cardLocalId: string; cardSourceId: string; parentSourceId: string }> = [];
         const pendingRelations: Array<{ cardLocalId: string; cardSourceId: string; relations: ImportCardRelation[] }> = [];
-        const assignable = await assignableUsersByEmail(projectLocalId);
+        const assignable = await assignableUsersByEmail(projectLocalId, ctx.userId);
 
         try {
           for (const card of cards) {
@@ -525,29 +588,22 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
               continue;
             }
 
-            const { localId: cardLocalId, result: cardResult } = await createOrSkip(ctx, "card", card.sourceId, async () => {
-              if (card.links && card.links.length > 0) {
-                for (const link of card.links) {
-                  const parsed = SafeUrlSchema.safeParse(link.url);
-                  if (!parsed.success) {
-                    throw new Error(`Invalid link URL "${link.url}": must be a valid http, https or mailto URL`);
-                  }
+            const validateCard = async (): Promise<string | undefined> => {
+              for (const link of card.links ?? []) {
+                if (!SafeUrlSchema.safeParse(link.url).success) {
+                  return `Invalid link URL "${link.url}": must be a valid http, https or mailto URL`;
                 }
               }
-
-              if (card.labelSourceIds && card.labelSourceIds.length > 0) {
-                for (const sid of card.labelSourceIds) {
-                  if (!labelMap.has(sid)) {
-                    const legacy = await findExistingMapping(ctx.userId, ctx.source, "label", labelMappingKey(projectRec.sourceId, sid));
-                    if (legacy && (await rowStillExists("label", legacy.localId))) {
-                      labelMap.set(sid, legacy.localId);
-                    } else {
-                      throw new Error(`Unknown labelSourceId "${sid}": no matching label was imported for this project`);
-                    }
-                  }
-                }
+              for (const sid of card.labelSourceIds ?? []) {
+                if (labelMap.has(sid)) continue;
+                const earlier = await ctx.plan.resolve("label", labelMappingKey(projectRec.sourceId, sid));
+                if (!earlier) return `Unknown labelSourceId "${sid}": no matching label was imported for this project`;
+                labelMap.set(sid, earlier);
               }
+              return undefined;
+            };
 
+            const { localId: cardLocalId, result: cardResult } = await ctx.plan.createOrSkip("card", card.sourceId, async () => {
               if (!columnMaxOrder.has(columnLocalId)) {
                 const lastCard = await db.card.findFirst({
                   where: { columnId: columnLocalId },
@@ -621,12 +677,13 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
               existingNumbers.add(created.number);
               nextNumber = Math.max(nextNumber, created.number + 1);
               return created.id;
-            });
+            }, { validate: validateCard });
             records.push(cardResult);
             if (!cardLocalId) continue;
 
             cardMap.set(card.sourceId, cardLocalId);
             if (cardResult.status === "created") {
+              ctx.plan.cardCreated(cardLocalId, projectLocalId);
               ctx.tally.unmatchedAssignees += assignees.unmatched.length;
               if (card.parentSourceId) {
                 pendingParents.push({ cardLocalId, cardSourceId: card.sourceId, parentSourceId: card.parentSourceId });
@@ -638,7 +695,7 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
 
             try {
               for await (const comment of ctx.importer.fetchComments(card.sourceId)) {
-                const { result: commentResult } = await createOrSkip(ctx, "comment", comment.sourceId, async () => {
+                const { result: commentResult } = await ctx.plan.createOrSkip("comment", comment.sourceId, async () => {
                   const created = await db.comment.create({
                     data: {
                       cardId: cardLocalId,
@@ -660,7 +717,7 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
               });
             }
 
-            await importCardAttachments(ctx, card.sourceId, cardLocalId, records);
+            await importCardAttachments(ctx, card.sourceId, cardLocalId);
           }
 
           for (const { cardLocalId, cardSourceId, parentSourceId } of pendingParents) {
@@ -674,13 +731,7 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
               continue;
             }
 
-            let parentLocalId = cardMap.get(parentSourceId);
-            if (!parentLocalId) {
-              const mapped = await findExistingMapping(ctx.userId, ctx.source, "card", parentSourceId);
-              if (mapped && (await rowStillExists("card", mapped.localId))) {
-                parentLocalId = mapped.localId;
-              }
-            }
+            const parentLocalId = cardMap.get(parentSourceId) ?? (await ctx.plan.resolve("card", parentSourceId));
             if (!parentLocalId) {
               records.push({
                 entityType: "card",
@@ -691,7 +742,7 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
               continue;
             }
 
-            const parentError = await validateParentCard(projectLocalId, parentLocalId, cardLocalId);
+            const parentError = await validateParentCard(projectLocalId, parentLocalId, cardLocalId, ctx.plan.parentReader);
             if (parentError) {
               records.push({
                 entityType: "card",
@@ -703,10 +754,7 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
             }
 
             try {
-              await db.card.update({
-                where: { id: cardLocalId },
-                data: { parentId: parentLocalId },
-              });
+              await ctx.plan.setParent(cardLocalId, parentLocalId);
             } catch (err) {
               records.push({
                 entityType: "card",
@@ -730,13 +778,8 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
                 continue;
               }
 
-              let targetCardLocalId = cardMap.get(rel.targetCardSourceId);
-              if (!targetCardLocalId) {
-                const mapped = await findExistingMapping(ctx.userId, ctx.source, "card", rel.targetCardSourceId);
-                if (mapped && (await rowStillExists("card", mapped.localId))) {
-                  targetCardLocalId = mapped.localId;
-                }
-              }
+              const targetCardLocalId =
+                cardMap.get(rel.targetCardSourceId) ?? (await ctx.plan.resolve("card", rel.targetCardSourceId));
               if (!targetCardLocalId) {
                 records.push({
                   entityType: "card",
@@ -765,21 +808,7 @@ async function importProject(ctx: RunCtx, records: ImportRecordResult[]) {
               processedRelations.add(relKey);
 
               try {
-                await db.cardRelation.upsert({
-                  where: {
-                    sourceCardId_targetCardId_type: {
-                      sourceCardId: norm.sourceId,
-                      targetCardId: norm.targetId,
-                      type: norm.type,
-                    },
-                  },
-                  create: {
-                    sourceCardId: norm.sourceId,
-                    targetCardId: norm.targetId,
-                    type: norm.type,
-                  },
-                  update: {},
-                });
+                await ctx.plan.addRelation(norm.sourceId, norm.targetId, norm.type);
               } catch (err) {
                 records.push({
                   entityType: "card",
@@ -927,7 +956,7 @@ async function classifyForDryRun(
         }
 
         const assignable = projectMapping
-          ? await assignableUsersByEmail(projectMapping.localId)
+          ? await assignableUsersByEmail(projectMapping.localId, userId)
           : await usersByEmail([userId]);
         const validCardSourceIds = new Set<string>();
         const batchParents = new Map<string, string>();
@@ -1176,8 +1205,10 @@ export async function runImport(
     };
   }
 
-  const records: ImportRecordResult[] = [];
-  await importProject({ importer, userId, source: importer.name, importRunId, tally }, records);
+  const ctx: RunCtx = { importer, userId, source: importer.name, importRunId, tally };
+  const plan = livePlan(ctx);
+  await importProject({ ...ctx, plan });
+  const records = plan.records;
 
   const created = records.filter((r) => r.status === "created").length;
   const skipped = records.filter((r) => r.status === "skipped").length;
