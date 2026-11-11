@@ -78,7 +78,7 @@ describe("card modal mutation feedback", () => {
   afterEach(() => vi.useRealTimers());
 
   it("shows a rejected save's error inside the modal", async () => {
-    vi.mocked(updateCard).mockResolvedValue({ success: false, error: "title: Card title is required" });
+    vi.mocked(updateCard).mockResolvedValue({ success: false, error: "title: Card title is required", kind: "invalid" });
     renderModal();
 
     fireEvent.change(screen.getByDisplayValue("Original Title"), { target: { value: "" } });
@@ -107,7 +107,7 @@ describe("card modal mutation feedback", () => {
   });
 
   it("shows a failed comment delete inside the modal", async () => {
-    vi.mocked(deleteComment).mockResolvedValue({ success: false, error: "Unauthorized" });
+    vi.mocked(deleteComment).mockResolvedValue({ success: false, error: "Unauthorized", kind: "forbidden" });
     vi.spyOn(window, "confirm").mockReturnValue(true);
     renderModal();
 
