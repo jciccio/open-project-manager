@@ -160,11 +160,23 @@ describe("Auth Server Actions", () => {
     expect(listRes.tokens?.[0].id).toBe(createRes.token!.id);
     expect(listRes.tokens?.[0].name).toBe("Test Client");
 
+    // Logged out, so getApiSession's cookie fallback can't stand in for the Bearer token.
+    const bearer = () =>
+      new NextRequest("http://localhost/api/v1/cards", {
+        headers: { Authorization: `Bearer ${createRes.token!.secret}` },
+      });
+    await logoutUser();
+    expect(await getApiSession(bearer())).toMatchObject({ userId: createdUserId });
+
+    await loginUser({ email: testEmail, password: testPass });
     const revokeRes = await revokeApiToken(createRes.token!.id);
     expect(revokeRes.success).toBe(true);
 
     const listAfterRevoke = await listApiTokens();
     expect(listAfterRevoke.tokens).toHaveLength(0);
+
+    await logoutUser();
+    expect(await getApiSession(bearer())).toBeNull();
   });
 
   it("never accepts an API token JWT as a session, valid or revoked", async () => {

@@ -6,6 +6,7 @@ import {
   updateMemberRole,
   removeProjectMember,
 } from "@/lib/services/members";
+import { serviceErrorResponse } from "@/lib/api/serviceErrorResponse";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -20,7 +21,7 @@ export async function GET(request: NextRequest, { params }: Props) {
   const { id } = await params;
   const res = await getProjectMembers(id, session.userId);
   if (!res.success) {
-    return NextResponse.json({ error: res.error }, { status: 403 });
+    return serviceErrorResponse(res);
   }
 
   return NextResponse.json({
@@ -45,7 +46,7 @@ export async function POST(request: NextRequest, { params }: Props) {
 
     const res = await addProjectMember(id, body.email, body.role || "MEMBER", session.userId);
     if (!res.success) {
-      return NextResponse.json({ error: res.error }, { status: 400 });
+      return serviceErrorResponse(res);
     }
 
     return NextResponse.json({ success: true, data: res.data }, { status: 201 });
@@ -69,7 +70,7 @@ export async function PATCH(request: NextRequest, { params }: Props) {
 
     const res = await updateMemberRole(id, body.userId, body.role, session.userId);
     if (!res.success) {
-      return NextResponse.json({ error: res.error }, { status: 400 });
+      return serviceErrorResponse(res);
     }
 
     return NextResponse.json({ success: true, data: res.data });
@@ -103,7 +104,7 @@ export async function DELETE(request: NextRequest, { params }: Props) {
 
   const res = await removeProjectMember(id, targetUserId, session.userId);
   if (!res.success) {
-    return NextResponse.json({ error: res.error }, { status: 400 });
+    return serviceErrorResponse(res);
   }
 
   return NextResponse.json({ success: true });

@@ -2,16 +2,22 @@ export interface ImportPlaneArgs {
   user?: string;
   workspace: string;
   projectIdentifiers: string[];
+  dryRun: boolean;
+  emailMap: Record<string, string>;
 }
 
-export const LIVE_IMPORT_UNAVAILABLE =
-  "Live Plane imports are not available yet: the import contract cannot carry card numbers, parents or relations, and re-runs would not correct them. Pass --dry-run.";
+function parseEmailMapping(value: string): [string, string] {
+  const [from, to, ...rest] = value.split("=").map((part) => part.trim());
+  if (!from || !to || rest.length > 0) throw new Error(`--map-email needs plane-email=opm-email, got "${value}"`);
+  return [from, to];
+}
 
 export function parseImportPlaneArgs(argv: string[]): ImportPlaneArgs {
   let user: string | undefined;
   let workspace: string | undefined;
   let dryRun = false;
   const projectIdentifiers: string[] = [];
+  const emailMap: Record<string, string> = {};
 
   const valueOf = (flag: string, value: string | undefined): string => {
     if (value === undefined || value.trim() === "") throw new Error(`${flag} needs a value`);
@@ -24,10 +30,12 @@ export function parseImportPlaneArgs(argv: string[]): ImportPlaneArgs {
     else if (arg === "--user") user = valueOf(arg, argv[++i]);
     else if (arg === "--workspace") workspace = valueOf(arg, argv[++i]);
     else if (arg === "--project") projectIdentifiers.push(valueOf(arg, argv[++i]));
-    else throw new Error(`Unknown argument: ${arg}`);
+    else if (arg === "--map-email") {
+      const [from, to] = parseEmailMapping(valueOf(arg, argv[++i]));
+      emailMap[from] = to;
+    } else throw new Error(`Unknown argument: ${arg}`);
   }
 
-  if (!dryRun) throw new Error(LIVE_IMPORT_UNAVAILABLE);
   if (!workspace) throw new Error("--workspace needs a Plane workspace slug");
-  return { user, workspace, projectIdentifiers };
+  return { user, workspace, projectIdentifiers, dryRun, emailMap };
 }
