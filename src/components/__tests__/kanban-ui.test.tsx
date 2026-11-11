@@ -224,8 +224,8 @@ describe("Kanban & Project UI Components", () => {
     const searchInput = screen.getByPlaceholderText(/search/i);
     fireEvent.change(searchInput, { target: { value: "NonExistent" } });
 
-    // Match count appears near the search box
-    expect(screen.getByText("0 matching cards")).toBeInTheDocument();
+    // Match count appears near the search box with status role for screen readers
+    expect(screen.getByRole("status")).toHaveTextContent("0 matching cards");
 
     // Column 1 (which had cards) now shows "No cards match" instead of "Drop cards here"
     expect(screen.getByText("No cards match")).toBeInTheDocument();
@@ -235,7 +235,7 @@ describe("Kanban & Project UI Components", () => {
 
     // Change search to match Alpha Task
     fireEvent.change(searchInput, { target: { value: "Alpha" } });
-    expect(screen.getByText("1 matching card")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("1 matching card");
     expect(screen.getByText("Alpha Task")).toBeInTheDocument();
   });
 
@@ -269,6 +269,39 @@ describe("Kanban & Project UI Components", () => {
 
     // Subtask is hidden, but match count indicator should NOT be shown because search/filter is not active
     expect(screen.queryByText(/matching card/i)).not.toBeInTheDocument();
+  });
+
+  it("counts matching subtasks in List view even when Hide subtasks is enabled", () => {
+    const mockProject = {
+      id: "p1",
+      name: "List Count Test",
+      key: "SUB",
+      columns: [
+        {
+          id: "col-1",
+          name: "To Do",
+          group: "UNSTARTED",
+          order: 0,
+          cards: [
+            { id: "c1", title: "Parent Task", number: 1, priority: "NONE", projectId: "p1", columnId: "col-1", labels: [], assignees: [] },
+            { id: "c2", title: "Child Bug", number: 2, parentId: "c1", priority: "NONE", projectId: "p1", columnId: "col-1", labels: [], assignees: [] },
+          ],
+        },
+      ],
+      members: [],
+      cardTypes: [],
+      savedViews: [],
+    };
+
+    renderWithProviders(<KanbanBoard project={mockProject} />);
+
+    // Switch to List view, toggle Hide subtasks, and search for the subtask
+    fireEvent.click(screen.getByRole("button", { name: /^list$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /hide subtasks/i }));
+    fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: "Child" } });
+
+    expect(screen.getByRole("status")).toHaveTextContent("1 matching card");
+    expect(screen.getByText("Child Bug")).toBeInTheDocument();
   });
 });
 

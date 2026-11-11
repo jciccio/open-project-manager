@@ -604,7 +604,7 @@ export default function KanbanBoard({ project }: Props) {
                   className="w-36 rounded-lg bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 pl-8 pr-3 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
                 />
                 {isFiltering && (
-                  <span className="ml-2 text-xs font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                  <span role="status" className="ml-2 text-xs font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">
                     {matchingCardsCount === 1
                       ? t("kanban.matchingCard", { count: matchingCardsCount })
                       : t("kanban.matchingCards", { count: matchingCardsCount })}
