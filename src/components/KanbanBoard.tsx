@@ -653,6 +653,7 @@ export default function KanbanBoard({ project }: Props) {
                 onToggleCollapsed={
                   isClosedColumn(column) && !isFiltering ? () => toggleClosedColumn(column.id) : undefined
                 }
+                members={project.members}
               />
             ))}
 
