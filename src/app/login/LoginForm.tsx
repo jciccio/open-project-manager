@@ -78,7 +78,7 @@ export function LoginForm({ oidcEnabled, registrationOpen }: { oidcEnabled: bool
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white flex items-center justify-center p-6">
+    <main className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white flex items-center justify-center p-6">
       <div className="w-full max-w-md rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-8 shadow-2xl space-y-6">
         {/* Brand Logo */}
         <div className="flex flex-col items-center text-center space-y-3">
@@ -181,6 +181,6 @@ export function LoginForm({ oidcEnabled, registrationOpen }: { oidcEnabled: bool
           </div>
         )}
       </div>
-    </div>
+    </main>
   );
 }

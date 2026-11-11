@@ -41,4 +41,19 @@ describe("Header Responsive Layout", () => {
     expect(archivedBadge.className).toContain("py-0.5");
     expect(archivedBadge.className).not.toContain("py-0.2");
   });
+
+  it("ensures header button accessible names contain their visible text (WCAG 2.5.3)", () => {
+    const user = { userId: "u123", email: "user@example.com", name: "Alex Rivera" };
+    renderHeader(user);
+
+    // Profile button accessible name must contain visible user name
+    const profileBtn = screen.getByRole("button", { name: /alex rivera/i });
+    expect(profileBtn).toBeInTheDocument();
+    expect(profileBtn.getAttribute("aria-label")).toContain("Alex Rivera");
+
+    // Language button accessible name must contain visible locale code
+    const langBtn = screen.getByRole("button", { name: /en:/i });
+    expect(langBtn).toBeInTheDocument();
+    expect(langBtn.getAttribute("aria-label")).toContain("EN");
+  });
 });

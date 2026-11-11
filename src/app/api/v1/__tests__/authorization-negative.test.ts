@@ -177,14 +177,14 @@ describe("Negative Authorization Test Suite", () => {
         body: JSON.stringify({ name: "Malicious Rename" }),
       });
       const putRes = await updateProjectRoute(putReq, { params: Promise.resolve({ id: userAProjectId }) });
-      expect(putRes.status).toBe(400);
+      expect(putRes.status).toBe(404);
 
       const delReq = new NextRequest(`http://localhost/api/v1/projects/${userAProjectId}`, {
         method: "DELETE",
         headers: { authorization: `Bearer ${userB.token}` },
       });
       const delRes = await deleteProjectRoute(delReq, { params: Promise.resolve({ id: userAProjectId }) });
-      expect(delRes.status).toBe(400);
+      expect(delRes.status).toBe(404);
     });
 
     it("rejects User B trying to create a column in User A's private project", async () => {
@@ -197,7 +197,7 @@ describe("Negative Authorization Test Suite", () => {
         body: JSON.stringify({ name: "Intruder Column" }),
       });
       const res = await createColumnRoute(req, { params: Promise.resolve({ id: userAProjectId }) });
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(404);
     });
 
     it("returns 404 when User B queries a card in User A's private project", async () => {
@@ -218,14 +218,14 @@ describe("Negative Authorization Test Suite", () => {
         body: JSON.stringify({ title: "Infiltrated Card Title" }),
       });
       const putRes = await updateCardRoute(putReq, { params: Promise.resolve({ id: userACardId }) });
-      expect(putRes.status).toBe(400);
+      expect(putRes.status).toBe(404);
 
       const delReq = new NextRequest(`http://localhost/api/v1/cards/${userACardId}`, {
         method: "DELETE",
         headers: { authorization: `Bearer ${userB.token}` },
       });
       const delRes = await deleteCardRoute(delReq, { params: Promise.resolve({ id: userACardId }) });
-      expect(delRes.status).toBe(400);
+      expect(delRes.status).toBe(404);
     });
 
     it("rejects User B trying to create a card in User A's private column", async () => {
@@ -242,7 +242,7 @@ describe("Negative Authorization Test Suite", () => {
         }),
       });
       const res = await createCardRoute(req);
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(404);
     });
   });
 
@@ -282,7 +282,7 @@ describe("Negative Authorization Test Suite", () => {
         body: JSON.stringify({ name: "Viewer Attempted Rename" }),
       });
       const putRes = await updateProjectRoute(putReq, { params: Promise.resolve({ id: userAProjectId }) });
-      expect(putRes.status).toBe(400);
+      expect(putRes.status).toBe(403);
 
       const colReq = new NextRequest(`http://localhost/api/v1/projects/${userAProjectId}/columns`, {
         method: "POST",
@@ -293,7 +293,7 @@ describe("Negative Authorization Test Suite", () => {
         body: JSON.stringify({ name: "Viewer Column" }),
       });
       const colRes = await createColumnRoute(colReq, { params: Promise.resolve({ id: userAProjectId }) });
-      expect(colRes.status).toBe(400);
+      expect(colRes.status).toBe(403);
     });
 
     it("disallows VIEWER from creating, modifying, or deleting cards", async () => {
@@ -310,7 +310,7 @@ describe("Negative Authorization Test Suite", () => {
         }),
       });
       const createRes = await createCardRoute(createReq);
-      expect(createRes.status).toBe(400);
+      expect(createRes.status).toBe(403);
 
       const updateReq = new NextRequest(`http://localhost/api/v1/cards/${userACardId}`, {
         method: "PUT",
@@ -321,14 +321,14 @@ describe("Negative Authorization Test Suite", () => {
         body: JSON.stringify({ title: "Viewer Card Edit" }),
       });
       const updateRes = await updateCardRoute(updateReq, { params: Promise.resolve({ id: userACardId }) });
-      expect(updateRes.status).toBe(400);
+      expect(updateRes.status).toBe(403);
 
       const delReq = new NextRequest(`http://localhost/api/v1/cards/${userACardId}`, {
         method: "DELETE",
         headers: { authorization: `Bearer ${userB.token}` },
       });
       const delRes = await deleteCardRoute(delReq, { params: Promise.resolve({ id: userACardId }) });
-      expect(delRes.status).toBe(400);
+      expect(delRes.status).toBe(403);
     });
   });
 });

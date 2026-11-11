@@ -12,6 +12,17 @@ const FOCUSABLE_SELECTOR = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(", ");
 
+function focusFallbackContainer() {
+  if (typeof document === "undefined") return;
+  const main = document.querySelector<HTMLElement>("main");
+  if (main) {
+    if (!main.hasAttribute("tabindex")) {
+      main.setAttribute("tabindex", "-1");
+    }
+    main.focus();
+  }
+}
+
 export function useModalA11y(onClose: () => void) {
   const modalRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
@@ -86,8 +97,42 @@ export function useModalA11y(onClose: () => void) {
       if (index !== -1) {
         modalStack.splice(index, 1);
       }
-      if (restoreFocusTarget && typeof restoreFocusTarget.focus === "function") {
+      if (restoreFocusTarget && restoreFocusTarget.isConnected && typeof restoreFocusTarget.focus === "function") {
         restoreFocusTarget.focus();
+
+        // Watch briefly in case an async refresh (e.g. Delete/Archive + router.refresh())
+        // detaches the opener shortly after the modal closes, which would reset focus to <body>.
+        if (typeof MutationObserver !== "undefined" && document.body) {
+          let observer: MutationObserver | null = null;
+          let timerId: ReturnType<typeof setTimeout> | null = null;
+          const handleFocusIn = (e: FocusEvent) => {
+            if (e.target && e.target !== restoreFocusTarget && e.target !== document.body) {
+              cleanupWatcher();
+            }
+          };
+          const cleanupWatcher = () => {
+            observer?.disconnect();
+            observer = null;
+            if (timerId !== null) {
+              clearTimeout(timerId);
+              timerId = null;
+            }
+            document.removeEventListener("focusin", handleFocusIn);
+          };
+          observer = new MutationObserver(() => {
+            if (!restoreFocusTarget.isConnected) {
+              if (!document.activeElement || document.activeElement === document.body) {
+                focusFallbackContainer();
+              }
+              cleanupWatcher();
+            }
+          });
+          observer.observe(document.body, { childList: true, subtree: true });
+          document.addEventListener("focusin", handleFocusIn);
+          timerId = setTimeout(cleanupWatcher, 5000);
+        }
+      } else {
+        focusFallbackContainer();
       }
     };
   }, []);

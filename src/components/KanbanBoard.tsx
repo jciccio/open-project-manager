@@ -33,6 +33,7 @@ import WebhookManagerModal from "./WebhookManagerModal";
 import ListView from "./views/ListView";
 import AnalyticsView from "./views/AnalyticsView";
 import CalendarView from "./views/CalendarView";
+import ErrorBanner from "./ErrorBanner";
 
 import { createColumn, reorderColumns } from "@/actions/columns";
 import { moveCard, reorderCards } from "@/actions/cards";
@@ -74,8 +75,14 @@ export default function KanbanBoard({ project }: Props) {
   const [isEditProjectOpen, setIsEditProjectOpen] = useState(false);
   const [isMembersModalOpen, setIsMembersModalOpen] = useState(false);
   const [isWebhooksModalOpen, setIsWebhooksModalOpen] = useState(false);
+  const [boardError, setBoardError] = useState("");
 
   const { t } = useTranslation();
+
+  function reportResult(res: { success: boolean; error?: string }) {
+    setBoardError(res.success ? "" : res.error || t("kanban.actionFailed"));
+    return res.success;
+  }
   const router = useRouter();
 
   const applySavedView = useCallback((view: any) => {
@@ -152,7 +159,7 @@ export default function KanbanBoard({ project }: Props) {
     });
     setSavingViewLoading(false);
 
-    if (res.success && res.data) {
+    if (reportResult(res) && res.data) {
       let updated = [...savedViews];
       if (newViewIsDefault) {
         updated = updated.map((v) => ({ ...v, isDefault: false }));
@@ -173,7 +180,7 @@ export default function KanbanBoard({ project }: Props) {
     if (!window.confirm(t("savedViews.confirmDelete", { name: target.name }))) return;
 
     const res = await deleteSavedView(viewId);
-    if (res.success) {
+    if (reportResult(res)) {
       setSavedViews((prev) => prev.filter((v) => v.id !== viewId));
       if (selectedViewId === viewId) {
         handleSelectView("all");
@@ -189,7 +196,7 @@ export default function KanbanBoard({ project }: Props) {
     const res = await createColumn(project.id, newColumnName.trim(), { group: newColumnGroup });
     setLoadingCol(false);
 
-    if (res.success) {
+    if (reportResult(res)) {
       setNewColumnName("");
       setNewColumnGroup(DEFAULT_COLUMN_GROUP);
       setIsAddingColumn(false);
@@ -201,7 +208,7 @@ export default function KanbanBoard({ project }: Props) {
     setRestoring(true);
     const res = await unarchiveProject(project.id);
     setRestoring(false);
-    if (res.success) {
+    if (reportResult(res)) {
       router.push("/");
       router.refresh();
     }
@@ -219,7 +226,7 @@ export default function KanbanBoard({ project }: Props) {
 
     const orderedIds = newColumns.map((c: any) => c.id);
     const res = await reorderColumns(project.id, orderedIds);
-    if (res.success) {
+    if (reportResult(res)) {
       router.refresh();
     }
   }
@@ -280,7 +287,7 @@ export default function KanbanBoard({ project }: Props) {
         }));
 
         const res = await reorderCards(reorderItems);
-        if (res.success) {
+        if (reportResult(res)) {
           router.refresh();
         }
       } else {
@@ -306,12 +313,13 @@ export default function KanbanBoard({ project }: Props) {
         }));
 
         const res = await reorderCards(reorderItems);
-        if (res.success) {
+        if (reportResult(res)) {
           router.refresh();
         }
       }
     } catch (err) {
       console.error("Drop card error:", err);
+      setBoardError(t("kanban.actionFailed"));
     }
   }
 
@@ -347,7 +355,7 @@ export default function KanbanBoard({ project }: Props) {
   }
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 overflow-hidden bg-slate-100/70 dark:bg-slate-950">
+    <main tabIndex={-1} className="flex flex-col flex-1 min-h-0 overflow-hidden bg-slate-100/70 dark:bg-slate-950 focus:outline-none">
       {/* Archived Banner */}
       {project.isArchived && (
         <div className="bg-amber-500/15 border-b border-amber-500/30 px-6 py-2 flex items-center justify-between text-xs text-amber-800 dark:text-amber-300 shrink-0">
@@ -363,6 +371,12 @@ export default function KanbanBoard({ project }: Props) {
             <ArchiveRestore className="h-3.5 w-3.5" />
             <span>{restoring ? t("kanban.restoring") : t("kanban.restoreButton")}</span>
           </button>
+        </div>
+      )}
+
+      {boardError && (
+        <div className="px-6 pt-3 shrink-0">
+          <ErrorBanner id="board-error" message={boardError} />
         </div>
       )}
 
@@ -523,109 +537,112 @@ export default function KanbanBoard({ project }: Props) {
             </div>
 
             {/* Saved Views, Search, Priority & Type Filters */}
-            {viewMode !== "analytics" && (
-              <>
-                {/* Saved Views Selector */}
-                <div className="flex items-center gap-1.5 rounded-lg bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 px-2.5 py-1 text-xs">
-                  <Bookmark className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400 shrink-0" />
-                  <select
-                    value={selectedViewId}
-                    onChange={(e) => handleSelectView(e.target.value)}
-                    className="bg-transparent text-slate-900 dark:text-white focus:outline-none rounded focus-visible:ring-2 focus-visible:ring-indigo-500 cursor-pointer max-w-[140px] truncate"
+            <div
+              className={`flex items-center gap-3 flex-wrap ${
+                viewMode === "analytics" ? "invisible pointer-events-none select-none" : ""
+              }`}
+              aria-hidden={viewMode === "analytics" ? true : undefined}
+            >
+              {/* Saved Views Selector */}
+              <div className="flex items-center gap-1.5 rounded-lg bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 px-2.5 py-1 text-xs">
+                <Bookmark className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400 shrink-0" />
+                <select
+                  value={selectedViewId}
+                  onChange={(e) => handleSelectView(e.target.value)}
+                  className="bg-transparent text-slate-900 dark:text-white focus:outline-none rounded focus-visible:ring-2 focus-visible:ring-indigo-500 cursor-pointer max-w-[140px] truncate"
+                >
+                  <option value="all">{t("savedViews.allCards")}</option>
+                  {savedViews.map((view) => (
+                    <option key={view.id} value={view.id}>
+                      {view.name} {view.isDefault ? "★" : ""}
+                    </option>
+                  ))}
+                </select>
+
+                {selectedViewId !== "all" && (
+                  <button
+                    type="button"
+                    onClick={(e) => handleDeleteView(selectedViewId, e)}
+                    className="text-slate-400 hover:text-rose-500 transition-colors p-0.5"
+                    title={t("savedViews.deleteViewTooltip")}
                   >
-                    <option value="all">{t("savedViews.allCards")}</option>
-                    {savedViews.map((view) => (
-                      <option key={view.id} value={view.id}>
-                        {view.name} {view.isDefault ? "★" : ""}
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+
+              {/* Save View Button */}
+              <button
+                type="button"
+                onClick={() => setIsSavingView(true)}
+                className="flex items-center gap-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800/60 px-2.5 py-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors"
+                title={t("savedViews.saveCurrentView")}
+              >
+                <BookmarkPlus className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">{t("savedViews.save")}</span>
+              </button>
+
+              <div className="relative">
+                <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder={t("kanban.searchPlaceholder")}
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-36 rounded-lg bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 pl-8 pr-3 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
+                />
+              </div>
+
+              <div className="flex items-center gap-1.5 rounded-lg bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 px-2.5 py-1 text-xs">
+                <Filter className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
+                <select
+                  value={priorityFilter}
+                  onChange={(e) => setPriorityFilter(e.target.value)}
+                  className="bg-transparent text-slate-900 dark:text-white focus:outline-none rounded focus-visible:ring-2 focus-visible:ring-indigo-500 cursor-pointer"
+                >
+                  <option value="ALL">{t("kanban.allPriorities")}</option>
+                  <option value="NONE">{t("cardModal.priorityNone")}</option>
+                  <option value="LOW">{t("cardModal.priorityLow")}</option>
+                  <option value="MEDIUM">{t("cardModal.priorityMedium")}</option>
+                  <option value="HIGH">{t("cardModal.priorityHigh")}</option>
+                  <option value="URGENT">{t("cardModal.priorityUrgent")}</option>
+                </select>
+              </div>
+
+              {project.cardTypes && project.cardTypes.length > 0 && (
+                <div className="flex items-center gap-1.5 rounded-lg bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 px-2.5 py-1 text-xs">
+                  <Tag className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
+                  <select
+                    value={typeFilter}
+                    onChange={(e) => setTypeFilter(e.target.value)}
+                    className="bg-transparent text-slate-900 dark:text-white focus:outline-none rounded focus-visible:ring-2 focus-visible:ring-indigo-500 cursor-pointer max-w-[110px]"
+                  >
+                    <option value="ALL">{t("kanban.allTypes")}</option>
+                    <option value="NONE">{t("kanban.noTypeFilter")}</option>
+                    {project.cardTypes.map((ct: any) => (
+                      <option key={ct.id} value={ct.id}>
+                        {ct.name}
                       </option>
                     ))}
                   </select>
-
-                  {selectedViewId !== "all" && (
-                    <button
-                      type="button"
-                      onClick={(e) => handleDeleteView(selectedViewId, e)}
-                      className="text-slate-400 hover:text-rose-500 transition-colors p-0.5"
-                      title={t("savedViews.deleteViewTooltip")}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
-                  )}
                 </div>
+              )}
 
-                {/* Save View Button */}
-                <button
-                  type="button"
-                  onClick={() => setIsSavingView(true)}
-                  className="flex items-center gap-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800/60 px-2.5 py-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors"
-                  title={t("savedViews.saveCurrentView")}
-                >
-                  <BookmarkPlus className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">{t("savedViews.save")}</span>
-                </button>
-
-                <div className="relative">
-                  <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder={t("kanban.searchPlaceholder")}
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-36 rounded-lg bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 pl-8 pr-3 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
-                  />
-                </div>
-
-                <div className="flex items-center gap-1.5 rounded-lg bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 px-2.5 py-1 text-xs">
-                  <Filter className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
-                  <select
-                    value={priorityFilter}
-                    onChange={(e) => setPriorityFilter(e.target.value)}
-                    className="bg-transparent text-slate-900 dark:text-white focus:outline-none rounded focus-visible:ring-2 focus-visible:ring-indigo-500 cursor-pointer"
-                  >
-                    <option value="ALL">{t("kanban.allPriorities")}</option>
-                    <option value="NONE">{t("cardModal.priorityNone")}</option>
-                    <option value="LOW">{t("cardModal.priorityLow")}</option>
-                    <option value="MEDIUM">{t("cardModal.priorityMedium")}</option>
-                    <option value="HIGH">{t("cardModal.priorityHigh")}</option>
-                    <option value="URGENT">{t("cardModal.priorityUrgent")}</option>
-                  </select>
-                </div>
-
-                {project.cardTypes && project.cardTypes.length > 0 && (
-                  <div className="flex items-center gap-1.5 rounded-lg bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 px-2.5 py-1 text-xs">
-                    <Tag className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
-                    <select
-                      value={typeFilter}
-                      onChange={(e) => setTypeFilter(e.target.value)}
-                      className="bg-transparent text-slate-900 dark:text-white focus:outline-none rounded focus-visible:ring-2 focus-visible:ring-indigo-500 cursor-pointer max-w-[110px]"
-                    >
-                      <option value="ALL">{t("kanban.allTypes")}</option>
-                      <option value="NONE">{t("kanban.noTypeFilter")}</option>
-                      {project.cardTypes.map((ct: any) => (
-                        <option key={ct.id} value={ct.id}>
-                          {ct.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                {/* Hide / Show Subtasks Filter Button */}
-                <button
-                  type="button"
-                  onClick={() => setHideSubtasks(!hideSubtasks)}
-                  className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold transition-all ${
-                    hideSubtasks
-                      ? "bg-indigo-50 dark:bg-indigo-500/20 border-indigo-300 dark:border-indigo-500/40 text-indigo-700 dark:text-indigo-300"
-                      : "bg-white dark:bg-slate-800/80 border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                  }`}
-                  title={hideSubtasks ? t("kanban.subtasksHiddenTooltip") : t("kanban.hideSubtasksTooltip")}
-                >
-                  <ListTree className="h-3.5 w-3.5" />
-                  <span>{hideSubtasks ? t("kanban.subtasksHidden") : t("kanban.hideSubtasks")}</span>
-                </button>
-              </>
-            )}
+              {/* Hide / Show Subtasks Filter Button */}
+              <button
+                type="button"
+                onClick={() => setHideSubtasks(!hideSubtasks)}
+                className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold transition-all ${
+                  hideSubtasks
+                    ? "bg-indigo-50 dark:bg-indigo-500/20 border-indigo-300 dark:border-indigo-500/40 text-indigo-700 dark:text-indigo-300"
+                    : "bg-white dark:bg-slate-800/80 border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                }`}
+                title={hideSubtasks ? t("kanban.subtasksHiddenTooltip") : t("kanban.hideSubtasksTooltip")}
+              >
+                <ListTree className="h-3.5 w-3.5" />
+                <span>{hideSubtasks ? t("kanban.subtasksHidden") : t("kanban.hideSubtasks")}</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -650,6 +667,7 @@ export default function KanbanBoard({ project }: Props) {
                 onToggleCollapsed={
                   isClosedColumn(column) && !isFiltering ? () => toggleClosedColumn(column.id) : undefined
                 }
+                members={project.members}
               />
             ))}
 
@@ -854,6 +872,6 @@ export default function KanbanBoard({ project }: Props) {
           onClose={() => setIsWebhooksModalOpen(false)}
         />
       )}
-    </div>
+    </main>
   );
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth";
 import { getProjects, createProject } from "@/lib/services/projects";
+import { serviceErrorResponse } from "@/lib/api/serviceErrorResponse";
 
 export async function GET(request: NextRequest) {
   const session = await getApiSession(request);
@@ -13,7 +14,7 @@ export async function GET(request: NextRequest) {
 
   const res = await getProjects(session.userId, isArchived);
   if (!res.success) {
-    return NextResponse.json({ error: res.error }, { status: 400 });
+    return serviceErrorResponse(res);
   }
 
   return NextResponse.json({ success: true, data: res.data });
@@ -37,7 +38,7 @@ export async function POST(request: NextRequest) {
     );
 
     if (!res.success) {
-      return NextResponse.json({ error: res.error }, { status: 400 });
+      return serviceErrorResponse(res);
     }
 
     return NextResponse.json({ success: true, data: res.data }, { status: 201 });

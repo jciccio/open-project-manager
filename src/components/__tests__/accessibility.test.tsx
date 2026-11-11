@@ -4,6 +4,7 @@ import NewProjectModal from "../NewProjectModal";
 import CardDetailModal from "../CardDetailModal";
 import UserProfileModal from "../UserProfileModal";
 import TaskCard from "../TaskCard";
+import ListView from "../views/ListView";
 import { LoginForm } from "@/app/login/LoginForm";
 import { RegisterForm } from "@/app/register/RegisterForm";
 import { LanguageProvider } from "../LanguageProvider";
@@ -21,6 +22,7 @@ vi.mock("@/actions/projects", () => ({
 vi.mock("@/actions/cards", () => ({
   createCard: vi.fn(async () => ({ success: true })),
   updateCard: vi.fn(async () => ({ success: true })),
+  moveCard: vi.fn(async () => ({ success: true })),
   deleteCard: vi.fn(async () => ({ success: true })),
   archiveCard: vi.fn(async () => ({ success: true })),
   getCardByIdentifier: vi.fn(async () => ({ success: false })),
@@ -382,7 +384,7 @@ describe("Accessibility (Issue #113)", () => {
           <CardDetailModal
             card={mockCard}
             columns={[{ id: "col-1", name: "To Do" }]}
-            members={[{ user: { id: "user-1", name: "Assignee Name", email: "a@b.com" } }]}
+            members={[{ userId: "user-1", role: "EDITOR", user: { id: "user-1", name: "Assignee Name", email: "a@b.com" } }]}
             onClose={onClose}
             onRefresh={vi.fn()}
           />
@@ -440,39 +442,203 @@ describe("Accessibility (Issue #113)", () => {
       expect(onClick).toHaveBeenCalledTimes(2);
     });
 
-    it("does not trigger row onClick when Enter or Space is pressed on a descendant element", () => {
-      const onClick = vi.fn();
-      const mockCard: any = {
-        id: "c-descendant",
-        title: "Task with Link",
-        description: "Check [this link](https://example.com) for details",
-        identifier: "PROJ-2",
-        order: 0,
-        columnId: "col-1",
-        projectId: "p-1",
-        labels: [],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+    it("does not open card when Space, Enter, or click occurs on status select in ListView", () => {
+      const onCardClick = vi.fn();
+      const mockProject: any = {
+        id: "p-1",
+        columns: [
+          {
+            id: "col-1",
+            name: "To Do",
+            isDone: false,
+            cards: [
+              {
+                id: "c-descendant",
+                title: "Task with Status Select",
+                priority: "MEDIUM",
+                order: 0,
+                columnId: "col-1",
+                projectId: "p-1",
+                labels: [],
+                comments: [],
+              },
+            ],
+          },
+          { id: "col-2", name: "Done", isDone: true, cards: [] },
+        ],
       };
 
-      const { container } = render(
+      render(
         <LanguageProvider>
-          <TaskCard card={mockCard} onClick={onClick} />
+          <ListView
+            project={mockProject}
+            onCardClick={onCardClick}
+            onRefresh={vi.fn()}
+            searchQuery=""
+            priorityFilter="ALL"
+          />
         </LanguageProvider>
       );
 
-      const link = container.querySelector("a");
-      if (link) {
-        fireEvent.keyDown(link, { key: "Enter" });
-        expect(onClick).not.toHaveBeenCalled();
+      const select = screen.getByRole("combobox");
+      fireEvent.keyDown(select, { key: " " });
+      fireEvent.keyDown(select, { key: "Enter" });
+      fireEvent.click(select);
+      expect(onCardClick).not.toHaveBeenCalled();
 
-        fireEvent.keyDown(link, { key: " " });
-        expect(onClick).not.toHaveBeenCalled();
+      const titleBtn = screen.getByRole("button", { name: "Task with Status Select" });
+      fireEvent.keyDown(titleBtn, { key: "Enter" });
+      expect(onCardClick).toHaveBeenCalledTimes(1);
+    });
 
-        // Clicking the link itself should not trigger card onClick
-        fireEvent.click(link);
-        expect(onClick).not.toHaveBeenCalled();
-      }
+    it("guards parent and subtask card switches in CardDetailModal when dirty", () => {
+      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+      const onOpenCard = vi.fn();
+      const parentLinkedCard: any = {
+        id: "c-1",
+        title: "Current Card",
+        description: "",
+        columnId: "col-1",
+        projectId: "p-1",
+        priority: "MEDIUM",
+        points: null,
+        owner: "",
+        dueDate: null,
+        labels: [],
+        comments: [],
+        activities: [],
+        parent: { id: "parent-1", number: 1, title: "Parent Task" },
+      };
+
+      const { unmount } = render(
+        <LanguageProvider>
+          <CardDetailModal
+            card={parentLinkedCard}
+            columns={[{ id: "col-1", name: "To Do" }]}
+            onClose={vi.fn()}
+            onRefresh={vi.fn()}
+            onOpenCard={onOpenCard}
+          />
+        </LanguageProvider>
+      );
+
+      // Make modal dirty and click parent card link
+      fireEvent.change(screen.getByDisplayValue("Current Card"), { target: { value: "Edited Card" } });
+      fireEvent.click(screen.getByRole("button", { name: /#1 Parent Task/i }));
+      expect(confirmSpy).toHaveBeenCalledTimes(1);
+      expect(onOpenCard).not.toHaveBeenCalled();
+
+      confirmSpy.mockReturnValueOnce(true);
+      fireEvent.click(screen.getByRole("button", { name: /#1 Parent Task/i }));
+      expect(onOpenCard).toHaveBeenCalledWith("parent-1");
+      unmount();
+
+      // Now test subtask link guard on a parent card
+      confirmSpy.mockReset();
+      onOpenCard.mockReset();
+      confirmSpy.mockReturnValue(false);
+
+      const parentCardWithChildren: any = {
+        id: "c-parent",
+        title: "Epic Card",
+        description: "",
+        columnId: "col-1",
+        projectId: "p-1",
+        priority: "MEDIUM",
+        points: null,
+        owner: "",
+        dueDate: null,
+        labels: [],
+        comments: [],
+        activities: [],
+        children: [
+          {
+            id: "sub-1",
+            number: 2,
+            title: "Child Subtask",
+            column: { id: "col-1", name: "To Do", isDone: false },
+          },
+        ],
+      };
+
+      render(
+        <LanguageProvider>
+          <CardDetailModal
+            card={parentCardWithChildren}
+            columns={[{ id: "col-1", name: "To Do" }]}
+            onClose={vi.fn()}
+            onRefresh={vi.fn()}
+            onOpenCard={onOpenCard}
+          />
+        </LanguageProvider>
+      );
+
+      fireEvent.change(screen.getByDisplayValue("Epic Card"), { target: { value: "Edited Epic" } });
+      fireEvent.click(screen.getByRole("button", { name: "Child Subtask" }));
+      expect(confirmSpy).toHaveBeenCalledTimes(1);
+      expect(onOpenCard).not.toHaveBeenCalled();
+
+      confirmSpy.mockReturnValue(true);
+      fireEvent.click(screen.getByRole("button", { name: "Child Subtask" }));
+      expect(onOpenCard).toHaveBeenCalledWith("sub-1");
+    });
+
+    it("does not prompt token-dismissal confirmation after copying generated token in UserProfileModal", async () => {
+      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+      const writeTextMock = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: { writeText: writeTextMock },
+      });
+
+      const onClose = vi.fn();
+      render(
+        <LanguageProvider>
+          <UserProfileModal
+            user={{ userId: "u1", name: "Alice", email: "alice@example.com" }}
+            onClose={onClose}
+          />
+        </LanguageProvider>
+      );
+
+      const tokenInput = screen.getByPlaceholderText(/Token name/i);
+      fireEvent.change(tokenInput, { target: { value: "CI Token" } });
+      fireEvent.click(screen.getByRole("button", { name: /Generate API Token/i }));
+
+      expect(await screen.findByText(/Copy Token/i)).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: /Copy Token/i }));
+      await waitFor(() => expect(writeTextMock).toHaveBeenCalledWith("opm_secret_token_123"));
+      expect(await screen.findByText(/Copied!/i)).toBeInTheDocument();
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(confirmSpy).not.toHaveBeenCalled();
+      expect(onClose).toHaveBeenCalled();
+    });
+
+    it("moves focus to <main> fallback when opener is detached after modal close", async () => {
+      const main = document.createElement("main");
+      const opener = document.createElement("button");
+      opener.textContent = "Card Opener";
+      main.appendChild(opener);
+      document.body.appendChild(main);
+      opener.focus();
+      expect(document.activeElement).toBe(opener);
+
+      const onClose = vi.fn();
+      const { unmount } = render(
+        <LanguageProvider>
+          <NewProjectModal onClose={onClose} />
+        </LanguageProvider>
+      );
+
+      unmount();
+      // Simulate async server refresh removing the opener card shortly after unmount
+      opener.remove();
+
+      await waitFor(() => {
+        expect(document.activeElement).toBe(main);
+      });
+      main.remove();
     });
   });
 

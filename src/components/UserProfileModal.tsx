@@ -50,6 +50,7 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
   const [tokenLoading, setTokenLoading] = useState(false);
   const [showToken, setShowToken] = useState(false);
   const [copiedToken, setCopiedToken] = useState(false);
+  const [tokenCopiedOnce, setTokenCopiedOnce] = useState(false);
   const [copiedHeader, setCopiedHeader] = useState(false);
 
   const isProfileDirty =
@@ -59,11 +60,12 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
     newPassword !== "";
 
   const handleGuardedClose = () => {
-    if (apiToken) {
+    if (apiToken && !copiedToken && !tokenCopiedOnce) {
       if (!confirm(t("profileModal.confirmDismissToken"))) {
         return;
       }
-    } else if (isProfileDirty) {
+    }
+    if (isProfileDirty) {
       if (!confirm(t("cardModal.confirmDiscard"))) {
         return;
       }
@@ -139,6 +141,8 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
       const res = await createApiToken(newTokenName.trim(), expiresInDays);
       if (res.success && res.token) {
         setApiToken(res.token.secret);
+        setCopiedToken(false);
+        setTokenCopiedOnce(false);
         setNewTokenName("");
         setTokenExpiration("365");
         setShowToken(false);
@@ -180,6 +184,7 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
     }
     navigator.clipboard.writeText(apiToken).then(() => {
       setCopiedToken(true);
+      setTokenCopiedOnce(true);
       setTimeout(() => setCopiedToken(false), 2000);
     });
   }
@@ -192,6 +197,7 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
     }
     navigator.clipboard.writeText(`Authorization: Bearer ${apiToken}`).then(() => {
       setCopiedHeader(true);
+      setTokenCopiedOnce(true);
       setTimeout(() => setCopiedHeader(false), 2000);
     });
   }
