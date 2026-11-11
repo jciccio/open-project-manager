@@ -1,20 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { z } from "zod";
-import { processInboundEmail, isFailingAuthVerdict, MAX_EMAIL_BODY_BYTES } from "@/lib/inboundEmail";
+import { processInboundEmail, validateWebhookAuthVerdicts } from "@/lib/inboundEmail";
 import { getApiSession } from "@/lib/auth";
 
 const inboundSchema = z.object({
-  to: z.string().min(1).max(2000),
-  from: z.string().min(1).max(2000),
-  cc: z.string().max(2000).optional(),
+  to: z.string().min(1),
+  from: z.string().min(1),
+  cc: z.string().optional(),
   subject: z.string().optional().default(""),
-  text: z.string().max(MAX_EMAIL_BODY_BYTES).optional(),
-  html: z.string().max(MAX_EMAIL_BODY_BYTES).optional(),
+  text: z.string().optional(),
+  html: z.string().optional(),
   spf: z.string().optional(),
   dkim: z.string().optional(),
-  messageId: z.string().max(500).optional(),
-  message_id: z.string().max(500).optional(),
+  dmarc: z.string().optional(),
+  messageId: z.string().optional(),
+  message_id: z.string().optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -76,18 +77,14 @@ export async function POST(request: NextRequest) {
     };
   }
 
-  if (isFailingAuthVerdict(payloadData.spf)) {
-    return NextResponse.json(
-      { success: false, accepted: false, error: "Inbound email rejected: SPF validation failed" },
-      { status: 200 }
-    );
-  }
-
-  if (isFailingAuthVerdict(payloadData.dkim)) {
-    return NextResponse.json(
-      { success: false, accepted: false, error: "Inbound email rejected: DKIM validation failed" },
-      { status: 200 }
-    );
+  if (!sessionUser) {
+    const authCheck = validateWebhookAuthVerdicts(payloadData);
+    if (!authCheck.valid) {
+      return NextResponse.json(
+        { success: false, accepted: false, error: authCheck.error },
+        { status: 200 }
+      );
+    }
   }
 
   try {

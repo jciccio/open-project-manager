@@ -6,6 +6,9 @@ import { verifyProjectAccess } from "@/lib/permissions";
 import { MAX_TITLE_LENGTH, MAX_DESCRIPTION_LENGTH } from "@/lib/validation/cards";
 
 export const MAX_EMAIL_BODY_BYTES = 1024 * 1024; // 1 MB cap to protect event loop
+export const MAX_RECIPIENT_HEADER_CHARS = 64 * 1024; // 64 KB cap for To/Cc recipient lists
+export const MAX_SENDER_HEADER_CHARS = 2000;
+export const FALLBACK_DEDUPE_WINDOW_MS = 60 * 60 * 1000; // 1 hour window when Message-ID is absent
 
 export interface InboundEmailPayload {
   to: string;
@@ -16,6 +19,7 @@ export interface InboundEmailPayload {
   html?: string;
   spf?: string;
   dkim?: string;
+  dmarc?: string;
   messageId?: string;
   message_id?: string;
 }
@@ -36,13 +40,72 @@ export interface InboundEmailResult {
 }
 
 /**
- * Checks whether an SPF or DKIM verdict represents a failure.
- * Matches exact, padded, and composite values containing 'fail' or 'softfail'
- * (e.g. "fail", " fail ", "softfail", "{@evil.com : fail}").
+ * Checks whether an SPF, DKIM, or DMARC verdict represents a non-passing or failure status.
+ * Matches exact, padded, and composite values containing failure/non-pass tokens.
  */
 export function isFailingAuthVerdict(verdict?: string | null): boolean {
   if (!verdict || typeof verdict !== "string") return false;
-  return /\b(fail|softfail)\b/i.test(verdict);
+  return /\b(fail|softfail|none|neutral|permerror|temperror|policy|nxdomain)\b/i.test(verdict);
+}
+
+function extractDkimPassedDomains(dkim: string): string[] {
+  const domains: string[] = [];
+  const compositeRegex = /@([a-zA-Z0-9.-]+)\s*:\s*pass\b/gi;
+  let match: RegExpExecArray | null;
+  while ((match = compositeRegex.exec(dkim)) !== null) {
+    domains.push(match[1].toLowerCase());
+  }
+  const headerDMatch = /\bheader\.d=([a-zA-Z0-9.-]+)\b/i.exec(dkim);
+  if (headerDMatch && /\bpass\b/i.test(dkim)) {
+    domains.push(headerDMatch[1].toLowerCase());
+  }
+  return domains;
+}
+
+function domainsAlign(signingDomain: string, fromDomain: string): boolean {
+  const cleanSigning = signingDomain.toLowerCase();
+  const cleanFrom = fromDomain.toLowerCase();
+  return cleanSigning === cleanFrom || cleanSigning.endsWith(`.${cleanFrom}`);
+}
+
+/**
+ * Enforces explicit SPF/DKIM/DMARC verdicts and From-domain alignment on unverified webhook deliveries.
+ */
+export function validateWebhookAuthVerdicts(
+  payload: InboundEmailPayload
+): { valid: true } | { valid: false; error: string } {
+  if (isFailingAuthVerdict(payload.spf)) {
+    return { valid: false, error: "Inbound email rejected: SPF validation failed" };
+  }
+  if (isFailingAuthVerdict(payload.dkim)) {
+    return { valid: false, error: "Inbound email rejected: DKIM validation failed" };
+  }
+  if (isFailingAuthVerdict(payload.dmarc)) {
+    return { valid: false, error: "Inbound email rejected: DMARC validation failed" };
+  }
+
+  const dmarcNorm = payload.dmarc?.trim().toLowerCase();
+  if (dmarcNorm) {
+    if (dmarcNorm === "pass") {
+      return { valid: true };
+    }
+    return { valid: false, error: "Inbound email rejected: DMARC validation failed" };
+  }
+
+  const senderEmail = extractSenderEmail(payload.from);
+  if (!senderEmail) {
+    return { valid: false, error: "Inbound email rejected: DMARC pass or aligned DKIM validation required" };
+  }
+  const fromDomain = senderEmail.slice(senderEmail.lastIndexOf("@") + 1).toLowerCase();
+  const passedDomains = payload.dkim ? extractDkimPassedDomains(payload.dkim) : [];
+  if (passedDomains.some((d) => domainsAlign(d, fromDomain))) {
+    return { valid: true };
+  }
+
+  return {
+    valid: false,
+    error: "Inbound email rejected: DMARC pass or domain-aligned DKIM pass required",
+  };
 }
 
 /**
@@ -207,16 +270,34 @@ function parseMailboxAddress(mailbox: string): string | null {
   return `${localPart.toLowerCase()}@${domain.toLowerCase()}`;
 }
 
+function extractKeyFromLocalPart(localPart: string): string | null {
+  const plusIdx = localPart.indexOf("+");
+  if (plusIdx !== -1) {
+    const prefix = localPart.slice(0, plusIdx).toLowerCase();
+    const remainder = localPart.slice(plusIdx + 1).trim();
+    if (prefix === "opm" || prefix === "task") {
+      const key = remainder.split("+")[0].trim();
+      return /^[A-Za-z0-9_-]+$/.test(key) ? key.toUpperCase() : null;
+    }
+    return /^[A-Za-z0-9_-]+$/.test(prefix) ? prefix.toUpperCase() : null;
+  }
+  return /^[A-Za-z0-9_-]+$/.test(localPart) ? localPart.toUpperCase() : null;
+}
+
+function isAllowedDefaultDomain(domain: string): boolean {
+  return (
+    domain === "opm.local" ||
+    domain.endsWith(".opm.local") ||
+    domain === "localhost" ||
+    domain.endsWith(".localhost")
+  );
+}
+
 /**
  * Extracts a project key from a recipient address or list of addresses.
- * Examples:
- *   "opm+BACKLOG@opm.local" -> "BACKLOG"
- *   "task+PROJ@example.com" -> "PROJ"
- *   "PROJ@inbound.opm.local" -> "PROJ"
- *   "Project Board <opm+TEST@domain.com>" -> "TEST"
- *   "alice@x.com, opm+BETA@y.com" -> "BETA"
- *   "bob+news@gmail.com, opm+PROJ@inbound.example.com" -> "PROJ"
- *   "\"Smith, John\" <PROJ@inbound.example.com>" -> "PROJ"
+ * When `INBOUND_EMAIL_DOMAIN` is set, restricts matching exclusively to that domain (or subdomains).
+ * When unset, restricts matching to reserved local domains (`opm.local`, `localhost`) to avoid
+ * unintended routing from third-party addresses such as `task+X@gmail.com`.
  */
 export function extractProjectKeyFromRecipient(recipient: string): string | null {
   if (!recipient || typeof recipient !== "string") return null;
@@ -238,11 +319,6 @@ export function extractProjectKeyFromRecipient(recipient: string): string | null
         localPart: parsed.slice(0, atIdx),
         domain: parsed.slice(atIdx + 1),
       });
-    } else {
-      const raw = stripped.trim();
-      if (/^[A-Za-z0-9_-]+$/.test(raw)) {
-        parsedAddresses.push({ localPart: raw, domain: "" });
-      }
     }
   }
 
@@ -250,79 +326,14 @@ export function extractProjectKeyFromRecipient(recipient: string): string | null
 
   const configuredDomain = (process.env.INBOUND_EMAIL_DOMAIN || "").toLowerCase().trim();
 
-  // If INBOUND_EMAIL_DOMAIN is set, ONLY consider addresses on the configured domain.
-  if (configuredDomain) {
-    for (const addr of parsedAddresses) {
-      if (addr.domain === configuredDomain || addr.domain.endsWith("." + configuredDomain)) {
-        // 1. opm+KEY or task+KEY
-        const plusIdx = addr.localPart.indexOf("+");
-        if (plusIdx !== -1) {
-          const prefix = addr.localPart.slice(0, plusIdx).toLowerCase();
-          const remainder = addr.localPart.slice(plusIdx + 1).trim();
-          if (prefix === "opm" || prefix === "task") {
-            const key = remainder.split("+")[0].trim();
-            if (/^[A-Za-z0-9_-]+$/.test(key)) {
-              return key.toUpperCase();
-            }
-          } else {
-            // E.g. PROJ+urgent@configured.domain -> PROJ
-            const key = prefix;
-            if (/^[A-Za-z0-9_-]+$/.test(key)) {
-              return key.toUpperCase();
-            }
-          }
-        } else {
-          // Direct address: PROJ@configured.domain
-          if (/^[A-Za-z0-9_-]+$/.test(addr.localPart)) {
-            return addr.localPart.toUpperCase();
-          }
-        }
-      }
-    }
-    return null;
-  }
-
-  // When INBOUND_EMAIL_DOMAIN is NOT set:
-  // 1. Match explicit opm+KEY or task+KEY
   for (const addr of parsedAddresses) {
-    const plusIdx = addr.localPart.indexOf("+");
-    if (plusIdx !== -1) {
-      const prefix = addr.localPart.slice(0, plusIdx).toLowerCase();
-      const remainder = addr.localPart.slice(plusIdx + 1).trim();
-      if ((prefix === "opm" || prefix === "task") && /^[A-Za-z0-9_-]+$/.test(remainder)) {
-        const key = remainder.split("+")[0].trim();
-        if (/^[A-Za-z0-9_-]+$/.test(key)) {
-          return key.toUpperCase();
-        }
-      }
-    }
-  }
+    const matchesDomain = configuredDomain
+      ? addr.domain === configuredDomain || addr.domain.endsWith("." + configuredDomain)
+      : isAllowedDefaultDomain(addr.domain);
+    if (!matchesDomain) continue;
 
-  // 2. Match inbound/opm domain (e.g. KEY@inbound.domain.com, KEY@opm.local, localhost)
-  for (const addr of parsedAddresses) {
-    const isLocalOrInbound =
-      addr.domain === "opm.local" ||
-      addr.domain.endsWith(".opm.local") ||
-      addr.domain === "localhost" ||
-      addr.domain.endsWith(".localhost") ||
-      addr.domain.startsWith("inbound.") ||
-      addr.domain.includes(".inbound.");
-
-    if (isLocalOrInbound) {
-      const plusIdx = addr.localPart.indexOf("+");
-      const key = plusIdx !== -1 ? addr.localPart.slice(0, plusIdx).trim() : addr.localPart;
-      if (/^[A-Za-z0-9_-]+$/.test(key)) {
-        return key.toUpperCase();
-      }
-    }
-  }
-
-  // 3. Fallback for standalone key string without domain (e.g. "PROJ" or "invalid")
-  if (parsedAddresses.length === 1 && parsedAddresses[0].domain === "") {
-    const raw = parsedAddresses[0].localPart;
-    if (/^[A-Za-z0-9_-]+$/.test(raw)) {
-      return raw.toUpperCase();
-    }
+    const key = extractKeyFromLocalPart(addr.localPart);
+    if (key) return key;
   }
 
   return null;
@@ -344,11 +355,19 @@ export function extractSenderEmail(sender: string): string | null {
   return parseMailboxAddress(mailboxes[0]);
 }
 
+function stripMarkdownImages(markdown: string): string {
+  // Neutralize any inline markdown image (![alt](url)) so remote tracking pixels do not fire on render
+  return markdown.replace(/!\[([^\]]*)\]\([^)\n]+\)/g, (_match, alt: string) => {
+    const cleanAlt = alt.trim();
+    return cleanAlt ? `[Image: ${cleanAlt}]` : "";
+  });
+}
+
 export async function processInboundEmail(
   payload: InboundEmailPayload,
   sessionUser?: { id: string; email: string } | null
 ): Promise<InboundEmailResult> {
-  // Reject oversized payloads early to protect event loop
+  // Reject oversized payloads early to protect event loop and return 200 rejected rather than 400 retries
   if (
     (payload.text && payload.text.length > MAX_EMAIL_BODY_BYTES) ||
     (payload.html && payload.html.length > MAX_EMAIL_BODY_BYTES)
@@ -357,6 +376,18 @@ export async function processInboundEmail(
       success: false,
       accepted: false,
       error: "Inbound email rejected: email body exceeds maximum size limit",
+    };
+  }
+
+  if (
+    payload.to.length > MAX_RECIPIENT_HEADER_CHARS ||
+    (payload.cc && payload.cc.length > MAX_RECIPIENT_HEADER_CHARS) ||
+    (!sessionUser && payload.from.length > MAX_SENDER_HEADER_CHARS)
+  ) {
+    return {
+      success: false,
+      accepted: false,
+      error: "Inbound email rejected: email header exceeds maximum size limit",
     };
   }
 
@@ -456,26 +487,62 @@ export async function processInboundEmail(
     };
   }
 
-  // Derive unique messageId for duplicate delivery prevention
+  // Derive unique messageId for duplicate delivery prevention.
+  // Explicit Message-ID deduplicates permanently per project; fallback hashes only deduplicate
+  // within FALLBACK_DEDUPE_WINDOW_MS so recurring emails with identical text are not swallowed.
   const rawMessageId = (payload.messageId || payload.message_id || "").trim();
-  const messageId =
-    rawMessageId ||
-    crypto
+  const explicitMessageId = rawMessageId
+    ? rawMessageId.length > 500
+      ? `sha256:${crypto.createHash("sha256").update(rawMessageId).digest("hex")}`
+      : rawMessageId
+    : null;
+
+  let existingCard: {
+    id: string;
+    projectId: string;
+    number: number;
+    title: string;
+    columnId: string;
+  } | null = null;
+  let messageIdToStore: string;
+
+  if (explicitMessageId) {
+    existingCard = await db.card.findFirst({
+      where: { projectId: project.id, messageId: explicitMessageId },
+      select: {
+        id: true,
+        projectId: true,
+        number: true,
+        title: true,
+        columnId: true,
+      },
+    });
+    messageIdToStore = explicitMessageId;
+  } else {
+    const contentHash = crypto
       .createHash("sha256")
       .update(`${senderUser.email}:${combinedRecipient}:${payload.subject || ""}:${payload.text || payload.html || ""}`)
       .digest("hex");
+    const hashPrefix = `hash:${contentHash}:`;
+    const windowStart = new Date(Date.now() - FALLBACK_DEDUPE_WINDOW_MS);
 
-  // Check if this message was already delivered for this project (retried delivery deduplication)
-  const existingCard = await db.card.findFirst({
-    where: { projectId: project.id, messageId },
-    select: {
-      id: true,
-      projectId: true,
-      number: true,
-      title: true,
-      columnId: true,
-    },
-  });
+    existingCard = await db.card.findFirst({
+      where: {
+        projectId: project.id,
+        messageId: { startsWith: hashPrefix },
+        createdAt: { gte: windowStart },
+      },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        projectId: true,
+        number: true,
+        title: true,
+        columnId: true,
+      },
+    });
+    messageIdToStore = `${hashPrefix}${crypto.randomUUID()}`;
+  }
 
   if (existingCard) {
     return {
@@ -500,13 +567,13 @@ export async function processInboundEmail(
     project.columns.find((c) => !c.isDone) ||
     project.columns[0];
 
-  // Prepare description
+  // Prepare description (strip remote tracking images from both HTML and Markdown text)
   let description: string | null = null;
   if (payload.text && payload.text.trim()) {
-    description = payload.text.trim();
+    description = stripMarkdownImages(payload.text).trim() || null;
   } else if (payload.html && payload.html.trim()) {
     const boundedHtml = payload.html.slice(0, MAX_EMAIL_BODY_BYTES);
-    description = htmlToMarkdown(boundedHtml).trim() || null;
+    description = stripMarkdownImages(htmlToMarkdown(boundedHtml, { stripImages: true })).trim() || null;
   }
 
   if (description && description.length > MAX_DESCRIPTION_LENGTH) {
@@ -531,9 +598,9 @@ export async function processInboundEmail(
       title,
       description,
       owner: (senderUser.name || senderUser.email).slice(0, 200),
-      messageId,
     },
-    senderUser.id
+    senderUser.id,
+    { messageId: messageIdToStore }
   );
 
   if (!createResult.success || !createResult.data) {

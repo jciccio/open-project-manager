@@ -62,6 +62,7 @@ describe("POST /api/v1/inbound-email", () => {
         from: user!.email,
         subject: "Inbound card via webhook token",
         text: "Card description from email.",
+        dmarc: "pass",
       }),
     });
 
@@ -174,6 +175,7 @@ describe("POST /api/v1/inbound-email", () => {
         to: `opm+${projectKey}@opm.local`,
         from: user!.email,
         subject: "Card with both headers",
+        dmarc: "pass",
       }),
     });
 
@@ -183,19 +185,29 @@ describe("POST /api/v1/inbound-email", () => {
     expect(body.success).toBe(true);
   });
 
-  it("rejects email when SPF or DKIM validation indicates failure including padded and composite values", async () => {
+  it("rejects webhook email unless DMARC passes or DKIM aligns with From domain", async () => {
     process.env.INBOUND_EMAIL_TOKEN = "secret-webhook-key-123";
     const user = await db.user.findUnique({ where: { id: userId } });
+    const userDomain = user!.email.split("@")[1];
 
-    const failingCases = [
-      { field: "spf", value: "fail" },
-      { field: "spf", value: " fail " },
-      { field: "spf", value: "softfail" },
-      { field: "dkim", value: "fail" },
-      { field: "dkim", value: "{@evil.com : fail}" },
+    const failingCases: Array<Record<string, string>> = [
+      {}, // missing verdicts
+      { spf: "fail" },
+      { spf: " fail " },
+      { spf: "softfail" },
+      { spf: "none", dkim: "none" },
+      { spf: "neutral" },
+      { spf: "permerror" },
+      { dkim: "temperror" },
+      { dkim: "fail" },
+      { dkim: "{@evil.com : fail}" },
+      { spf: "pass", dkim: "pass" }, // bare pass without DMARC or domain
+      { spf: "pass", dkim: "{@evil.com : pass}" }, // unaligned domain pass
+      { dmarc: "fail" },
+      { dmarc: "none" },
     ];
 
-    for (const testCase of failingCases) {
+    for (const verdictFields of failingCases) {
       const req = new NextRequest("http://localhost/api/v1/inbound-email", {
         method: "POST",
         headers: {
@@ -206,7 +218,7 @@ describe("POST /api/v1/inbound-email", () => {
           to: `opm+${projectKey}@opm.local`,
           from: user!.email,
           subject: "Auth failing mail",
-          [testCase.field]: testCase.value,
+          ...verdictFields,
         }),
       });
 
@@ -214,8 +226,26 @@ describe("POST /api/v1/inbound-email", () => {
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body.accepted).toBe(false);
-      expect(body.error).toContain(testCase.field === "spf" ? "SPF validation failed" : "DKIM validation failed");
+      expect(body.error).toContain("Inbound email rejected");
     }
+
+    // Domain-aligned DKIM pass succeeds without explicit DMARC field
+    const alignedReq = new NextRequest("http://localhost/api/v1/inbound-email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Inbound-Token": "secret-webhook-key-123",
+      },
+      body: JSON.stringify({
+        to: `opm+${projectKey}@opm.local`,
+        from: user!.email,
+        subject: "Aligned DKIM pass",
+        spf: "pass",
+        dkim: `{@mail.${userDomain} : pass}`,
+      }),
+    });
+    const alignedRes = await POST(alignedReq);
+    expect(alignedRes.status).toBe(201);
   });
 
   it("deduplicates retried webhook deliveries and prevents duplicate card creation", async () => {
@@ -227,6 +257,7 @@ describe("POST /api/v1/inbound-email", () => {
       from: user!.email,
       subject: "Webhook retry test",
       text: "Testing retried deliveries",
+      dmarc: "pass",
       messageId: "<msg-retry-test-1@domain.com>",
     };
 
@@ -281,6 +312,7 @@ describe("POST /api/v1/inbound-email", () => {
         cc: `opm+${projectKey}@opm.local`,
         from: user!.email,
         subject: "Card from CC route",
+        dmarc: "pass",
       }),
     });
 
@@ -289,6 +321,55 @@ describe("POST /api/v1/inbound-email", () => {
     const body = await res.json();
     expect(body.success).toBe(true);
     expect(body.data.title).toBe("Card from CC route");
+  });
+
+  it("returns 200 rejected (not 400) for oversized mail bodies and accepts large CC lists over HTTP", async () => {
+    process.env.INBOUND_EMAIL_TOKEN = "secret-webhook-key-123";
+    const user = await db.user.findUnique({ where: { id: userId } });
+
+    const oversizedReq = new NextRequest("http://localhost/api/v1/inbound-email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Inbound-Token": "secret-webhook-key-123",
+      },
+      body: JSON.stringify({
+        to: `opm+${projectKey}@opm.local`,
+        from: user!.email,
+        subject: "1.2MB newsletter",
+        html: `<p>${"X".repeat(1200 * 1024)}</p>`,
+        dmarc: "pass",
+      }),
+    });
+    const oversizedRes = await POST(oversizedReq);
+    expect(oversizedRes.status).toBe(200);
+    const oversizedBody = await oversizedRes.json();
+    expect(oversizedBody.accepted).toBe(false);
+    expect(oversizedBody.error).toContain("exceeds maximum size limit");
+
+    // 60 Cc addresses (>2000 chars) should route and succeed with 201 instead of 400
+    const sixtyCcs = Array.from({ length: 60 }, (_, i) => `person-long-name-${i}@corp.example.com`).concat([
+      `opm+${projectKey}@opm.local`,
+    ]);
+    const ccString = sixtyCcs.join(", ");
+    expect(ccString.length).toBeGreaterThan(2000);
+
+    const largeCcReq = new NextRequest("http://localhost/api/v1/inbound-email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Inbound-Token": "secret-webhook-key-123",
+      },
+      body: JSON.stringify({
+        to: "team@acme.com",
+        cc: ccString,
+        from: user!.email,
+        subject: "Email with 60 Cc addresses",
+        dmarc: "pass",
+      }),
+    });
+    const largeCcRes = await POST(largeCcReq);
+    expect(largeCcRes.status).toBe(201);
   });
 
   it("allows unauthenticated requests through proxy for public inbound-email path", async () => {

@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { db } from "@/lib/db";
 import { createTestUser, createTestProject, cleanupTestUser } from "@/test/helpers";
+import { CardCreateSchema } from "@/lib/validation/cards";
 import {
+  FALLBACK_DEDUPE_WINDOW_MS,
   extractProjectKeyFromRecipient,
   extractSenderEmail,
   processInboundEmail,
@@ -65,13 +67,17 @@ describe("Inbound Email", () => {
   });
 
   describe("recipient and sender extractors", () => {
-    it("extracts project key from varied recipient formats", () => {
+    it("extracts project key only from local domains when INBOUND_EMAIL_DOMAIN is unset", () => {
       expect(extractProjectKeyFromRecipient("opm+FOO@opm.local")).toBe("FOO");
-      expect(extractProjectKeyFromRecipient("task+BAR@example.com")).toBe("BAR");
-      expect(extractProjectKeyFromRecipient("BAZ@inbound.domain.com")).toBe("BAZ");
-      expect(extractProjectKeyFromRecipient("Team Board <opm+ALPHA@domain.com>")).toBe("ALPHA");
-      expect(extractProjectKeyFromRecipient("alice@x.com, opm+BETA@y.com")).toBe("BETA");
-      expect(extractProjectKeyFromRecipient("invalid")).toBe("INVALID");
+      expect(extractProjectKeyFromRecipient("task+BAR@opm.local")).toBe("BAR");
+      expect(extractProjectKeyFromRecipient("BAZ@localhost")).toBe("BAZ");
+      expect(extractProjectKeyFromRecipient("Team Board <opm+ALPHA@mail.opm.local>")).toBe("ALPHA");
+      expect(extractProjectKeyFromRecipient("alice@x.com, opm+BETA@opm.local")).toBe("BETA");
+      // Third-party and arbitrary inbound.* domains must NOT match when unconfigured
+      expect(extractProjectKeyFromRecipient("task+BAR@example.com")).toBeNull();
+      expect(extractProjectKeyFromRecipient("BAZ@inbound.domain.com")).toBeNull();
+      expect(extractProjectKeyFromRecipient("Team Board <opm+ALPHA@domain.com>")).toBeNull();
+      expect(extractProjectKeyFromRecipient("invalid")).toBeNull();
       expect(extractProjectKeyFromRecipient("")).toBeNull();
     });
 
@@ -86,15 +92,17 @@ describe("Inbound Email", () => {
       expect(extractSenderEmail("")).toBeNull();
     });
 
-    it("extracts project key resolving plus addresses and direct addresses across mailboxes", () => {
-      expect(extractProjectKeyFromRecipient("bob+news@gmail.com, opm+PROJ@inbound.example.com")).toBe("PROJ");
-      expect(extractProjectKeyFromRecipient("alice@x.com, PROJ@inbound.example.com")).toBe("PROJ");
-      expect(extractProjectKeyFromRecipient('"Smith, John" <PROJ@inbound.example.com>')).toBe("PROJ");
-    });
-
-    it("skips malformed mailboxes without dropping remaining valid recipients", () => {
-      expect(extractProjectKeyFromRecipient("Bob :) <bob@x.com>, opm+PROJ@inbound.example.com")).toBe("PROJ");
-      expect(extractProjectKeyFromRecipient("Unbalanced (paren, PROJ@inbound.example.com")).toBe("PROJ");
+    it("extracts project key resolving plus addresses and direct addresses across mailboxes when domain is configured", () => {
+      process.env.INBOUND_EMAIL_DOMAIN = "inbound.example.com";
+      try {
+        expect(extractProjectKeyFromRecipient("bob+news@gmail.com, opm+PROJ@inbound.example.com")).toBe("PROJ");
+        expect(extractProjectKeyFromRecipient("alice@x.com, PROJ@inbound.example.com")).toBe("PROJ");
+        expect(extractProjectKeyFromRecipient('"Smith, John" <PROJ@inbound.example.com>')).toBe("PROJ");
+        expect(extractProjectKeyFromRecipient("Bob :) <bob@x.com>, opm+PROJ@inbound.example.com")).toBe("PROJ");
+        expect(extractProjectKeyFromRecipient("Unbalanced (paren, PROJ@inbound.example.com")).toBe("PROJ");
+      } finally {
+        delete process.env.INBOUND_EMAIL_DOMAIN;
+      }
     });
 
     it("strictly isolates matching to configured INBOUND_EMAIL_DOMAIN when set", () => {
@@ -110,11 +118,12 @@ describe("Inbound Email", () => {
       }
     });
 
-    it("does not match arbitrary domains or substring 'opm' in domains when INBOUND_EMAIL_DOMAIN is not set", () => {
-      // bob@shopmail.com has 'opm' substring in domain, should NOT match
-      expect(extractProjectKeyFromRecipient("bob@shopmail.com, PROJ@inbound.example.com")).toBe("PROJ");
+    it("does not match arbitrary domains, task+ tags, or substring 'opm' when INBOUND_EMAIL_DOMAIN is not set", () => {
+      expect(extractProjectKeyFromRecipient("bob@shopmail.com, PROJ@inbound.example.com")).toBeNull();
+      expect(extractProjectKeyFromRecipient("task+personal@gmail.com")).toBeNull();
       expect(extractProjectKeyFromRecipient("ops@acme.com")).toBeNull();
       expect(extractProjectKeyFromRecipient("bob+news@gmail.com")).toBeNull();
+      expect(extractProjectKeyFromRecipient("task+personal@gmail.com, PROJ@opm.local")).toBe("PROJ");
     });
   });
 
@@ -123,7 +132,7 @@ describe("Inbound Email", () => {
       const owner = await db.user.findUnique({ where: { id: ownerId } });
 
       const result = await processInboundEmail({
-        to: `opm+${projectKey}@inbound.local`,
+        to: `opm+${projectKey}@opm.local`,
         from: owner!.email,
         subject: "Implement OAuth refresh",
         text: "Make sure refresh tokens rotate properly.",
@@ -148,7 +157,7 @@ describe("Inbound Email", () => {
       const owner = await db.user.findUnique({ where: { id: ownerId } });
 
       const result = await processInboundEmail({
-        to: `opm+${projectKey}@inbound.local`,
+        to: `opm+${projectKey}@opm.local`,
         from: owner!.email,
         subject: "Card from rich HTML email",
         html: "<p>Hello <strong>team</strong>! Here is a <a href='https://example.com'>link</a>.</p>",
@@ -164,7 +173,7 @@ describe("Inbound Email", () => {
       const member = await db.user.findUnique({ where: { id: memberId } });
 
       const result = await processInboundEmail({
-        to: `opm+${projectKey}@inbound.local`,
+        to: `opm+${projectKey}@opm.local`,
         from: member!.email,
         subject: "Card created by member",
         text: "Member contribution.",
@@ -178,7 +187,7 @@ describe("Inbound Email", () => {
       const stranger = await db.user.findUnique({ where: { id: strangerId } });
 
       const result = await processInboundEmail({
-        to: `opm+${projectKey}@inbound.local`,
+        to: `opm+${projectKey}@opm.local`,
         from: stranger!.email,
         subject: "Spam card attempt",
         text: "Should be rejected.",
@@ -190,7 +199,7 @@ describe("Inbound Email", () => {
 
     it("rejects an inbound email from an unknown email address", async () => {
       const result = await processInboundEmail({
-        to: `opm+${projectKey}@inbound.local`,
+        to: `opm+${projectKey}@opm.local`,
         from: "outsider@evil.com",
         subject: "External message",
       });
@@ -203,7 +212,7 @@ describe("Inbound Email", () => {
       const owner = await db.user.findUnique({ where: { id: ownerId } });
 
       const result = await processInboundEmail({
-        to: `opm+NONEXISTENT@inbound.local`,
+        to: `opm+NONEXISTENT@opm.local`,
         from: owner!.email,
         subject: "Valid title",
       });
@@ -223,7 +232,7 @@ describe("Inbound Email", () => {
       });
 
       const result = await processInboundEmail({
-        to: `opm+${projectKey}@inbound.local`,
+        to: `opm+${projectKey}@opm.local`,
         from: viewerRes.user.email,
         subject: "Viewer attempt to create card",
       });
@@ -253,7 +262,7 @@ describe("Inbound Email", () => {
       });
 
       const resultB = await processInboundEmail({
-        to: `opm+${projectKey}@inbound.local`,
+        to: `opm+${projectKey}@opm.local`,
         from: ownerBRes.user.email,
         subject: "Card in Owner B project",
       });
@@ -269,7 +278,7 @@ describe("Inbound Email", () => {
       const owner = await db.user.findUnique({ where: { id: ownerId } });
 
       const result = await processInboundEmail({
-        to: `opm+${projectKey}@inbound.local`,
+        to: `opm+${projectKey}@opm.local`,
         from: owner!.email,
         subject: "HTML with styling and scripts",
         html: `<html><head><title>Ignore title</title><style>body { color: red; }</style><script>alert('bad');</script></head><body><p>Real content here</p></body></html>`,
@@ -298,7 +307,7 @@ describe("Inbound Email", () => {
       });
 
       const result = await processInboundEmail({
-        to: `opm+${projectKey}@inbound.local`,
+        to: `opm+${projectKey}@opm.local`,
         from: owner!.email,
         subject: "New sequential card",
         text: "Should be number 11",
@@ -329,7 +338,7 @@ describe("Inbound Email", () => {
 
       const member = await db.user.findUnique({ where: { id: memberId } });
       const result = await processInboundEmail({
-        to: `opm+${projectKey}@inbound.local`,
+        to: `opm+${projectKey}@opm.local`,
         from: member!.email,
         subject: "Ambiguous card destination",
       });
@@ -349,7 +358,7 @@ describe("Inbound Email", () => {
       });
 
       const result = await processInboundEmail({
-        to: `opm+${projectKey}@inbound.local`,
+        to: `opm+${projectKey}@opm.local`,
         from: adminRes.user.email,
         subject: "Admin created card",
       });
@@ -388,7 +397,7 @@ describe("Inbound Email", () => {
 
       const member = await db.user.findUnique({ where: { id: memberId } });
       const result = await processInboundEmail({
-        to: `opm+${projectKey}@inbound.local`,
+        to: `opm+${projectKey}@opm.local`,
         from: member!.email,
         subject: "Disambiguated member card",
       });
@@ -405,7 +414,7 @@ describe("Inbound Email", () => {
 
       const owner = await db.user.findUnique({ where: { id: ownerId } });
       const result = await processInboundEmail({
-        to: `opm+${projectKey}@inbound.local`,
+        to: `opm+${projectKey}@opm.local`,
         from: owner!.email,
         subject: "Card for archived project",
       });
@@ -436,7 +445,7 @@ describe("Inbound Email", () => {
 
       const owner = await db.user.findUnique({ where: { id: ownerId } });
       const result = await processInboundEmail({
-        to: `opm+ALLDONE@inbound.local`,
+        to: `opm+ALLDONE@opm.local`,
         from: owner!.email,
         subject: "Done card from email",
       });
@@ -451,7 +460,7 @@ describe("Inbound Email", () => {
       const owner = await db.user.findUnique({ where: { id: ownerId } });
 
       const resBlank = await processInboundEmail({
-        to: `opm+${projectKey}@inbound.local`,
+        to: `opm+${projectKey}@opm.local`,
         from: owner!.email,
         subject: "   ",
       });
@@ -460,7 +469,7 @@ describe("Inbound Email", () => {
 
       const longSubject = "A".repeat(600);
       const resLong = await processInboundEmail({
-        to: `opm+${projectKey}@inbound.local`,
+        to: `opm+${projectKey}@opm.local`,
         from: owner!.email,
         subject: longSubject,
       });
@@ -472,7 +481,7 @@ describe("Inbound Email", () => {
       const owner = await db.user.findUnique({ where: { id: ownerId } });
 
       const payload = {
-        to: `opm+${projectKey}@inbound.local`,
+        to: `opm+${projectKey}@opm.local`,
         from: owner!.email,
         subject: "Idempotent card creation",
         text: "Relay delivery retry testing",
@@ -497,7 +506,7 @@ describe("Inbound Email", () => {
 
       const res = await processInboundEmail({
         to: "alice@acme.com",
-        cc: `opm+${projectKey}@inbound.local`,
+        cc: `opm+${projectKey}@opm.local`,
         from: owner!.email,
         subject: "Card routed via CC",
         text: "Target key was present in CC",
@@ -512,7 +521,7 @@ describe("Inbound Email", () => {
 
       const hugeText = "X".repeat(1024 * 1024 + 50);
       const res = await processInboundEmail({
-        to: `opm+${projectKey}@inbound.local`,
+        to: `opm+${projectKey}@opm.local`,
         from: owner!.email,
         subject: "Oversized email",
         text: hugeText,
@@ -527,7 +536,7 @@ describe("Inbound Email", () => {
 
       const res = await processInboundEmail(
         {
-          to: `opm+${projectKey}@inbound.local`,
+          to: `opm+${projectKey}@opm.local`,
           from: "arbitrary-from-ignored",
           subject: "Card via sessionUser",
         },
@@ -536,6 +545,79 @@ describe("Inbound Email", () => {
 
       expect(res.success).toBe(true);
       expect(res.card?.title).toBe("Card via sessionUser");
+    });
+
+    it("deduplicates omitted messageId within window while allowing recurring identical emails later", async () => {
+      const owner = await db.user.findUnique({ where: { id: ownerId } });
+
+      const recurringPayload = {
+        to: `opm+${projectKey}@opm.local`,
+        from: owner!.email,
+        subject: "Weekly status reminder",
+        text: "Please submit your weekly timesheet.",
+      };
+
+      const firstRes = await processInboundEmail(recurringPayload);
+      expect(firstRes.success).toBe(true);
+      expect(firstRes.duplicate).toBeUndefined();
+
+      // Immediate retry within FALLBACK_DEDUPE_WINDOW_MS is deduplicated
+      const immediateRetry = await processInboundEmail(recurringPayload);
+      expect(immediateRetry.success).toBe(true);
+      expect(immediateRetry.duplicate).toBe(true);
+      expect(immediateRetry.card?.id).toBe(firstRes.card?.id);
+
+      // Backdate the stored card outside the fallback dedupe window
+      await db.card.update({
+        where: { id: firstRes.card!.id },
+        data: { createdAt: new Date(Date.now() - FALLBACK_DEDUPE_WINDOW_MS - 60_000) },
+      });
+
+      const nextWeekRes = await processInboundEmail(recurringPayload);
+      expect(nextWeekRes.success).toBe(true);
+      expect(nextWeekRes.duplicate).toBeUndefined();
+      expect(nextWeekRes.card?.id).not.toBe(firstRes.card?.id);
+    });
+
+    it("strips remote images from HTML and markdown emails to block tracking pixels", async () => {
+      const owner = await db.user.findUnique({ where: { id: ownerId } });
+
+      const htmlRes = await processInboundEmail({
+        to: `opm+${projectKey}@opm.local`,
+        from: owner!.email,
+        subject: "Email with tracking pixel",
+        html: `<p>Hello team</p><img src="https://tracker.evil.com/open.gif?id=42" width="1" height="1" /><img src="https://cdn.example.com/chart.png" alt="Architecture" />`,
+      });
+
+      expect(htmlRes.success).toBe(true);
+      const htmlCard = await db.card.findUnique({ where: { id: htmlRes.card!.id } });
+      expect(htmlCard?.description).toContain("Hello team");
+      expect(htmlCard?.description).toContain("[Image: Architecture]");
+      expect(htmlCard?.description).not.toContain("tracker.evil.com");
+      expect(htmlCard?.description).not.toContain("![");
+
+      const textRes = await processInboundEmail({
+        to: `opm+${projectKey}@opm.local`,
+        from: owner!.email,
+        subject: "Plain text with markdown image",
+        text: "See ![pixel](https://tracker.evil.com/px.png) and ![](//cdn.evil.com/a.gif) details.",
+      });
+
+      expect(textRes.success).toBe(true);
+      const textCard = await db.card.findUnique({ where: { id: textRes.card!.id } });
+      expect(textCard?.description).not.toContain("tracker.evil.com");
+      expect(textCard?.description).not.toContain("![");
+      expect(textCard?.description).toContain("[Image: pixel]");
+    });
+
+    it("rejects user-supplied messageId in public CardCreateSchema", () => {
+      const res = CardCreateSchema.safeParse({
+        projectId,
+        columnId: "col-1",
+        title: "Normal user card",
+        messageId: "<spoofed-msg-id@example.com>",
+      });
+      expect(res.success).toBe(false);
     });
   });
 });

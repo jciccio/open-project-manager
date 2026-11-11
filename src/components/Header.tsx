@@ -77,7 +77,7 @@ export default function Header({ user, archivedCount = 0, ssoLinkResult }: Props
               onClick={toggleLanguage}
               className="flex items-center gap-1 rounded-lg bg-slate-200/80 dark:bg-slate-800/80 px-2 py-1.5 sm:px-2.5 sm:py-2 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700 transition-all border border-slate-300 dark:border-slate-700"
               title={t("header.switchLanguage")}
-              aria-label={t("header.switchLanguage")}
+              aria-label={`${locale.toUpperCase()}: ${t("header.switchLanguage")}`}
             >
               <Globe className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
               <span className="uppercase text-[11px] sm:text-xs">{locale}</span>
@@ -138,7 +138,7 @@ export default function Header({ user, archivedCount = 0, ssoLinkResult }: Props
                   onClick={() => setIsProfileModalOpen(true)}
                   className="flex items-center gap-1.5 rounded-lg bg-slate-200/80 dark:bg-slate-800/80 p-1 sm:p-1.5 sm:pr-3 hover:bg-slate-300 dark:hover:bg-slate-700 transition-all border border-slate-300 dark:border-slate-700 text-left"
                   title={t("header.profile")}
-                  aria-label={t("header.profile")}
+                  aria-label={`${user.name}, ${t("header.profile")}`}
                 >
                   <div className="flex h-6 w-6 sm:h-7 sm:w-7 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white font-bold text-xs shadow-xs">
                     {user.name.charAt(0).toUpperCase()}
