@@ -45,10 +45,11 @@ export function matchesCardFilter(
     // Match card identifier (e.g. KEY-NNN) or bare number (e.g. NNN or #NNN)
     const pKey = projectKey || card.project?.key;
     const cardIdStr = card.identifier || (pKey && card.number != null ? `${pKey}-${card.number}` : "");
-    const idMatch = cardIdStr ? cardIdStr.toLowerCase().includes(q) : false;
+    const lowerCardId = cardIdStr.toLowerCase();
+    const idMatch = lowerCardId ? lowerCardId === q : false;
 
     const bareNumber = q.replace(/^#/, "");
-    const numMatch = card.number != null ? String(card.number) === bareNumber : false;
+    const numMatch = card.number != null && /^\d+$/.test(bareNumber) ? String(card.number) === bareNumber : false;
 
     if (!titleMatch && !descMatch && !ownerMatch && !idMatch && !numMatch) {
       return false;

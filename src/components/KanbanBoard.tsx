@@ -47,13 +47,16 @@ import { filterCards, findCardByParam } from "@/lib/cardFilter";
 interface Props {
   project: any;
   initialCardParam?: string;
+  initialCard?: any;
 }
 
 type ViewMode = "kanban" | "list" | "analytics" | "calendar";
 
-export default function KanbanBoard({ project, initialCardParam }: Props) {
+export default function KanbanBoard({ project, initialCardParam, initialCard }: Props) {
   const [viewMode, setViewMode] = useState<ViewMode>("kanban");
+  const [standaloneCard, setStandaloneCard] = useState<any | null>(initialCard || null);
   const [activeCardId, setActiveCardId] = useState<string | null>(() => {
+    if (initialCard) return initialCard.id;
     const allCards = project.columns.flatMap((col: any) => col.cards || []);
     const initialParam =
       initialCardParam ||
@@ -66,6 +69,11 @@ export default function KanbanBoard({ project, initialCardParam }: Props) {
   });
 
   useEffect(() => {
+    if (initialCard) {
+      setStandaloneCard(initialCard);
+      setActiveCardId(initialCard.id);
+      return;
+    }
     const cardParam =
       initialCardParam ||
       (typeof window !== "undefined"
@@ -79,13 +87,13 @@ export default function KanbanBoard({ project, initialCardParam }: Props) {
         setActiveCardId(found.id);
       }
     }
-  }, [initialCardParam, project.columns, project.key]);
+  }, [initialCardParam, initialCard, project.columns, project.key]);
 
   function handleOpenCard(cardId: string) {
     setActiveCardId(cardId);
     if (typeof window !== "undefined") {
       const allCards = project.columns.flatMap((col: any) => col.cards || []);
-      const card = allCards.find((c: any) => c.id === cardId);
+      const card = allCards.find((c: any) => c.id === cardId) || (standaloneCard?.id === cardId ? standaloneCard : null);
       const param = card && project.key && card.number ? `${project.key}-${card.number}` : cardId;
       const url = new URL(window.location.href);
       url.searchParams.set("card", param);
@@ -95,6 +103,7 @@ export default function KanbanBoard({ project, initialCardParam }: Props) {
 
   function handleCloseCard() {
     setActiveCardId(null);
+    setStandaloneCard(null);
     if (typeof window !== "undefined" && (window.location.search.includes("card") || window.location.search.includes("cardId"))) {
       const url = new URL(window.location.href);
       url.searchParams.delete("card");
@@ -376,7 +385,8 @@ export default function KanbanBoard({ project, initialCardParam }: Props) {
   const activeCard = activeCardId
     ? project.columns
         .flatMap((col: any) => col.cards || [])
-        .find((c: any) => c.id === activeCardId) || null
+        .find((c: any) => c.id === activeCardId) ||
+      (standaloneCard && standaloneCard.id === activeCardId ? standaloneCard : null)
     : null;
 
   // Filter cards by search, priority, type & subtask visibility for Kanban view
