@@ -1,3 +1,4 @@
+import fs from "fs";
 import path from "path";
 
 // Defaults to a repo-local directory for local dev. In Docker this must point
@@ -13,6 +14,16 @@ export const MAX_ATTACHMENT_BYTES = process.env.MAX_ATTACHMENT_BYTES
 
 export function getAttachmentFilePath(storageKey: string): string {
   return path.join(UPLOADS_DIR, storageKey);
+}
+
+/** Writes the file under a new unique storage key and returns the key. */
+export function writeAttachmentFile(filename: string, content: Buffer): string {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  const sanitizedFilename = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const uniquePrefix = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+  const storageKey = `${uniquePrefix}-${sanitizedFilename}`;
+  fs.writeFileSync(getAttachmentFilePath(storageKey), content);
+  return storageKey;
 }
 
 // Types safe to render inline in a browser tab. Everything else is forced to

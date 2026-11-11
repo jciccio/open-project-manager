@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { db } from "@/lib/db";
 import { safeRevalidatePath } from "@/lib/revalidate";
 import { WEBHOOK_EVENT_TYPES } from "@/lib/webhookEvents";
+import type { ServiceErrorKind } from "@/lib/services/result";
 
 function invalidEvents(events: string[]): string[] {
   return events.filter((e) => !(WEBHOOK_EVENT_TYPES as readonly string[]).includes(e));
@@ -22,7 +23,7 @@ export async function listWebhooks(projectId: string, userId: string) {
     const project = await db.project.findFirst({
       where: { id: projectId, userId: userId },
     });
-    if (!project) return { success: false, error: "Project not found or access denied" };
+    if (!project) return { success: false, error: "Project not found or access denied", kind: "not_found" as ServiceErrorKind };
 
     const webhooks = await db.webhook.findMany({
       where: { projectId },
@@ -33,7 +34,7 @@ export async function listWebhooks(projectId: string, userId: string) {
     return { success: true, data: webhooks };
   } catch (error) {
     console.error("Error listing webhooks:", error);
-    return { success: false, error: "Failed to list webhooks" };
+    return { success: false, error: "Failed to list webhooks", kind: "internal" as ServiceErrorKind };
   }
 }
 
@@ -44,22 +45,22 @@ export async function createWebhook(
 ) {
   try {
     if (!data.url || !data.url.trim()) {
-      return { success: false, error: "Webhook URL is required" };
+      return { success: false, error: "Webhook URL is required", kind: "invalid" as ServiceErrorKind };
     }
 
     if (!Array.isArray(data.events) || data.events.length === 0) {
-      return { success: false, error: "At least one event is required" };
+      return { success: false, error: "At least one event is required", kind: "invalid" as ServiceErrorKind };
     }
 
     const bad = invalidEvents(data.events);
     if (bad.length > 0) {
-      return { success: false, error: `Unknown event type(s): ${bad.join(", ")}` };
+      return { success: false, error: `Unknown event type(s): ${bad.join(", ")}`, kind: "invalid" as ServiceErrorKind };
     }
 
     const project = await db.project.findFirst({
       where: { id: projectId, userId: userId },
     });
-    if (!project) return { success: false, error: "Project not found or access denied" };
+    if (!project) return { success: false, error: "Project not found or access denied", kind: "not_found" as ServiceErrorKind };
 
     const secret = crypto.randomBytes(32).toString("hex");
 
@@ -89,7 +90,7 @@ export async function createWebhook(
     };
   } catch (error) {
     console.error("Error creating webhook:", error);
-    return { success: false, error: "Failed to create webhook" };
+    return { success: false, error: "Failed to create webhook", kind: "internal" as ServiceErrorKind };
   }
 }
 
@@ -104,16 +105,16 @@ export async function updateWebhook(
       include: { project: true },
     });
     if (!existing || existing.project.userId !== userId) {
-      return { success: false, error: "Webhook not found or access denied" };
+      return { success: false, error: "Webhook not found or access denied", kind: "not_found" as ServiceErrorKind };
     }
 
     if (data.events !== undefined) {
       if (!Array.isArray(data.events) || data.events.length === 0) {
-        return { success: false, error: "At least one event is required" };
+        return { success: false, error: "At least one event is required", kind: "invalid" as ServiceErrorKind };
       }
       const bad = invalidEvents(data.events);
       if (bad.length > 0) {
-        return { success: false, error: `Unknown event type(s): ${bad.join(", ")}` };
+        return { success: false, error: `Unknown event type(s): ${bad.join(", ")}`, kind: "invalid" as ServiceErrorKind };
       }
     }
 
@@ -132,7 +133,7 @@ export async function updateWebhook(
     return { success: true, data: webhook };
   } catch (error) {
     console.error(`Error updating webhook ${id}:`, error);
-    return { success: false, error: "Failed to update webhook" };
+    return { success: false, error: "Failed to update webhook", kind: "internal" as ServiceErrorKind };
   }
 }
 
@@ -143,7 +144,7 @@ export async function deleteWebhook(id: string, userId: string) {
       include: { project: true },
     });
     if (!existing || existing.project.userId !== userId) {
-      return { success: false, error: "Webhook not found or access denied" };
+      return { success: false, error: "Webhook not found or access denied", kind: "not_found" as ServiceErrorKind };
     }
 
     await db.webhook.delete({ where: { id } });
@@ -153,6 +154,6 @@ export async function deleteWebhook(id: string, userId: string) {
     return { success: true, deletedId: id };
   } catch (error) {
     console.error(`Error deleting webhook ${id}:`, error);
-    return { success: false, error: "Failed to delete webhook" };
+    return { success: false, error: "Failed to delete webhook", kind: "internal" as ServiceErrorKind };
   }
 }

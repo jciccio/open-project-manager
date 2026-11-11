@@ -170,7 +170,11 @@ The issuer URL must use `https:`. For an identity provider on your LAN without T
 echo "OIDC_ALLOW_INSECURE=true" >> .env
 ```
 
-Registration is closed once the first account exists: the first person to open `/register` becomes the first user, and after that the sign-up page redirects to login. To let anyone who can reach the instance create an account, add:
+Registration is closed once the first account exists: the first person to open `/register` becomes the first user, and after that the sign-up page redirects to login. To create an account for someone, run this where the database lives:
+```bash
+yarn user:create --email jose@example.com --name "Jose"
+```
+With Docker Compose, run it through the `migrate` service, which has the database settings and the scripts: `docker compose run --rm migrate npx tsx scripts/create-user.ts --email jose@example.com --name "Jose"` (add `-f docker-compose.postgres.yml` for the Postgres setup). It prints a temporary password to share privately; they change it under Profile Settings, and project owners can then add them from the members modal. To let anyone who can reach the instance create an account instead, add:
 ```bash
 echo "OPM_ALLOW_REGISTRATION=true" >> .env
 ```

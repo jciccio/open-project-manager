@@ -1,15 +1,31 @@
 import { describe, it, expect } from "vitest";
-import { LIVE_IMPORT_UNAVAILABLE, parseImportPlaneArgs } from "../import-plane-args";
+import { parseImportPlaneArgs } from "../import-plane-args";
 
 describe("import-plane argument parsing", () => {
   it("parses workspace, user and repeated projects", () => {
     expect(
       parseImportPlaneArgs(["--workspace", "my-team", "--user", "a@example.com", "--project", "ABC", "--project", "XYZ", "--dry-run"])
-    ).toEqual({ workspace: "my-team", user: "a@example.com", projectIdentifiers: ["ABC", "XYZ"] });
+    ).toEqual({ workspace: "my-team", user: "a@example.com", projectIdentifiers: ["ABC", "XYZ"], dryRun: true, emailMap: {} });
   });
 
-  it("refuses a live import", () => {
-    expect(() => parseImportPlaneArgs(["--workspace", "my-team"])).toThrow(LIVE_IMPORT_UNAVAILABLE);
+  it("parses repeated --map-email pairs", () => {
+    const { emailMap } = parseImportPlaneArgs([
+      "--workspace",
+      "my-team",
+      "--map-email",
+      "a@plane.test=a@opm.test",
+      "--map-email",
+      "b@plane.test=b@opm.test",
+    ]);
+    expect(emailMap).toEqual({ "a@plane.test": "a@opm.test", "b@plane.test": "b@opm.test" });
+  });
+
+  it.each(["a@plane.test", "=a@opm.test", "a@plane.test=", "a=b=c"])("rejects the --map-email value %j", (value) => {
+    expect(() => parseImportPlaneArgs(["--workspace", "my-team", "--map-email", value])).toThrow("--map-email needs");
+  });
+
+  it("runs live unless --dry-run is passed", () => {
+    expect(parseImportPlaneArgs(["--workspace", "my-team"]).dryRun).toBe(false);
   });
 
   it("requires a workspace", () => {

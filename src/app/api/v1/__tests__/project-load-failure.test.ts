@@ -37,13 +37,13 @@ describe("loading a project that fails", () => {
     await cleanupTestUser(userId);
   });
 
-  it("marks a thrown error as internal, and a missing project as not", async () => {
+  it("marks a thrown error as internal, and a missing project as not found", async () => {
     getProjectAccess.mockRejectedValueOnce(new Error(RAW_MESSAGE));
     expect(await getProjectById(projectId, userId)).toMatchObject({ success: false, kind: "internal" });
 
     const missing = await getProjectById("does-not-exist", userId);
     expect(missing.success).toBe(false);
-    expect(missing.kind).toBeUndefined();
+    expect(missing.kind).toBe("not_found");
   });
 
   it("returns 500 over REST without the raw exception text", async () => {
