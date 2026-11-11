@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ProjectVisibility } from "@/lib/permissions";
 
 export const MAX_PROJECT_NAME_LENGTH = 200;
 
@@ -9,3 +10,7 @@ export const ProjectNameSchema = z
   .trim()
   .min(1, PROJECT_NAME_REQUIRED_ERROR)
   .max(MAX_PROJECT_NAME_LENGTH, `Project name must be ${MAX_PROJECT_NAME_LENGTH} characters or fewer`);
+
+export const PROJECT_VISIBILITIES = ["PRIVATE", "INTERNAL"] as const satisfies readonly ProjectVisibility[];
+
+export const ProjectVisibilitySchema = z.enum(PROJECT_VISIBILITIES);
