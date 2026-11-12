@@ -23,7 +23,7 @@ export async function getProjectById(id: string) {
 export async function getProjectBoard(id: string) {
   const session = await getSession();
   if (!session) {
-    return { success: false as const, error: "Unauthorized" };
+    return { success: false as const, error: "Unauthorized", kind: "unauthenticated" as ServiceErrorKind };
   }
   return projectsService.getProjectBoard(id, session.userId);
 }

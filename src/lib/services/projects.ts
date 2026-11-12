@@ -181,7 +181,7 @@ export async function getProjectBoard(id: string, userId: string) {
   try {
     const access = await getProjectAccess(id, userId, "VIEWER");
     if (!access.hasAccess) {
-      return { success: false, error: "Project not found or access denied" };
+      return { success: false, error: "Project not found or access denied", kind: (access.role ? "forbidden" : "not_found") as ServiceErrorKind };
     }
 
     const project = await db.project.findUnique({
@@ -319,7 +319,7 @@ export async function getProjectBoard(id: string, userId: string) {
     });
 
     if (!project) {
-      return { success: false, error: "Project not found or access denied" };
+      return { success: false, error: "Project not found or access denied", kind: "not_found" as ServiceErrorKind };
     }
 
     return { success: true, data: { ...project, currentUserRole: access.role } };
