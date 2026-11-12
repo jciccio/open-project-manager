@@ -17,6 +17,7 @@
     "mcp": "npx tsx scripts/mcp-server.ts",
     "user:create": "npx tsx scripts/create-user.ts",
     "user:revoke": "npx tsx scripts/revoke-user.ts",
+    "discord:register": "npx tsx scripts/register-discord-commands.ts",
     "update": "./deploy/update.sh",
     "install-skills": "npx tsx scripts/install-skills.ts",
     "db:seed": "npx tsx prisma/seed.ts"
