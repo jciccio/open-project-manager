@@ -29,6 +29,17 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
   const [icon, setIcon] = useState(CARD_TYPE_ICON_NAMES[0]);
   const [color, setColor] = useState(DEFAULT_PROJECT_COLOR);
   const [loading, setLoading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [error, setError] = useState("");
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState("");
+  const [editingIcon, setEditingIcon] = useState("");
+  const [editingColor, setEditingColor] = useState("");
+
+  const { t } = useTranslation();
+
   const handleGuardedClose = () => {
     if (editingId) {
       setEditingId(null);
@@ -41,16 +52,6 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
   };
   const modalRef = useModalA11y(handleGuardedClose);
   const backdropProps = useBackdropClose(handleGuardedClose);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [savingId, setSavingId] = useState<string | null>(null);
-  const [error, setError] = useState("");
-
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingName, setEditingName] = useState("");
-  const [editingIcon, setEditingIcon] = useState("");
-  const [editingColor, setEditingColor] = useState("");
-
-  const { t } = useTranslation();
 
   const fetchCardTypes = useCallback(async () => {
     try {
