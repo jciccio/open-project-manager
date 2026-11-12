@@ -653,12 +653,12 @@ export default function CardDetailModal({
       <div className="w-full max-w-2xl max-h-[90vh] flex flex-col rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50">
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <span className="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
               {t("cardModal.title")}
             </span>
             {card.number && (
-              <span className="rounded-md bg-indigo-100 dark:bg-indigo-500/20 border border-indigo-200 dark:border-indigo-500/30 px-2 py-0.5 text-xs font-mono font-bold text-indigo-700 dark:text-indigo-300">
+              <span className="whitespace-nowrap rounded-md bg-indigo-100 dark:bg-indigo-500/20 border border-indigo-200 dark:border-indigo-500/30 px-2 py-0.5 text-xs font-mono font-bold text-indigo-700 dark:text-indigo-300">
                 {card.project?.key ? `${card.project.key}-${card.number}` : `#${card.number}`}
               </span>
             )}
@@ -1166,34 +1166,34 @@ export default function CardDetailModal({
                   return (
                     <div
                       key={rel.id}
-                      className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold ${
+                      className={`inline-flex max-w-full flex-wrap items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold ${
                         isBlocked
                           ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-400"
                           : "bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300"
                       }`}
                     >
                       {isBlocked ? (
-                        <ShieldAlert className="h-3.5 w-3.5 text-rose-500 animate-pulse" />
+                        <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-rose-500 animate-pulse" />
                       ) : (
-                        <Link2 className="h-3.5 w-3.5 text-indigo-500" />
+                        <Link2 className="h-3.5 w-3.5 shrink-0 text-indigo-500" />
                       )}
-                      <span className="uppercase text-[10px] font-bold tracking-wider opacity-75">
+                      <span className="shrink-0 uppercase text-[10px] font-bold tracking-wider opacity-75">
                         {rel.relationType === "BLOCKS"
                           ? t("cardModal.blocks")
                           : rel.relationType === "BLOCKED_BY"
                           ? t("cardModal.blockedBy")
                           : t("cardModal.relatesTo")}
                       </span>
-                      <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                      <span className="shrink-0 whitespace-nowrap font-mono font-bold text-indigo-600 dark:text-indigo-400">
                         {rel.identifier}
                       </span>
-                      <span className="max-w-[140px] truncate text-slate-600 dark:text-slate-400">
+                      <span className="min-w-0 max-w-[140px] truncate text-slate-600 dark:text-slate-400">
                         ({rel.cardTitle})
                       </span>
                       <button
                         type="button"
                         onClick={() => handleRemoveRelation(rel.id)}
-                        className="ml-1 rounded text-slate-400 hover:text-red-500"
+                        className="ml-1 shrink-0 rounded text-slate-400 hover:text-red-500"
                       >
                         <X className="h-3 w-3" />
                       </button>

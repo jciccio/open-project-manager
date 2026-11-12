@@ -8,13 +8,23 @@ const NONE = new Set<string>();
 
 describe("projectKeyProblems", () => {
   it("passes a key of exactly the supported length that is free", () => {
-    expect(projectKeyProblems([{ sourceId: "p1", key: "ABCDEF" }], NONE, NONE)).toEqual([]);
+    expect(projectKeyProblems([{ sourceId: "p1", key: "ABCDEFGHIJKL" }], NONE, NONE)).toEqual([]);
   });
 
   it("flags a key OPM would cut", () => {
-    expect(projectKeyProblems([{ sourceId: "p1", key: "ABCDEFG" }], NONE, NONE)).toEqual([
-      expect.stringContaining("ABCDEFG: OPM keys are limited to 6 characters"),
+    expect(projectKeyProblems([{ sourceId: "p1", key: "ABCDEFGHIJKLM" }], NONE, NONE)).toEqual([
+      expect.stringContaining("ABCDEFGHIJKLM: OPM keys are limited to 12 characters"),
     ]);
+  });
+
+  it.each(["MY_TEAM", "OPS 2", "ÉQUIPE", "A/B"])("flags %s, which OPM would rewrite to letters and digits", (key) => {
+    expect(projectKeyProblems([{ sourceId: "p1", key }], NONE, NONE)).toEqual([
+      expect.stringContaining("OPM keys hold only letters A-Z and digits"),
+    ]);
+  });
+
+  it("passes a lowercase key, since Plane and OPM both store it uppercased", () => {
+    expect(projectKeyProblems([{ sourceId: "p1", key: "ops2" }], NONE, NONE)).toEqual([]);
   });
 
   it("flags a key already taken, ignoring case", () => {
