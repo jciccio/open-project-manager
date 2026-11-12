@@ -1,3 +1,5 @@
+import { db } from "../src/lib/db";
+import type { Importer, ImportProject } from "../src/lib/import/types";
 import { MAX_PROJECT_KEY_LENGTH, sanitizeProjectKey } from "../src/lib/projectKey";
 
 export interface PreflightProject {
@@ -28,4 +30,21 @@ export function projectKeyProblems(
     }
   }
   return problems;
+}
+
+export async function findKeyProblems(importer: Pick<Importer, "name" | "fetchProjects">, userId: string): Promise<string[]> {
+  const projects: ImportProject[] = [];
+  for await (const project of importer.fetchProjects()) projects.push(project);
+
+  const existing = await db.project.findMany({ where: { userId }, select: { id: true, key: true } });
+  const records = await db.importRecord.findMany({
+    where: { userId, source: importer.name, entityType: "project" },
+    select: { sourceId: true, localId: true },
+  });
+  const existingIds = new Set(existing.map((project) => project.id));
+  return projectKeyProblems(
+    projects,
+    new Set(existing.map((project) => project.key)),
+    new Set(records.filter((record) => existingIds.has(record.localId)).map((record) => record.sourceId))
+  );
 }

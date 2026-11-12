@@ -1,5 +1,8 @@
-import { describe, it, expect } from "vitest";
-import { projectKeyProblems } from "../import-plane-preflight";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { db } from "@/lib/db";
+import type { ImportProject } from "@/lib/import/types";
+import { cleanupTestUser, createTestProject, createTestUser } from "@/test/helpers";
+import { findKeyProblems, projectKeyProblems } from "../import-plane-preflight";
 
 const NONE = new Set<string>();
 
@@ -45,5 +48,62 @@ describe("projectKeyProblems", () => {
       NONE
     );
     expect(problems).toHaveLength(2);
+  });
+});
+
+describe("findKeyProblems", () => {
+  const SOURCE = "plane:plane.test/my-team";
+  let userId: string;
+
+  beforeEach(async () => {
+    userId = (await createTestUser(`preflight-${Date.now()}`)).user.id;
+  });
+
+  afterEach(async () => {
+    await cleanupTestUser(userId);
+  });
+
+  function importerOf(projects: ImportProject[]) {
+    return {
+      name: SOURCE,
+      async *fetchProjects() {
+        yield* projects;
+      },
+    };
+  }
+
+  async function recordImport(sourceId: string, localId: string) {
+    await db.importRecord.create({
+      data: { userId, source: SOURCE, entityType: "project", sourceId, localId, importRunId: "run-1" },
+    });
+  }
+
+  it("flags a taken key when the project's import record points at a deleted project", async () => {
+    const deleted = await createTestProject(userId, "Old Alpha", "OLD");
+    await recordImport("p1", deleted.id);
+    await db.project.delete({ where: { id: deleted.id } });
+    await createTestProject(userId, "Another Alpha", "ALPHA");
+
+    const problems = await findKeyProblems(importerOf([{ sourceId: "p1", name: "Alpha", key: "ALPHA" }]), userId);
+
+    expect(problems).toEqual([expect.stringContaining("ALPHA: this account already has a project")]);
+  });
+
+  it("accepts a project whose import record still points at an existing project", async () => {
+    const imported = await createTestProject(userId, "Beta", "BETA");
+    await recordImport("p2", imported.id);
+
+    expect(await findKeyProblems(importerOf([{ sourceId: "p2", name: "Beta", key: "BETA" }]), userId)).toEqual([]);
+  });
+
+  it("ignores import records from another source", async () => {
+    const imported = await createTestProject(userId, "Beta", "BETA");
+    await db.importRecord.create({
+      data: { userId, source: "vikunja:other", entityType: "project", sourceId: "p2", localId: imported.id, importRunId: "run-1" },
+    });
+
+    expect(await findKeyProblems(importerOf([{ sourceId: "p2", name: "Beta", key: "BETA" }]), userId)).toEqual([
+      expect.stringContaining("BETA: this account already has a project"),
+    ]);
   });
 });

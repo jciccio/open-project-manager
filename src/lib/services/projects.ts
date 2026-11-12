@@ -191,7 +191,7 @@ export async function createProject(
     }
     const visibility = parseInput(ProjectVisibilitySchema, data.visibility ?? "PRIVATE");
     if (!visibility.success) {
-      return { success: false, error: visibility.error };
+      return { success: false, error: visibility.error, kind: "invalid" as ServiceErrorKind };
     }
 
     const projectKey = await generateProjectKey(name.data, data.key, userId);
@@ -255,7 +255,7 @@ export async function updateProject(
     }
     const visibility = data.visibility === undefined ? undefined : parseInput(ProjectVisibilitySchema, data.visibility);
     if (visibility && !visibility.success) {
-      return { success: false, error: visibility.error };
+      return { success: false, error: visibility.error, kind: "invalid" as ServiceErrorKind };
     }
 
     const access = await getProjectAccess(id, userId, "ADMIN");
