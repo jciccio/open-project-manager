@@ -22,8 +22,8 @@ const cardFields = {
   dueDate: DueDateSchema.nullable(),
   parentId: z.string().nullable(),
   typeId: z.string().nullable(),
-  labelIds: z.array(z.string()).max(MAX_CARD_REFERENCE_IDS),
-  assigneeIds: z.array(z.string()).max(MAX_CARD_REFERENCE_IDS),
+  labelIds: z.array(z.string()).max(MAX_CARD_REFERENCE_IDS).transform((ids) => Array.from(new Set(ids))),
+  assigneeIds: z.array(z.string()).max(MAX_CARD_REFERENCE_IDS).transform((ids) => Array.from(new Set(ids))),
 };
 
 export const CardCreateSchema = z.strictObject({
