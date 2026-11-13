@@ -1,6 +1,86 @@
 import * as client from "openid-client";
+import { SignJWT, jwtVerify } from "jose";
 import { db } from "@/lib/db";
 import type { User } from "@prisma/client";
+import { JWT_SECRET } from "@/lib/env";
+import { OIDC_FLOW_AUDIENCE, TOKEN_ISSUER } from "@/lib/tokenClaims";
+
+export const OIDC_COOKIE_MAX_AGE = 600; // 10 minutes — long enough to complete a login redirect
+export const OIDC_STATE_REGEX = /^[A-Za-z0-9_-]{1,128}$/;
+export const OIDC_FLOW_COOKIE_PREFIX = "opm_oidc_flow_";
+
+const LOGIN_PATH_SEGMENTS = ["api", "v1", "auth", "oidc", "login"];
+
+export function getOidcFlowCookiePath(): string {
+  try {
+    const pathname = new URL(getOidcRedirectUri()).pathname;
+    const parentSegments = pathname.replace(/\/[^/]+$/, "").split("/").filter(Boolean);
+    const shared: string[] = [];
+    for (let i = 0; i < parentSegments.length && i < LOGIN_PATH_SEGMENTS.length; i++) {
+      if (parentSegments[i] !== LOGIN_PATH_SEGMENTS[i]) break;
+      shared.push(parentSegments[i]);
+    }
+    return shared.length > 0 ? `/${shared.join("/")}` : "/";
+  } catch {
+    return "/api/v1/auth/oidc";
+  }
+}
+
+export interface OidcFlowData {
+  verifier: string;
+  state: string;
+  nonce: string;
+  link: number;
+  linkUserId?: string;
+}
+
+export async function signOidcFlow(flow: OidcFlowData): Promise<string> {
+  return new SignJWT({
+    verifier: flow.verifier,
+    state: flow.state,
+    nonce: flow.nonce,
+    link: flow.link,
+    linkUserId: flow.linkUserId,
+  })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuer(TOKEN_ISSUER)
+    .setAudience(OIDC_FLOW_AUDIENCE)
+    .setIssuedAt()
+    .setExpirationTime(`${OIDC_COOKIE_MAX_AGE}s`)
+    .sign(JWT_SECRET);
+}
+
+export async function readOidcFlow(
+  cookieValue: string | undefined,
+  expectedState: string
+): Promise<OidcFlowData | null> {
+  if (!cookieValue) return null;
+  try {
+    const { payload } = await jwtVerify(cookieValue, JWT_SECRET, {
+      algorithms: ["HS256"],
+      issuer: TOKEN_ISSUER,
+      audience: OIDC_FLOW_AUDIENCE,
+    });
+    if (
+      typeof payload.verifier !== "string" ||
+      typeof payload.state !== "string" ||
+      typeof payload.nonce !== "string" ||
+      typeof payload.link !== "number" ||
+      payload.state !== expectedState
+    ) {
+      return null;
+    }
+    return {
+      verifier: payload.verifier,
+      state: payload.state,
+      nonce: payload.nonce,
+      link: payload.link,
+      linkUserId: typeof payload.linkUserId === "string" ? payload.linkUserId : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
 
 interface OidcEnv {
   issuerUrl: string;
