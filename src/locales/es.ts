@@ -302,6 +302,8 @@ export const es: TranslationKeys = {
     externalLinks: "Enlaces Externos",
     addLink: "Añadir Enlace",
     noLinks: "Aún no hay enlaces externos añadidos.",
+    loadingComments: "Cargando comentarios...",
+    failedToLoadComments: "Error al cargar los comentarios.",
     removeLinkTooltip: "Eliminar enlace",
     linkTitlePlaceholder: "Título (opcional)",
     saveCommentTooltip: "Guardar comentario",

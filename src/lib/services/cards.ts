@@ -354,11 +354,15 @@ export async function updateCard(
     if (data.labelIds !== undefined) {
       const oldLabelIds = new Set(existingCard.labels.map((l) => l.labelId));
       const newLabelIds = new Set(data.labelIds);
-      for (const addedId of data.labelIds) {
-        if (!oldLabelIds.has(addedId)) {
-          const l = await db.label.findUnique({ where: { id: addedId } });
-          logChange("label_added", { toValue: l?.name || addedId });
-        }
+      const addedLabelIds = data.labelIds.filter((lid) => !oldLabelIds.has(lid));
+
+      const addedLabels = addedLabelIds.length > 0
+        ? await db.label.findMany({ where: { id: { in: addedLabelIds } }, select: { id: true, name: true } })
+        : [];
+      const labelMap = new Map(addedLabels.map((l) => [l.id, l.name]));
+
+      for (const addedId of addedLabelIds) {
+        logChange("label_added", { toValue: labelMap.get(addedId) || addedId });
       }
       for (const old of existingCard.labels) {
         if (!newLabelIds.has(old.labelId)) {
@@ -370,17 +374,22 @@ export async function updateCard(
     if (data.assigneeIds !== undefined) {
       const oldAssigneeIds = new Set(existingCard.assignees.map((a) => a.userId));
       const newAssigneeIds = new Set(data.assigneeIds);
-      for (const addedId of data.assigneeIds) {
-        if (!oldAssigneeIds.has(addedId)) {
-          const u = await db.user.findUnique({ where: { id: addedId } });
-          logChange("assigned", { toValue: u?.name || addedId });
-        }
+      const addedAssigneeIds = data.assigneeIds.filter((uid) => !oldAssigneeIds.has(uid));
+      const removedAssigneeIds = existingCard.assignees
+        .map((a) => a.userId)
+        .filter((uid) => !newAssigneeIds.has(uid));
+
+      const userIdsToLookup = [...new Set([...addedAssigneeIds, ...removedAssigneeIds])];
+      const users = userIdsToLookup.length > 0
+        ? await db.user.findMany({ where: { id: { in: userIdsToLookup } }, select: { id: true, name: true } })
+        : [];
+      const userMap = new Map(users.map((u) => [u.id, u.name]));
+
+      for (const addedId of addedAssigneeIds) {
+        logChange("assigned", { toValue: userMap.get(addedId) || addedId });
       }
-      for (const old of existingCard.assignees) {
-        if (!newAssigneeIds.has(old.userId)) {
-          const u = await db.user.findUnique({ where: { id: old.userId } });
-          logChange("unassigned", { fromValue: u?.name || old.userId });
-        }
+      for (const removedId of removedAssigneeIds) {
+        logChange("unassigned", { fromValue: userMap.get(removedId) || removedId });
       }
     }
 

@@ -28,8 +28,7 @@ import {
   Unlink,
 } from "lucide-react";
 import { createCard, updateCard, deleteCard, archiveCard, getCardByIdentifier, addCardLink, removeCardLink } from "@/actions/cards";
-import { getProjectById } from "@/actions/projects";
-import { addComment, updateComment, deleteComment } from "@/actions/comments";
+import { addComment, updateComment, deleteComment, listComments } from "@/actions/comments";
 import { getCardActivity } from "@/actions/activity";
 import { uploadAttachment, listAttachments, deleteAttachment } from "@/actions/attachments";
 import { getLabels } from "@/actions/labels";
@@ -126,7 +125,10 @@ interface Props {
     id: string;
     name: string;
     isDone?: boolean;
+    cards?: Array<any>;
   }>;
+  projectKey?: string;
+  cardTypes?: Array<any>;
   members?: Array<{
     id?: string;
     userId: string;
@@ -141,6 +143,8 @@ interface Props {
 export default function CardDetailModal({
   card,
   columns,
+  projectKey,
+  cardTypes,
   members,
   onClose,
   onRefresh,
@@ -188,7 +192,7 @@ export default function CardDetailModal({
 
   const [relations, setRelations] = useState<Array<any>>([]);
   const [projectCards, setProjectCards] = useState<
-    Array<{ id: string; identifier: string; title: string }>
+    Array<{ id: string; identifier?: string; title: string }>
   >([]);
   const [selectedProjectCardId, setSelectedProjectCardId] = useState("");
   const [targetIdentifierInput, setTargetIdentifierInput] = useState("");
@@ -218,9 +222,12 @@ export default function CardDetailModal({
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
 
-  const [activities, setActivities] = useState<Array<any>>(card.activities || []);
+  const [activities, setActivities] = useState<Array<any>>([]);
   const [comments, setComments] = useState<Props["card"]["comments"]>(card.comments || []);
+  const [commentsLoaded, setCommentsLoaded] = useState(false);
   const [feedTab, setFeedTab] = useState<"comments" | "activity">("comments");
+  const [isLoadingComments, setIsLoadingComments] = useState(false);
+  const [commentsError, setCommentsError] = useState<string | null>(null);
   const [isLoadingActivities, setIsLoadingActivities] = useState(false);
 
   const { t, locale } = useTranslation();
@@ -233,6 +240,28 @@ export default function CardDetailModal({
   useEffect(() => () => {
     if (savedTimer.current) clearTimeout(savedTimer.current);
   }, []);
+
+  const fetchComments = useCallback(async () => {
+    setIsLoadingComments(true);
+    setCommentsError(null);
+    try {
+      const res = await listComments(card.id);
+      if (res.success && res.data) {
+        setComments((prev) => {
+          const fetchedMap = new Map((res.data || []).map((c: any) => [c.id, c]));
+          const extras = prev.filter((c: any) => !fetchedMap.has(c.id));
+          return [...extras, ...(res.data || [])];
+        });
+        setCommentsLoaded(true);
+      } else {
+        setCommentsError(t("cardModal.failedToLoadComments"));
+      }
+    } catch {
+      setCommentsError(t("cardModal.failedToLoadComments"));
+    } finally {
+      setIsLoadingComments(false);
+    }
+  }, [card.id, t]);
 
   const loadActivities = useCallback(async () => {
     setIsLoadingActivities(true);
@@ -251,6 +280,11 @@ export default function CardDetailModal({
   }, [card.id]);
 
   useEffect(() => {
+    setComments(card.comments || []);
+    setActivities([]);
+    setCommentsError(null);
+    setCommentsLoaded(false);
+
     async function fetchAttachments() {
       const res = await listAttachments(card.id);
       if (res.success && res.data) {
@@ -258,8 +292,9 @@ export default function CardDetailModal({
       }
     }
     fetchAttachments();
+    fetchComments();
     loadActivities();
-  }, [card.id, loadActivities]);
+  }, [card.id, fetchComments, loadActivities]);
 
   const MAX_ATTACHMENT_MB = 10;
 
@@ -317,25 +352,26 @@ export default function CardDetailModal({
       }
     }
     async function loadCardTypes() {
+      if (cardTypes && cardTypes.length > 0) {
+        setAvailableCardTypes(cardTypes);
+        return;
+      }
       const res = await getCardTypes(card.projectId);
       if (res.success && res.data) {
         setAvailableCardTypes(res.data);
       }
     }
-    async function loadProjectCards() {
-      const pRes = await getProjectById(card.projectId);
-      if (pRes.success && pRes.data && pRes.data.columns) {
-        const key = pRes.data.key;
-        const allCards = pRes.data.columns.flatMap((col: any) => col.cards || []);
-        const otherCards = allCards
-          .filter((c: any) => c.id !== card.id)
-          .map((c: any) => ({
-            id: c.id,
-            identifier: `${key}-${c.number}`,
-            title: c.title,
-          }));
-        setProjectCards(otherCards);
-      }
+    function loadProjectCards() {
+      const allCards = (columns as any[]).flatMap((col: any) => col.cards || []);
+      const key = projectKey || (card as any).project?.key;
+      const otherCards = allCards
+        .filter((c: any) => c.id !== card.id)
+        .map((c: any) => ({
+          id: c.id,
+          identifier: key && c.number ? `${key}-${c.number}` : undefined,
+          title: c.title,
+        }));
+      setProjectCards(otherCards);
     }
 
     loadLabels();
@@ -544,6 +580,8 @@ export default function CardDetailModal({
     if (report(res) && res.data) {
       setComments((prev) => [res.data, ...prev]);
       setCommentContent("");
+      setCommentsError(null);
+      setCommentsLoaded(true);
       loadActivities();
       onRefresh();
     }
@@ -1124,7 +1162,7 @@ export default function CardDetailModal({
                     <option value="">-- {t("cardModal.selectCardPlaceholder")} --</option>
                     {projectCards.map((pc) => (
                       <option key={pc.id} value={pc.id}>
-                        [{pc.identifier}] {pc.title}
+                        {pc.identifier ? `[${pc.identifier}] ` : ""}{pc.title}
                       </option>
                     ))}
                   </select>
@@ -1374,7 +1412,7 @@ export default function CardDetailModal({
                   <MessageSquare className="h-3.5 w-3.5" />
                   <span>{t("cardModal.tabComments")}</span>
                   <span className="ml-1 rounded-full bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-700 dark:text-slate-300">
-                    {comments.length}
+                    {commentsLoaded ? comments.length : ((card as any)._count?.comments ?? comments.length)}
                   </span>
                 </button>
                 <button
@@ -1419,8 +1457,26 @@ export default function CardDetailModal({
 
                 {/* Comments List */}
                 <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                  {comments.length > 0 ? (
-                    comments.map((c) => (
+                  {isLoadingComments ? (
+                    <p className="text-xs text-slate-400 italic text-center py-4">
+                      {t("cardModal.loadingComments")}
+                    </p>
+                  ) : (
+                    <>
+                      {commentsError && (
+                        <div className="flex items-center justify-center gap-2 py-2 text-xs text-red-500 italic">
+                          <span>{commentsError}</span>
+                          <button
+                            type="button"
+                            onClick={() => fetchComments()}
+                            className="text-xs text-indigo-600 dark:text-indigo-400 underline not-italic hover:text-indigo-500"
+                          >
+                            {t("errorPage.tryAgain")}
+                          </button>
+                        </div>
+                      )}
+                      {comments.length > 0 ? (
+                        comments.map((c) => (
                       <div
                         key={c.id}
                         className="group flex items-start justify-between gap-2 rounded-lg bg-slate-50 dark:bg-slate-800/50 p-2.5 border border-slate-200 dark:border-slate-800"
@@ -1491,10 +1547,12 @@ export default function CardDetailModal({
                         )}
                       </div>
                     ))
-                  ) : (
+                  ) : !commentsError ? (
                     <p className="text-xs text-slate-400 italic text-center py-2">
                       {t("cardModal.noComments")}
                     </p>
+                  ) : null}
+                    </>
                   )}
                 </div>
               </>

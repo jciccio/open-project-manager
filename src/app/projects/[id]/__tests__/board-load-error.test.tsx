@@ -4,15 +4,15 @@ import ProjectBoardPage from "../page";
 import ProjectBoardError from "../error";
 import { LanguageProvider } from "@/components/LanguageProvider";
 
-const { getProjectById, getSession, notFound } = vi.hoisted(() => ({
-  getProjectById: vi.fn(),
+const { getProjectBoard, getSession, notFound } = vi.hoisted(() => ({
+  getProjectBoard: vi.fn(),
   getSession: vi.fn(),
   notFound: vi.fn(() => {
     throw new Error("NEXT_NOT_FOUND");
   }),
 }));
 
-vi.mock("@/actions/projects", () => ({ getProjectById }));
+vi.mock("@/actions/projects", () => ({ getProjectBoard }));
 vi.mock("@/lib/auth", () => ({ getSession }));
 vi.mock("@/components/KanbanBoard", () => ({ default: () => null }));
 vi.mock("next/navigation", () => ({
@@ -30,14 +30,14 @@ describe("project board page failures", () => {
   });
 
   it("throws to the error boundary when the load fails internally", async () => {
-    getProjectById.mockResolvedValue({ success: false, error: "Failed to fetch project details", kind: "internal" });
+    getProjectBoard.mockResolvedValue({ success: false, error: "Failed to fetch project details", kind: "internal" });
 
     await expect(page()).rejects.toThrow("Failed to fetch project details");
     expect(notFound).not.toHaveBeenCalled();
   });
 
   it("shows not found for a missing or inaccessible project", async () => {
-    getProjectById.mockResolvedValue({ success: false, error: "Project not found or access denied" });
+    getProjectBoard.mockResolvedValue({ success: false, error: "Project not found or access denied" });
 
     await expect(page()).rejects.toThrow("NEXT_NOT_FOUND");
   });

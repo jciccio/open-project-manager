@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { getApiSession } from "@/lib/auth";
 import { createCard } from "@/lib/services/cards";
 import { db } from "@/lib/db";
@@ -86,22 +87,29 @@ export async function GET(request: NextRequest) {
       where.OR = cardTextSearch(query);
     }
 
-    const queryOptions: any = {
+    const queryOptions = {
       ...cardPageQuery(where, after, limit),
       include: {
         type: true,
         labels: { include: { label: true } },
+        _count: { select: { comments: true } },
         comments: {
-          orderBy: { createdAt: "asc" },
+          take: 10,
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
           include: { authorUser: { select: { id: true, name: true, email: true } } },
         },
         assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
         parent: { select: { id: true, number: true, title: true } },
         children: { select: { id: true, number: true, title: true, completedAt: true } },
       },
-    };
+    } satisfies Prisma.CardFindManyArgs;
 
     const { cards, nextCursor } = cardPage(await db.card.findMany(queryOptions), limit);
+    for (const card of cards) {
+      if (card.comments) {
+        card.comments.reverse();
+      }
+    }
 
     return NextResponse.json({ success: true, data: cards, nextCursor });
   } catch (err) {

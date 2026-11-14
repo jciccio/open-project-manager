@@ -300,6 +300,8 @@ export const en = {
     externalLinks: "External Links",
     addLink: "Add Link",
     noLinks: "No external links added.",
+    loadingComments: "Loading comments...",
+    failedToLoadComments: "Failed to load comments.",
     removeLinkTooltip: "Remove link",
     linkTitlePlaceholder: "Title (optional)",
     saveCommentTooltip: "Save comment",
