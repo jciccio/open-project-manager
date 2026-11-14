@@ -78,7 +78,10 @@ export async function createCard(
     labelIds?: string[];
     assigneeIds?: string[];
   },
-  userId: string
+  userId: string,
+  internalOptions?: {
+    messageId?: string | null;
+  }
 ) {
   try {
     const parsed = parseInput(CardCreateSchema, rawData);
@@ -141,6 +144,7 @@ export async function createCard(
             dueDate: data.dueDate ? new Date(data.dueDate) : null,
             completedAt,
             order: newOrder,
+            messageId: internalOptions?.messageId ? internalOptions.messageId.slice(0, 500) : null,
             parentId: data.parentId || null,
             typeId: data.typeId || null,
             labels:

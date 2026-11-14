@@ -99,6 +99,7 @@ model Card {
   completedAt DateTime?
   isArchived  Boolean   @default(false)
   order       Int       @default(0)
+  messageId   String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
@@ -119,6 +120,7 @@ model Card {
   activities        Activity[]
 
   @@unique([projectId, number])
+  @@unique([projectId, messageId])
   @@index([parentId])
   @@index([typeId])
   @@index([columnId])

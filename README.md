@@ -295,6 +295,33 @@ curl -X GET http://localhost:3000/api/v1/cards/CARD_ID/attachments \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
 ```
 
+### 9. Inbound Email Webhook (Card Creation)
+Create cards automatically from inbound email services (e.g. SendGrid Inbound Parse, Mailgun, Postmark, AWS SES via an HTTP relay or webhook adapter):
+```bash
+curl -X POST http://localhost:3000/api/v1/inbound-email \
+  -H "X-Inbound-Token: YOUR_INBOUND_EMAIL_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "to": "opm+PROJ@inbound.example.com",
+    "from": "user@example.com",
+    "cc": "team@example.com",
+    "subject": "Task Title",
+    "text": "Detailed task description",
+    "spf": "pass",
+    "dkim": "{@example.com : pass}",
+    "dmarc": "pass",
+    "messageId": "<message-id-123@example.com>"
+  }'
+```
+
+- **Authentication**: Set `INBOUND_EMAIL_TOKEN` on the server and pass it via `X-Inbound-Token` or `Authorization: Bearer`. User API Bearer tokens are also accepted (in which case the caller's authenticated email overrides `from`).
+- **Inbound Domain Configuration**: Set `INBOUND_EMAIL_DOMAIN` (e.g. `inbound.example.com`) so inbound routing matches your mail domain. When unset, routing is restricted exclusively to local domains (`opm.local` and `localhost`) so unrelated addresses (such as `task+tag@gmail.com`) are ignored.
+- **Relay, Payload Format & Spoofing Protection**: Inbound mail relays must shape payloads into JSON with `to`, `from`, optional `cc`, optional `subject`, `text` / `html`, optional `messageId` (or `message_id`), and DMARC/DKIM/SPF verdicts. Oversized bodies (>1 MB) or headers (>64 KB `to`/`cc`) are rejected with HTTP 200 (`accepted: false`) so relays do not retry indefinitely. Webhook requests require `dmarc: "pass"` or a domain-aligned DKIM pass matching the `from` domain (rejecting `fail`, `softfail`, `none`, `neutral`, `permerror`, `temperror`, cross-domain passes, or missing verdicts); relays should also drop DMARC-failing mail before forwarding.
+- **Deduplication & Privacy**: Retried deliveries sharing the same `messageId` are deduplicated per project; when `messageId` is omitted, a 1-hour sliding content-hash window prevents immediate retries from duplicating cards without swallowing recurring emails. Remote images in inbound HTML/Markdown email bodies are stripped on ingest to prevent tracking pixels from firing on card view.
+- **Recipient Routing**: Specify the project key via plus-addressing (e.g. `opm+KEY@inbound.domain`, `task+KEY@inbound.domain`) or direct address (`KEY@inbound.domain` / `KEY+subtag@inbound.domain`) across `to` and `cc` headers.
+- **Sender Authorization**: The sender (`from`) must correspond to a registered OPM user with `OWNER`, `ADMIN`, or `MEMBER` permissions on the target project. Unregistered, non-member, `VIEWER`, or unauthenticated emails are safely rejected without creating cards.
+- **Scope**: Email-to-card attachment ingestion is planned for a follow-up PR (part of #169).
+
 ---
 
 ## 📥 Importing an Existing Board (Vikunja)
