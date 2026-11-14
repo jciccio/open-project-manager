@@ -48,6 +48,7 @@ import { MarkdownRenderer } from "./MarkdownRenderer";
 import CardTypeManagerModal from "./CardTypeManagerModal";
 import ErrorBanner from "./ErrorBanner";
 import { CardTypeIcon } from "./cardTypeIcons";
+import { chipTextColor } from "@/lib/colors";
 
 interface Props {
   card: {
@@ -903,15 +904,20 @@ export default function CardDetailModal({
                     key={lbl.id}
                     type="button"
                     onClick={() => toggleLabel(lbl.id)}
-                    className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold transition-all ${
+                    aria-pressed={isSelected}
+                    className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold transition-all ${
                       isSelected
-                        ? "ring-2 ring-indigo-500 shadow-xs text-white"
-                        : "opacity-60 hover:opacity-100 text-white"
+                        ? `${chipTextColor(lbl.color)} ring-2 ring-indigo-500 shadow-xs`
+                        : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700"
                     }`}
-                    style={{ backgroundColor: lbl.color }}
+                    style={isSelected ? { backgroundColor: lbl.color } : undefined}
                     title={lbl.description || undefined}
                   >
-                    {lbl.name}
+                    <span
+                      className="h-2 w-2 rounded-full shrink-0"
+                      style={{ backgroundColor: lbl.color }}
+                    />
+                    <span>{lbl.name}</span>
                   </button>
                 );
               })}

@@ -57,3 +57,50 @@ export function colorNameKey(name: string): string {
     .map((word, i) => (i === 0 ? word.toLowerCase() : word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()))
     .join("");
 }
+
+/**
+ * Calculates the WCAG 2.1 relative luminance of a sRGB hex color.
+ */
+export function relativeLuminance(hex: string): number {
+  let clean = hex.replace("#", "").trim();
+  if (clean.length === 3) {
+    clean = clean.split("").map((c) => c + c).join("");
+  }
+  if (clean.length !== 6) return 0;
+
+  const r = parseInt(clean.substring(0, 2), 16) / 255;
+  const g = parseInt(clean.substring(2, 4), 16) / 255;
+  const b = parseInt(clean.substring(4, 6), 16) / 255;
+
+  const toLinear = (c: number) =>
+    c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+
+  return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+}
+
+/**
+ * Calculates the WCAG 2.1 contrast ratio between two relative luminance values.
+ */
+export function contrastRatio(l1: number, l2: number): number {
+  const lighter = Math.max(l1, l2);
+  const darker = Math.min(l1, l2);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+/**
+ * Returns either "text-white" or "text-black" to ensure at least 4.5:1
+ * text contrast against the chip background color per WCAG 1.4.3 (AA).
+ */
+export function chipTextColor(bg: string): string {
+  try {
+    const lBg = relativeLuminance(bg);
+    const contrastWithWhite = (1.0 + 0.05) / (lBg + 0.05);
+    if (contrastWithWhite >= 4.5) {
+      return "text-white";
+    }
+    return "text-black";
+  } catch {
+    return "text-white";
+  }
+}
+
