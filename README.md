@@ -295,6 +295,26 @@ curl -X GET http://localhost:3000/api/v1/cards/CARD_ID/attachments \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
 ```
 
+### 9. Slack App Integration
+Open Project Manager provides a Slack app integration (Part 1 of `#170`) supporting `/opm` slash commands and Slack Event Subscriptions URL verification.
+
+1. **Environment Configuration**:
+   Set `SLACK_SIGNING_SECRET` and `APP_URL` on the server:
+   ```bash
+   SLACK_SIGNING_SECRET=your_slack_signing_secret_here
+   APP_URL=https://your-domain.com
+   ```
+2. **Slack App Settings**:
+   - **Slash Commands**: Configure the `/opm` command pointing Request URL to `https://your-domain.com/api/v1/integrations/slack/commands`. When Slack provides `response_url`, the route acknowledges immediately (within Slack's 3-second timeout) and posts the command result asynchronously via `response_url`.
+   - **Event Subscriptions (Verification)**: Point Request URL to `https://your-domain.com/api/v1/integrations/slack/events` to complete Slack's `url_verification` handshake and receive signed (`X-Slack-Signature`) event acknowledgments. Note: automatic `link_shared` unfurling (`chat.unfurl`) and channel activity broadcasts (`chat.postMessage`) via a Slack Bot Token are not wired in this release; use `/opm get <KEY-123>` for inline Block Kit card unfurls.
+3. **Usage**:
+   - `/opm link <api-token>`: Link your Slack user to your OPM account using an API token generated in User Profile. The link is authenticated and checked against active API tokens.
+   - `/opm whoami`: Check which OPM user account is linked to your Slack user.
+   - `/opm unlink`: Unlink your Slack account.
+   - `/opm get <KEY-123>` or `/opm get <owner/KEY-123>`: Inspect a card's status, priority, points, assignee, and project (ephemeral response).
+   - `/opm create <KEY> <title>` or `/opm create <owner/KEY> <title>`: Create a card in the specified project.
+   - `/opm new <title>`: Create a card in your default active writable project (ephemeral response).
+
 ---
 
 ## 📥 Importing an Existing Board (Vikunja)
