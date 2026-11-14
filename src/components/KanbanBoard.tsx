@@ -346,6 +346,18 @@ export default function KanbanBoard({ project }: Props) {
 
   const isFiltering = deferredSearchQuery.trim() !== "" || priorityFilter !== "ALL" || typeFilter !== "ALL";
 
+  const matchingCardsCount = useMemo(() => {
+    if (viewMode === "kanban") {
+      return columnsWithFilteredCards.reduce((acc: number, col: any) => acc + (col.cards?.length || 0), 0);
+    }
+    const allCards = project.columns.flatMap((col: any) => col.cards || []);
+    return filterCards(allCards, {
+      searchQuery: deferredSearchQuery,
+      priorityFilter,
+      typeFilter,
+    }).length;
+  }, [viewMode, columnsWithFilteredCards, project.columns, deferredSearchQuery, priorityFilter, typeFilter]);
+
   function toggleClosedColumn(columnId: string) {
     setExpandedClosedColumnIds((current) => {
       const next = new Set(current);
@@ -582,7 +594,7 @@ export default function KanbanBoard({ project }: Props) {
                 <span className="hidden sm:inline">{t("savedViews.save")}</span>
               </button>
 
-              <div className="relative">
+              <div className="relative flex items-center">
                 <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
                 <input
                   type="text"
@@ -591,6 +603,13 @@ export default function KanbanBoard({ project }: Props) {
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-36 rounded-lg bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 pl-8 pr-3 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
                 />
+                {isFiltering && (
+                  <span role="status" className="ml-2 text-xs font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                    {matchingCardsCount === 1
+                      ? t("kanban.matchingCard", { count: matchingCardsCount })
+                      : t("kanban.matchingCards", { count: matchingCardsCount })}
+                  </span>
+                )}
               </div>
 
               <div className="flex items-center gap-1.5 rounded-lg bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 px-2.5 py-1 text-xs">
@@ -667,6 +686,7 @@ export default function KanbanBoard({ project }: Props) {
                 onToggleCollapsed={
                   isClosedColumn(column) && !isFiltering ? () => toggleClosedColumn(column.id) : undefined
                 }
+                isFiltered={isFiltering && (project.columns.find((c: any) => c.id === column.id)?.cards?.length || 0) > 0}
                 members={project.members}
               />
             ))}
