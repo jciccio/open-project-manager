@@ -355,7 +355,7 @@ export default function KanbanBoard({ project }: Props) {
   }
 
   return (
-    <main className="flex flex-col flex-1 min-h-0 overflow-hidden bg-slate-100/70 dark:bg-slate-950">
+    <main tabIndex={-1} className="flex flex-col flex-1 min-h-0 overflow-hidden bg-slate-100/70 dark:bg-slate-950 focus:outline-none">
       {/* Archived Banner */}
       {project.isArchived && (
         <div className="bg-amber-500/15 border-b border-amber-500/30 px-6 py-2 flex items-center justify-between text-xs text-amber-800 dark:text-amber-300 shrink-0">

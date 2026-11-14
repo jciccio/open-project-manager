@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Zap, Calendar, User, MessageSquare } from "lucide-react";
 import { moveCard } from "@/actions/cards";
 import { useTranslation } from "../LanguageProvider";
+import { handleRowKeyDown } from "../useModalA11y";
 import { formatDueDate } from "@/lib/formatDate";
 import { priorityLabel } from "@/lib/priority";
 import ErrorBanner from "../ErrorBanner";
@@ -99,16 +100,27 @@ export default function ListView({
                   return (
                     <div
                       key={card.id}
-                      onClick={() => onCardClick(card)}
+                      onClick={(e) => {
+                        const target = e.target as HTMLElement | null;
+                        if (target && target.closest("a, button, select")) {
+                          return;
+                        }
+                        onCardClick(card);
+                      }}
                       className="group flex flex-col md:flex-row md:items-center justify-between p-3.5 hover:bg-slate-100/80 dark:hover:bg-slate-800/40 rounded-xl transition-all cursor-pointer gap-3"
                     >
                       {/* Left: Title & Labels */}
                       <div className="flex items-center gap-3 flex-1 min-w-0">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-bold text-sm text-slate-900 dark:text-slate-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition-colors">
+                            <button
+                              type="button"
+                              onClick={() => onCardClick(card)}
+                              onKeyDown={(e) => handleRowKeyDown(e, () => onCardClick(card))}
+                              className="text-left font-bold text-sm text-slate-900 dark:text-slate-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
+                            >
                               {card.title}
-                            </span>
+                            </button>
 
                             {card.labels?.map(({ label }: any) => (
                               <span

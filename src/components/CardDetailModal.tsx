@@ -48,6 +48,7 @@ import { MarkdownRenderer } from "./MarkdownRenderer";
 import CardTypeManagerModal from "./CardTypeManagerModal";
 import ErrorBanner from "./ErrorBanner";
 import { CardTypeIcon } from "./cardTypeIcons";
+import { useModalA11y, useBackdropClose } from "./useModalA11y";
 
 interface Props {
   card: {
@@ -138,6 +139,43 @@ interface Props {
   onOpenCard?: (cardId: string) => void;
 }
 
+interface CardSavedSnapshot {
+  title: string;
+  description: string;
+  columnId: string;
+  priority: string;
+  points: string;
+  owner: string;
+  selectedAssigneeId: string;
+  dueDate: string;
+  typeId: string;
+  labels: string;
+}
+
+function getCardSnapshot(card: Props["card"]): CardSavedSnapshot {
+  const pts = card.points !== null && card.points !== undefined ? String(card.points) : "";
+  const due = card.dueDate ? new Date(card.dueDate).toISOString().split("T")[0] : "";
+  const tid = card.typeId || card.type?.id || "";
+  const lbls = (card.labels ? card.labels.map((l) => l.label.id) : []).sort().join(",");
+  const own = card.owner || "";
+  let ass = "";
+  if (card.assignees && card.assignees.length > 0) {
+    ass = card.assignees[0].user?.id || (card.assignees[0] as any).userId || "";
+  }
+  return {
+    title: (card.title || "").trim(),
+    description: (card.description || "").trim(),
+    columnId: card.columnId,
+    priority: card.priority,
+    points: pts.trim(),
+    owner: own.trim(),
+    selectedAssigneeId: ass,
+    dueDate: due,
+    typeId: tid,
+    labels: lbls,
+  };
+}
+
 export default function CardDetailModal({
   card,
   columns,
@@ -157,6 +195,7 @@ export default function CardDetailModal({
   const [description, setDescription] = useState(card.description || "");
   const [columnId, setColumnId] = useState(card.columnId);
   const [priority, setPriority] = useState(card.priority);
+  const [commentContent, setCommentContent] = useState("");
   const [points, setPoints] = useState<string>(
     card.points !== null && card.points !== undefined ? String(card.points) : ""
   );
@@ -196,11 +235,12 @@ export default function CardDetailModal({
   const [relationError, setRelationError] = useState("");
   const [isAddingRelation, setIsAddingRelation] = useState(false);
 
-  const [commentContent, setCommentContent] = useState("");
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
 
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editingCommentText, setEditingCommentText] = useState("");
+
+  const { t, locale } = useTranslation();
 
   const [isSaving, setIsSaving] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
@@ -220,10 +260,96 @@ export default function CardDetailModal({
 
   const [activities, setActivities] = useState<Array<any>>(card.activities || []);
   const [comments, setComments] = useState<Props["card"]["comments"]>(card.comments || []);
+
+  const [savedSnapshot, setSavedSnapshot] = useState<CardSavedSnapshot>(() => getCardSnapshot(card));
+
+  const currentLabels = [...selectedLabelIds].sort().join(",");
+  const isFormDirty =
+    title.trim() !== savedSnapshot.title ||
+    description.trim() !== savedSnapshot.description ||
+    columnId !== savedSnapshot.columnId ||
+    priority !== savedSnapshot.priority ||
+    points.trim() !== savedSnapshot.points ||
+    owner.trim() !== savedSnapshot.owner ||
+    selectedAssigneeId !== savedSnapshot.selectedAssigneeId ||
+    dueDate !== savedSnapshot.dueDate ||
+    typeId !== savedSnapshot.typeId ||
+    currentLabels !== savedSnapshot.labels;
+
+  const hasInlineDraft =
+    commentContent.trim() !== "" ||
+    newSubtaskTitle.trim() !== "" ||
+    newLinkUrl.trim() !== "" ||
+    newLinkTitle.trim() !== "" ||
+    targetIdentifierInput.trim() !== "" ||
+    (editingCommentId !== null &&
+      editingCommentText.trim() !==
+        (comments.find((c) => c.id === editingCommentId)?.content || "").trim());
+
+  const isDirty = isFormDirty || hasInlineDraft;
+
+  const handleEscape = () => {
+    if (editingCommentId !== null) {
+      const orig = (comments.find((c) => c.id === editingCommentId)?.content || "").trim();
+      if (editingCommentText.trim() !== orig && !confirm(t("cardModal.confirmDiscard"))) {
+        return;
+      }
+      setEditingCommentId(null);
+      setEditingCommentText("");
+      return;
+    }
+    if (isAddingSubtask) {
+      if (newSubtaskTitle.trim() !== "" && !confirm(t("cardModal.confirmDiscard"))) {
+        return;
+      }
+      setIsAddingSubtask(false);
+      setNewSubtaskTitle("");
+      setSubtaskError("");
+      return;
+    }
+    if (isAddingLink) {
+      if ((newLinkUrl.trim() !== "" || newLinkTitle.trim() !== "") && !confirm(t("cardModal.confirmDiscard"))) {
+        return;
+      }
+      setIsAddingLink(false);
+      setNewLinkUrl("");
+      setNewLinkTitle("");
+      setLinkError("");
+      return;
+    }
+    if (isAddingRelation) {
+      if (targetIdentifierInput.trim() !== "" && !confirm(t("cardModal.confirmDiscard"))) {
+        return;
+      }
+      setIsAddingRelation(false);
+      setTargetIdentifierInput("");
+      setRelationError("");
+      return;
+    }
+    if (isDirty && !confirm(t("cardModal.confirmDiscard"))) {
+      return;
+    }
+    onClose();
+  };
+
+  const handleGuardedClose = () => {
+    if (isDirty && !confirm(t("cardModal.confirmDiscard"))) {
+      return;
+    }
+    onClose();
+  };
+
+  const handleGuardedOpenCard = (targetCardId: string) => {
+    if (isDirty && !confirm(t("cardModal.confirmDiscard"))) {
+      return;
+    }
+    onOpenCard?.(targetCardId);
+  };
+
+  const modalRef = useModalA11y(handleEscape);
+  const backdropProps = useBackdropClose(handleGuardedClose);
   const [feedTab, setFeedTab] = useState<"comments" | "activity">("comments");
   const [isLoadingActivities, setIsLoadingActivities] = useState(false);
-
-  const { t, locale } = useTranslation();
 
   function report(res: { success: boolean; error?: string }) {
     setActionError(res.success ? "" : res.error || t("kanban.actionFailed"));
@@ -233,7 +359,6 @@ export default function CardDetailModal({
   useEffect(() => () => {
     if (savedTimer.current) clearTimeout(savedTimer.current);
   }, []);
-
   const loadActivities = useCallback(async () => {
     setIsLoadingActivities(true);
     const res = await getCardActivity(card.id);
@@ -361,6 +486,7 @@ export default function CardDetailModal({
     setIsAddingSubtask(false);
     setNewSubtaskTitle("");
     setSubtaskError("");
+    setSavedSnapshot(getCardSnapshot(card));
     // Only reset form state when opening a different card; keep in-progress edits on background refresh
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [card.id]);
@@ -497,6 +623,22 @@ export default function CardDetailModal({
     setIsSaving(false);
 
     if (report(res)) {
+      const normalizedPoints = isNaN(parsedPoints as number) || parsedPoints === null ? "" : String(parsedPoints);
+      const normalizedOwner = (computedOwner || "").trim();
+      setPoints(normalizedPoints);
+      setOwner(normalizedOwner);
+      setSavedSnapshot({
+        title: title.trim(),
+        description: description.trim(),
+        columnId,
+        priority,
+        points: normalizedPoints,
+        owner: normalizedOwner,
+        selectedAssigneeId,
+        dueDate,
+        typeId,
+        labels: [...selectedLabelIds].sort().join(","),
+      });
       setJustSaved(true);
       if (savedTimer.current) clearTimeout(savedTimer.current);
       savedTimer.current = setTimeout(() => setJustSaved(false), 2000);
@@ -649,8 +791,21 @@ export default function CardDetailModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="w-full max-w-2xl max-h-[90vh] flex flex-col rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
+    <div
+      {...backdropProps}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+    >
+      <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        tabIndex={-1}
+        aria-labelledby="card-modal-title"
+        className="w-full max-w-2xl max-h-[90vh] flex flex-col rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden focus:outline-none"
+      >
+        <h2 id="card-modal-title" className="sr-only">
+          {card.title}
+        </h2>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -673,6 +828,7 @@ export default function CardDetailModal({
             <button
               onClick={handleArchive}
               disabled={archiving}
+              aria-label={t("cardModal.archiveTooltip")}
               className="rounded-lg p-2 text-slate-500 hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-400 transition-colors"
               title={t("cardModal.archiveTooltip")}
             >
@@ -681,13 +837,15 @@ export default function CardDetailModal({
             <button
               onClick={handleDelete}
               disabled={deleting}
+              aria-label={t("cardModal.deleteTooltip")}
               className="rounded-lg p-2 text-slate-500 hover:bg-red-500/10 hover:text-red-500 transition-colors"
               title={t("cardModal.deleteTooltip")}
             >
               <Trash2 className="h-4 w-4" />
             </button>
             <button
-              onClick={onClose}
+              onClick={handleGuardedClose}
+              aria-label={t("cardModal.close")}
               className="rounded-lg p-2 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-colors"
             >
               <X className="h-5 w-5" />
@@ -705,7 +863,7 @@ export default function CardDetailModal({
                 <span className="text-slate-500 dark:text-slate-400 font-medium shrink-0">{t("cardModal.subtaskOf")}:</span>
                 <button
                   type="button"
-                  onClick={() => onOpenCard?.(parentCard.id)}
+                  onClick={() => handleGuardedOpenCard(parentCard.id)}
                   className="font-bold text-indigo-600 dark:text-indigo-400 hover:underline truncate"
                   title={parentCard.title}
                 >
@@ -1036,7 +1194,7 @@ export default function CardDetailModal({
 
                           <button
                             type="button"
-                            onClick={() => onOpenCard?.(subtask.id)}
+                            onClick={() => handleGuardedOpenCard(subtask.id)}
                             className={`truncate text-left font-medium hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors ${
                               isDone
                                 ? "line-through text-slate-400 dark:text-slate-500"
@@ -1628,7 +1786,7 @@ export default function CardDetailModal({
         <div className="flex items-center justify-end gap-2 px-6 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50">
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleGuardedClose}
             className="rounded-lg px-4 py-2 text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-colors"
           >
             {t("kanban.cancel")}

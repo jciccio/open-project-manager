@@ -7,6 +7,7 @@ import { useTranslation } from "./LanguageProvider";
 import ColorPicker from "./ColorPicker";
 import ErrorBanner from "./ErrorBanner";
 import { DEFAULT_PROJECT_COLOR } from "@/lib/colors";
+import { useModalA11y, useBackdropClose } from "./useModalA11y";
 
 interface Props {
   onClose: () => void;
@@ -25,6 +26,21 @@ export default function LabelManagerModal({ onClose }: Props) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const { t } = useTranslation();
+
+  const handleModalClose = () => {
+    if (editingId) {
+      setEditingId(null);
+      setError("");
+      return;
+    }
+    if ((name.trim() || description.trim()) && !confirm(t("cardModal.confirmDiscard"))) {
+      return;
+    }
+    onClose();
+  };
+
+  const modalRef = useModalA11y(handleModalClose);
+  const backdropProps = useBackdropClose(handleModalClose);
 
   useEffect(() => {
     fetchLabels();
@@ -47,8 +63,10 @@ export default function LabelManagerModal({ onClose }: Props) {
 
     setLoading(true);
     setError("");
+
     try {
       const res = await createLabel(name.trim(), color, undefined, description);
+
       if (res.success) {
         setName("");
         setDescription("");
@@ -63,10 +81,10 @@ export default function LabelManagerModal({ onClose }: Props) {
     }
   }
 
-  function startEditing(label: { id: string; color: string; description?: string | null }) {
-    setEditingId(label.id);
-    setEditColor(label.color);
-    setEditDescription(label.description ?? "");
+  function startEditing(lbl: { id: string; color: string; description?: string | null }) {
+    setEditingId(lbl.id);
+    setEditColor(lbl.color);
+    setEditDescription(lbl.description || "");
     setError("");
   }
 
@@ -76,8 +94,13 @@ export default function LabelManagerModal({ onClose }: Props) {
 
     setSavingEdit(true);
     setError("");
+
     try {
-      const res = await updateLabel(editingId, { color: editColor, description: editDescription });
+      const res = await updateLabel(editingId, {
+        color: editColor,
+        description: editDescription.trim() || null,
+      });
+
       if (res.success) {
         setEditingId(null);
         await fetchLabels();
@@ -94,6 +117,7 @@ export default function LabelManagerModal({ onClose }: Props) {
   async function handleDelete(id: string) {
     setDeletingId(id);
     setError("");
+
     try {
       const res = await deleteLabel(id);
       if (res.success) {
@@ -109,17 +133,30 @@ export default function LabelManagerModal({ onClose }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-6">
+    <div
+      {...backdropProps}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+    >
+      <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        tabIndex={-1}
+        aria-labelledby="label-modal-title"
+        className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-6 focus:outline-none"
+      >
         <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
               <Tag className="h-5 w-5" />
             </div>
-            <h3 className="text-lg font-bold text-slate-900 dark:text-white">{t("labelModal.title")}</h3>
+            <h3 id="label-modal-title" className="text-lg font-bold text-slate-900 dark:text-white">
+              {t("labelModal.title")}
+            </h3>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleModalClose}
+            aria-label={t("cardModal.close")}
             className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-colors"
           >
             <X className="h-5 w-5" />
@@ -134,6 +171,7 @@ export default function LabelManagerModal({ onClose }: Props) {
           <div className="flex gap-2">
             <input
               type="text"
+              aria-label={t("labelModal.namePlaceholder")}
               placeholder={t("labelModal.namePlaceholder")}
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -244,7 +282,7 @@ export default function LabelManagerModal({ onClose }: Props) {
                         disabled={deletingId === lbl.id}
                         className="p-1 text-slate-400 hover:text-red-500 transition-colors disabled:opacity-50"
                         title={t("labelModal.deleteLabel")}
-                        aria-label={t("labelModal.deleteLabel")}
+                        aria-label={t("cardModal.deleteLabelNamed", { name: lbl.name })}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>

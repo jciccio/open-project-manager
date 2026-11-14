@@ -1,0 +1,686 @@
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import NewProjectModal from "../NewProjectModal";
+import CardDetailModal from "../CardDetailModal";
+import UserProfileModal from "../UserProfileModal";
+import TaskCard from "../TaskCard";
+import ListView from "../views/ListView";
+import { LoginForm } from "@/app/login/LoginForm";
+import { RegisterForm } from "@/app/register/RegisterForm";
+import { LanguageProvider } from "../LanguageProvider";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+  useSearchParams: () => ({ get: () => null }),
+}));
+
+vi.mock("@/actions/projects", () => ({
+  createProject: vi.fn(async () => ({ success: true, data: { id: "p1" } })),
+  getProjectById: vi.fn(async () => ({ success: true, data: { columns: [] } })),
+}));
+
+vi.mock("@/actions/cards", () => ({
+  createCard: vi.fn(async () => ({ success: true })),
+  updateCard: vi.fn(async () => ({ success: true })),
+  moveCard: vi.fn(async () => ({ success: true })),
+  deleteCard: vi.fn(async () => ({ success: true })),
+  archiveCard: vi.fn(async () => ({ success: true })),
+  getCardByIdentifier: vi.fn(async () => ({ success: false })),
+  addCardLink: vi.fn(async () => ({ success: true })),
+  removeCardLink: vi.fn(async () => ({ success: true })),
+}));
+
+vi.mock("@/actions/comments", () => ({
+  addComment: vi.fn(async () => ({ success: true })),
+  updateComment: vi.fn(async () => ({ success: true })),
+  deleteComment: vi.fn(async () => ({ success: true })),
+}));
+
+vi.mock("@/actions/activity", () => ({
+  getCardActivity: vi.fn(async () => ({ success: true, data: [] })),
+}));
+
+vi.mock("@/actions/attachments", () => ({
+  uploadAttachment: vi.fn(async () => ({ success: true })),
+  listAttachments: vi.fn(async () => ({ success: true, data: [] })),
+  deleteAttachment: vi.fn(async () => ({ success: true })),
+}));
+
+vi.mock("@/actions/labels", () => ({
+  getLabels: vi.fn(async () => ({ success: true, data: [] })),
+}));
+
+vi.mock("@/actions/cardTypes", () => ({
+  getCardTypes: vi.fn(async () => ({ success: true, data: [] })),
+}));
+
+vi.mock("@/actions/relations", () => ({
+  addCardRelation: vi.fn(async () => ({ success: true })),
+  removeCardRelation: vi.fn(async () => ({ success: true })),
+  getCardRelations: vi.fn(async () => ({ success: true, data: [] })),
+}));
+
+vi.mock("@/actions/members", () => ({
+  getProjectMembers: vi.fn(async () => ({ success: true, data: [] })),
+}));
+
+vi.mock("@/actions/auth", () => ({
+  updateUserProfile: vi.fn(async () => ({ success: true })),
+  listApiTokens: vi.fn(async () => ({ success: true, tokens: [] })),
+  createApiToken: vi.fn(async () => ({ success: true, token: { secret: "opm_secret_token_123" } })),
+  revokeApiToken: vi.fn(async () => ({ success: true })),
+  getSsoStatus: vi.fn(async () => ({ success: true, data: { oidcEnabled: false, linked: false, hasPassword: true } })),
+}));
+
+vi.mock("@/actions/telemetry", () => ({
+  getTelemetryStatus: vi.fn(async () => ({ success: true, data: null })),
+  updateTelemetryPreference: vi.fn(async () => ({ success: true })),
+}));
+
+describe("Accessibility (Issue #113)", () => {
+  const originalOffsetParent = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetParent");
+
+  beforeEach(() => {
+    Object.defineProperty(HTMLElement.prototype, "offsetParent", {
+      configurable: true,
+      get() {
+        return this.parentElement || document.body;
+      },
+    });
+  });
+
+  afterEach(() => {
+    if (originalOffsetParent) {
+      Object.defineProperty(HTMLElement.prototype, "offsetParent", originalOffsetParent);
+    }
+    vi.restoreAllMocks();
+  });
+
+  describe("Modal Dialog Semantics and Keyboard Trapping", () => {
+    it("renders modal with role='dialog', aria-modal='true', and responds to Escape key", () => {
+      const onClose = vi.fn();
+      render(
+        <LanguageProvider>
+          <NewProjectModal onClose={onClose} />
+        </LanguageProvider>
+      );
+
+      const dialog = screen.getByRole("dialog");
+      expect(dialog).toBeDefined();
+      expect(dialog.getAttribute("aria-modal")).toBe("true");
+      expect(dialog.getAttribute("aria-labelledby")).toBe("new-project-title");
+
+      // Ignore Escape during IME composition (isComposing or keyCode 229)
+      fireEvent.keyDown(window, { key: "Escape", isComposing: true });
+      expect(onClose).not.toHaveBeenCalled();
+      fireEvent.keyDown(window, { key: "Escape", keyCode: 229 });
+      expect(onClose).not.toHaveBeenCalled();
+
+      // Press Escape normally
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(onClose).toHaveBeenCalled();
+    });
+
+    it("restores focus to the trigger element on unmount and traps Tab / Shift+Tab within modal", () => {
+      const trigger = document.createElement("button");
+      trigger.textContent = "Open Modal";
+      document.body.appendChild(trigger);
+      trigger.focus();
+      expect(document.activeElement).toBe(trigger);
+
+      const onClose = vi.fn();
+      const { unmount } = render(
+        <LanguageProvider>
+          <NewProjectModal onClose={onClose} />
+        </LanguageProvider>
+      );
+
+      const dialog = screen.getByRole("dialog");
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
+      );
+      expect(focusable.length).toBeGreaterThan(1);
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      // Shift+Tab from first wraps to last
+      first.focus();
+      fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
+      expect(document.activeElement).toBe(last);
+
+      // Shift+Tab when dialog container itself is focused wraps to last
+      dialog.focus();
+      expect(document.activeElement).toBe(dialog);
+      fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
+      expect(document.activeElement).toBe(last);
+
+      // Tab from last wraps to first
+      last.focus();
+      fireEvent.keyDown(window, { key: "Tab", shiftKey: false });
+      expect(document.activeElement).toBe(first);
+
+      unmount();
+      expect(document.activeElement).toBe(trigger);
+      document.body.removeChild(trigger);
+    });
+
+    it("does not re-focus the first element when parent re-renders", () => {
+      const onClose = vi.fn();
+      const { rerender } = render(
+        <LanguageProvider>
+          <NewProjectModal onClose={onClose} />
+        </LanguageProvider>
+      );
+
+      const descInput = screen.getByLabelText(/Description/i);
+      descInput.focus();
+      expect(document.activeElement).toBe(descInput);
+
+      // Re-render with new inline arrow for onClose
+      rerender(
+        <LanguageProvider>
+          <NewProjectModal onClose={() => {}} />
+        </LanguageProvider>
+      );
+
+      // Focus should remain on description input
+      expect(document.activeElement).toBe(descInput);
+    });
+
+    it("closes only the topmost modal when Escape is pressed", () => {
+      const onClose1 = vi.fn();
+      const onClose2 = vi.fn();
+
+      render(
+        <LanguageProvider>
+          <div>
+            <NewProjectModal onClose={onClose1} />
+            <NewProjectModal onClose={onClose2} />
+          </div>
+        </LanguageProvider>
+      );
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(onClose2).toHaveBeenCalledTimes(1);
+      expect(onClose1).not.toHaveBeenCalled();
+    });
+
+    it("guards dirty CardDetailModal edits before closing on Escape", () => {
+      const onClose = vi.fn();
+      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+      const mockCard: any = {
+        id: "card-1",
+        projectId: "proj-1",
+        columnId: "col-1",
+        title: "Original Title",
+        description: "Original description",
+        priority: "MEDIUM",
+        points: null,
+        owner: null,
+        dueDate: null,
+        labels: [],
+        comments: [],
+        activities: [],
+      };
+
+      render(
+        <LanguageProvider>
+          <CardDetailModal
+            card={mockCard}
+            columns={[{ id: "col-1", name: "To Do" }]}
+            onClose={onClose}
+            onRefresh={vi.fn()}
+          />
+        </LanguageProvider>
+      );
+
+      const titleInput = screen.getByDisplayValue("Original Title");
+      fireEvent.change(titleInput, { target: { value: "Edited Unsaved Title" } });
+
+      // Escape should prompt confirm; returning false keeps modal open
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(confirmSpy).toHaveBeenCalled();
+      expect(onClose).not.toHaveBeenCalled();
+
+      // Confirming allows close
+      confirmSpy.mockReturnValueOnce(true);
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it("guards UserProfileModal when profile is dirty or an API token was just generated", async () => {
+      const onClose = vi.fn();
+      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+      render(
+        <LanguageProvider>
+          <UserProfileModal
+            user={{ userId: "u1", email: "u1@example.com", name: "Alice" }}
+            onClose={onClose}
+          />
+        </LanguageProvider>
+      );
+
+      // Edit name -> dirty guard triggers on Escape
+      const nameInput = screen.getByDisplayValue("Alice");
+      fireEvent.change(nameInput, { target: { value: "Alice Updated" } });
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(confirmSpy).toHaveBeenCalledTimes(1);
+      expect(onClose).not.toHaveBeenCalled();
+
+      // Revert name, generate an API token -> token guard triggers on Escape
+      fireEvent.change(nameInput, { target: { value: "Alice" } });
+      const tokenNameInput = screen.getByPlaceholderText(/Token name/i);
+      fireEvent.change(tokenNameInput, { target: { value: "My Token" } });
+      const generateBtn = screen.getByRole("button", { name: /Generate API Token/i });
+      fireEvent.click(generateBtn);
+
+      await waitFor(() => {
+        expect(screen.getByDisplayValue("opm_secret_token_123")).toBeDefined();
+      });
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(confirmSpy).toHaveBeenCalledTimes(2);
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it("guards UserProfileModal when email is changed", () => {
+      const onClose = vi.fn();
+      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+      render(
+        <LanguageProvider>
+          <UserProfileModal
+            user={{ userId: "u1", email: "u1@example.com", name: "Alice" }}
+            onClose={onClose}
+          />
+        </LanguageProvider>
+      );
+
+      const emailInput = screen.getByDisplayValue("u1@example.com");
+      fireEvent.change(emailInput, { target: { value: "newemail@example.com" } });
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(confirmSpy).toHaveBeenCalled();
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it("guards CardDetailModal when inline subtask drafts exist and dismisses inline first on Escape", () => {
+      const onClose = vi.fn();
+      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+      const mockCard: any = {
+        id: "card-subtask-draft",
+        projectId: "proj-1",
+        columnId: "col-1",
+        title: "Parent Card",
+        description: "",
+        priority: "MEDIUM",
+        points: null,
+        owner: null,
+        dueDate: null,
+        labels: [],
+        comments: [],
+        activities: [],
+      };
+
+      render(
+        <LanguageProvider>
+          <CardDetailModal
+            card={mockCard}
+            columns={[{ id: "col-1", name: "To Do" }]}
+            onClose={onClose}
+            onRefresh={vi.fn()}
+          />
+        </LanguageProvider>
+      );
+
+      // Open add subtask form
+      const addSubtaskBtn = screen.getByRole("button", { name: /Add subtask/i });
+      fireEvent.click(addSubtaskBtn);
+
+      const subtaskInput = screen.getByPlaceholderText(/What needs to be done/i);
+      fireEvent.change(subtaskInput, { target: { value: "Draft subtask item" } });
+
+      // Press Escape -> prompt discard
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(confirmSpy).toHaveBeenCalled();
+      expect(onClose).not.toHaveBeenCalled();
+
+      // Confirm discard -> dismisses only inline subtask, modal stays open
+      confirmSpy.mockReturnValueOnce(true);
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.queryByPlaceholderText(/What needs to be done/i)).toBeNull();
+    });
+
+    it("does not warn about unsaved changes on Cancel after successful save with parsed points or computed owner", async () => {
+      const onClose = vi.fn();
+      const confirmSpy = vi.spyOn(window, "confirm");
+
+      const mockCard: any = {
+        id: "card-save-clean",
+        projectId: "proj-1",
+        columnId: "col-1",
+        title: "Clean Save Card",
+        description: "",
+        priority: "MEDIUM",
+        points: 5,
+        owner: "Assignee Name",
+        dueDate: null,
+        labels: [],
+        comments: [],
+        activities: [],
+        assignees: [{ user: { id: "user-1", name: "Assignee Name", email: "a@b.com" } }],
+      };
+
+      render(
+        <LanguageProvider>
+          <CardDetailModal
+            card={mockCard}
+            columns={[{ id: "col-1", name: "To Do" }]}
+            members={[{ userId: "user-1", role: "EDITOR", user: { id: "user-1", name: "Assignee Name", email: "a@b.com" } }]}
+            onClose={onClose}
+            onRefresh={vi.fn()}
+          />
+        </LanguageProvider>
+      );
+
+      // Save without changes (points: 5, owner: Assignee Name)
+      const saveBtn = screen.getByRole("button", { name: /Save changes/i });
+      fireEvent.click(saveBtn);
+
+      await waitFor(() => {
+        expect(saveBtn).not.toBeDisabled();
+      });
+
+      // Click Cancel button
+      const cancelBtn = screen.getByRole("button", { name: /^Cancel$/i });
+      fireEvent.click(cancelBtn);
+
+      // Should close without confirm prompt
+      expect(confirmSpy).not.toHaveBeenCalled();
+      expect(onClose).toHaveBeenCalled();
+    });
+  });
+
+  describe("TaskCard Keyboard Accessibility", () => {
+    it("renders TaskCard as keyboard-accessible interactive element", () => {
+      const onClick = vi.fn();
+      const mockCard: any = {
+        id: "c-1",
+        title: "Test Task",
+        identifier: "PROJ-1",
+        order: 0,
+        columnId: "col-1",
+        projectId: "p-1",
+        labels: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      render(
+        <LanguageProvider>
+          <TaskCard card={mockCard} onClick={onClick} />
+        </LanguageProvider>
+      );
+
+      const cardElement = screen.getByRole("button", { name: /Test Task/i });
+      expect(cardElement.getAttribute("tabindex")).toBe("0");
+
+      // Test Enter key
+      fireEvent.keyDown(cardElement, { key: "Enter" });
+      expect(onClick).toHaveBeenCalledTimes(1);
+
+      // Test Space key
+      fireEvent.keyDown(cardElement, { key: " " });
+      expect(onClick).toHaveBeenCalledTimes(2);
+    });
+
+    it("does not open card when Space, Enter, or click occurs on status select in ListView", () => {
+      const onCardClick = vi.fn();
+      const mockProject: any = {
+        id: "p-1",
+        columns: [
+          {
+            id: "col-1",
+            name: "To Do",
+            isDone: false,
+            cards: [
+              {
+                id: "c-descendant",
+                title: "Task with Status Select",
+                priority: "MEDIUM",
+                order: 0,
+                columnId: "col-1",
+                projectId: "p-1",
+                labels: [],
+                comments: [],
+              },
+            ],
+          },
+          { id: "col-2", name: "Done", isDone: true, cards: [] },
+        ],
+      };
+
+      render(
+        <LanguageProvider>
+          <ListView
+            project={mockProject}
+            onCardClick={onCardClick}
+            onRefresh={vi.fn()}
+            searchQuery=""
+            priorityFilter="ALL"
+          />
+        </LanguageProvider>
+      );
+
+      const select = screen.getByRole("combobox");
+      fireEvent.keyDown(select, { key: " " });
+      fireEvent.keyDown(select, { key: "Enter" });
+      fireEvent.click(select);
+      expect(onCardClick).not.toHaveBeenCalled();
+
+      const titleBtn = screen.getByRole("button", { name: "Task with Status Select" });
+      fireEvent.keyDown(titleBtn, { key: "Enter" });
+      expect(onCardClick).toHaveBeenCalledTimes(1);
+    });
+
+    it("guards parent and subtask card switches in CardDetailModal when dirty", () => {
+      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+      const onOpenCard = vi.fn();
+      const parentLinkedCard: any = {
+        id: "c-1",
+        title: "Current Card",
+        description: "",
+        columnId: "col-1",
+        projectId: "p-1",
+        priority: "MEDIUM",
+        points: null,
+        owner: "",
+        dueDate: null,
+        labels: [],
+        comments: [],
+        activities: [],
+        parent: { id: "parent-1", number: 1, title: "Parent Task" },
+      };
+
+      const { unmount } = render(
+        <LanguageProvider>
+          <CardDetailModal
+            card={parentLinkedCard}
+            columns={[{ id: "col-1", name: "To Do" }]}
+            onClose={vi.fn()}
+            onRefresh={vi.fn()}
+            onOpenCard={onOpenCard}
+          />
+        </LanguageProvider>
+      );
+
+      // Make modal dirty and click parent card link
+      fireEvent.change(screen.getByDisplayValue("Current Card"), { target: { value: "Edited Card" } });
+      fireEvent.click(screen.getByRole("button", { name: /#1 Parent Task/i }));
+      expect(confirmSpy).toHaveBeenCalledTimes(1);
+      expect(onOpenCard).not.toHaveBeenCalled();
+
+      confirmSpy.mockReturnValueOnce(true);
+      fireEvent.click(screen.getByRole("button", { name: /#1 Parent Task/i }));
+      expect(onOpenCard).toHaveBeenCalledWith("parent-1");
+      unmount();
+
+      // Now test subtask link guard on a parent card
+      confirmSpy.mockReset();
+      onOpenCard.mockReset();
+      confirmSpy.mockReturnValue(false);
+
+      const parentCardWithChildren: any = {
+        id: "c-parent",
+        title: "Epic Card",
+        description: "",
+        columnId: "col-1",
+        projectId: "p-1",
+        priority: "MEDIUM",
+        points: null,
+        owner: "",
+        dueDate: null,
+        labels: [],
+        comments: [],
+        activities: [],
+        children: [
+          {
+            id: "sub-1",
+            number: 2,
+            title: "Child Subtask",
+            column: { id: "col-1", name: "To Do", isDone: false },
+          },
+        ],
+      };
+
+      render(
+        <LanguageProvider>
+          <CardDetailModal
+            card={parentCardWithChildren}
+            columns={[{ id: "col-1", name: "To Do" }]}
+            onClose={vi.fn()}
+            onRefresh={vi.fn()}
+            onOpenCard={onOpenCard}
+          />
+        </LanguageProvider>
+      );
+
+      fireEvent.change(screen.getByDisplayValue("Epic Card"), { target: { value: "Edited Epic" } });
+      fireEvent.click(screen.getByRole("button", { name: "Child Subtask" }));
+      expect(confirmSpy).toHaveBeenCalledTimes(1);
+      expect(onOpenCard).not.toHaveBeenCalled();
+
+      confirmSpy.mockReturnValue(true);
+      fireEvent.click(screen.getByRole("button", { name: "Child Subtask" }));
+      expect(onOpenCard).toHaveBeenCalledWith("sub-1");
+    });
+
+    it("does not prompt token-dismissal confirmation after copying generated token in UserProfileModal", async () => {
+      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+      const writeTextMock = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: { writeText: writeTextMock },
+      });
+
+      const onClose = vi.fn();
+      render(
+        <LanguageProvider>
+          <UserProfileModal
+            user={{ userId: "u1", name: "Alice", email: "alice@example.com" }}
+            onClose={onClose}
+          />
+        </LanguageProvider>
+      );
+
+      const tokenInput = screen.getByPlaceholderText(/Token name/i);
+      fireEvent.change(tokenInput, { target: { value: "CI Token" } });
+      fireEvent.click(screen.getByRole("button", { name: /Generate API Token/i }));
+
+      expect(await screen.findByText(/Copy Token/i)).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: /Copy Token/i }));
+      await waitFor(() => expect(writeTextMock).toHaveBeenCalledWith("opm_secret_token_123"));
+      expect(await screen.findByText(/Copied!/i)).toBeInTheDocument();
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(confirmSpy).not.toHaveBeenCalled();
+      expect(onClose).toHaveBeenCalled();
+    });
+
+    it("moves focus to <main> fallback when opener is detached after modal close", async () => {
+      const main = document.createElement("main");
+      const opener = document.createElement("button");
+      opener.textContent = "Card Opener";
+      main.appendChild(opener);
+      document.body.appendChild(main);
+      opener.focus();
+      expect(document.activeElement).toBe(opener);
+
+      const onClose = vi.fn();
+      const { unmount } = render(
+        <LanguageProvider>
+          <NewProjectModal onClose={onClose} />
+        </LanguageProvider>
+      );
+
+      unmount();
+      // Simulate async server refresh removing the opener card shortly after unmount
+      opener.remove();
+
+      await waitFor(() => {
+        expect(document.activeElement).toBe(main);
+      });
+      main.remove();
+    });
+  });
+
+  describe("Form Input Accessibility Labels", () => {
+    it("associates labels with inputs in LoginForm", () => {
+      render(
+        <LanguageProvider>
+          <LoginForm oidcEnabled={false} registrationOpen={true} />
+        </LanguageProvider>
+      );
+
+      const emailInput = screen.getByLabelText(/Email/i);
+      expect(emailInput).toBeDefined();
+      expect(emailInput.getAttribute("id")).toBe("login-email");
+
+      const passwordInput = screen.getByLabelText(/Password/i);
+      expect(passwordInput).toBeDefined();
+      expect(passwordInput.getAttribute("id")).toBe("login-password");
+    });
+
+    it("associates labels with inputs in RegisterForm", () => {
+      render(
+        <LanguageProvider>
+          <RegisterForm />
+        </LanguageProvider>
+      );
+
+      const nameInput = screen.getByLabelText(/Full Name/i);
+      expect(nameInput).toBeDefined();
+      expect(nameInput.getAttribute("id")).toBe("register-name");
+
+      const emailInput = screen.getByLabelText(/Email/i);
+      expect(emailInput).toBeDefined();
+      expect(emailInput.getAttribute("id")).toBe("register-email");
+
+      const passwordInput = screen.getByLabelText(/^Password$/i);
+      expect(passwordInput).toBeDefined();
+      expect(passwordInput.getAttribute("id")).toBe("register-password");
+
+      const confirmInput = screen.getByLabelText(/Confirm Password/i);
+      expect(confirmInput).toBeDefined();
+      expect(confirmInput.getAttribute("id")).toBe("register-confirm-password");
+    });
+  });
+});
