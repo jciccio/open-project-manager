@@ -598,6 +598,103 @@ export async function getCardByIdentifier(identifier: string, userId: string) {
   }
 }
 
+export async function getCardByProjectAndParam(projectId: string, param: string, userId: string) {
+  try {
+    if (!(await verifyProjectAccess(projectId, userId, "VIEWER"))) {
+      return { success: false, error: "Access denied", kind: "forbidden" as ServiceErrorKind };
+    }
+    const clean = param.trim();
+    if (!clean) {
+      return { success: false, error: "Card identifier or ID is required", kind: "invalid" as ServiceErrorKind };
+    }
+
+    const include = {
+      project: true,
+      column: true,
+      type: true,
+      labels: { include: { label: true } },
+      comments: {
+        orderBy: { createdAt: "desc" as const },
+        include: { authorUser: { select: { id: true, name: true, email: true } } },
+      },
+      activities: { orderBy: { createdAt: "desc" as const } },
+      assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
+      parent: { select: { id: true, number: true, title: true } },
+      children: {
+        where: { isArchived: false },
+        orderBy: { order: "asc" as const },
+        select: {
+          id: true,
+          number: true,
+          title: true,
+          dueDate: true,
+          completedAt: true,
+          columnId: true,
+          column: {
+            select: {
+              id: true,
+              name: true,
+              isDone: true,
+            },
+          },
+          assignees: {
+            include: {
+              user: { select: { id: true, name: true, email: true } },
+            },
+          },
+        },
+      },
+      links: true,
+    };
+
+    // 1. Try exact ID
+    let card = await db.card.findFirst({
+      where: { id: clean, projectId },
+      include,
+    });
+
+    // 2. Try KEY-NNN
+    if (!card && clean.includes("-")) {
+      const lastDash = clean.lastIndexOf("-");
+      const key = clean.slice(0, lastDash).toUpperCase();
+      const num = parseInt(clean.slice(lastDash + 1), 10);
+      if (!isNaN(num)) {
+        card = await db.card.findFirst({
+          where: { number: num, project: { key }, projectId },
+          include,
+        });
+      }
+    }
+
+    // 3. Try bare number (e.g. "42" or "#42")
+    if (!card) {
+      const bareNumber = clean.replace(/^#/, "");
+      const num = parseInt(bareNumber, 10);
+      if (!isNaN(num) && String(num) === bareNumber) {
+        card = await db.card.findFirst({
+          where: { number: num, projectId },
+          include,
+        });
+      }
+    }
+
+    if (!card) {
+      return { success: false, error: "Card not found", kind: "not_found" as ServiceErrorKind };
+    }
+
+    return {
+      success: true,
+      data: {
+        ...card,
+        identifier: `${card.project.key}-${card.number}`,
+      },
+    };
+  } catch (error) {
+    console.error(`Error looking up card by param '${param}' in project '${projectId}':`, error);
+    return { success: false, error: "Failed to fetch card", kind: "internal" as ServiceErrorKind };
+  }
+}
+
 export async function addCardLink(cardId: string, url: string, title: string | undefined, userId: string) {
   try {
     const parsedUrl = SafeUrlSchema.safeParse(url);

@@ -19,6 +19,7 @@ import {
   ShieldAlert,
   Plus,
   Archive,
+  RotateCcw,
   Paperclip,
   History,
   Activity as ActivityIcon,
@@ -27,7 +28,7 @@ import {
   CornerDownRight,
   Unlink,
 } from "lucide-react";
-import { createCard, updateCard, deleteCard, archiveCard, getCardByIdentifier, addCardLink, removeCardLink } from "@/actions/cards";
+import { createCard, updateCard, deleteCard, archiveCard, unarchiveCard, getCardByIdentifier, addCardLink, removeCardLink } from "@/actions/cards";
 import { getProjectById } from "@/actions/projects";
 import { addComment, updateComment, deleteComment } from "@/actions/comments";
 import { getCardActivity } from "@/actions/activity";
@@ -63,6 +64,7 @@ interface Props {
     owner: string | null;
     dueDate: Date | string | null;
     completedAt?: Date | string | null;
+    isArchived?: boolean;
     typeId?: string | null;
     type?: { id: string; name: string; icon: string; color: string } | null;
     parentId?: string | null;
@@ -207,6 +209,7 @@ export default function CardDetailModal({
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [actionError, setActionError] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
 
   const [links, setLinks] = useState<Array<any>>((card as any).links || []);
   const [isAddingLink, setIsAddingLink] = useState(false);
@@ -513,8 +516,8 @@ export default function CardDetailModal({
     setDeleting(false);
 
     if (report(res)) {
-      onRefresh();
       onClose();
+      onRefresh();
     }
   }
 
@@ -525,8 +528,34 @@ export default function CardDetailModal({
     setArchiving(false);
 
     if (report(res)) {
-      onRefresh();
       onClose();
+      onRefresh();
+    }
+  }
+
+  async function handleUnarchive() {
+    setArchiving(true);
+    const res = await unarchiveCard(card.id);
+    setArchiving(false);
+
+    if (report(res)) {
+      onClose();
+      onRefresh();
+    }
+  }
+
+  async function handleCopyLink() {
+    const cardParam = card.project?.key && card.number ? `${card.project.key}-${card.number}` : card.id;
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const url = `${origin}/projects/${card.projectId}?card=${cardParam}`;
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+      }
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2000);
+    } catch (err) {
+      console.error("Failed to copy link:", err);
     }
   }
 
@@ -662,6 +691,12 @@ export default function CardDetailModal({
                 {card.project?.key ? `${card.project.key}-${card.number}` : `#${card.number}`}
               </span>
             )}
+            {card.isArchived && (
+              <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-300">
+                <Archive className="h-3.5 w-3.5" />
+                <span>{t("projectCard.archivedBadge")}</span>
+              </span>
+            )}
             {card.completedAt && (
               <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 px-2 py-0.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
                 <CheckCircle className="h-3.5 w-3.5" />
@@ -671,13 +706,34 @@ export default function CardDetailModal({
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={handleArchive}
-              disabled={archiving}
-              className="rounded-lg p-2 text-slate-500 hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-400 transition-colors"
-              title={t("cardModal.archiveTooltip")}
+              onClick={handleCopyLink}
+              className="rounded-lg p-2 text-slate-500 hover:bg-indigo-500/10 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+              title={copiedLink ? t("cardModal.linkCopied") : t("cardModal.copyLink")}
+              aria-label={copiedLink ? t("cardModal.linkCopied") : t("cardModal.copyLink")}
             >
-              <Archive className="h-4 w-4" />
+              {copiedLink ? <Check className="h-4 w-4 text-emerald-500" /> : <Link2 className="h-4 w-4" />}
             </button>
+            {card.isArchived ? (
+              <button
+                onClick={handleUnarchive}
+                disabled={archiving}
+                className="rounded-lg p-2 text-slate-500 hover:bg-indigo-500/10 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                title={t("archived.restoreCard")}
+                aria-label={t("archived.restoreCard")}
+              >
+                <RotateCcw className="h-4 w-4" />
+              </button>
+            ) : (
+              <button
+                onClick={handleArchive}
+                disabled={archiving}
+                className="rounded-lg p-2 text-slate-500 hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-400 transition-colors"
+                title={t("cardModal.archiveTooltip")}
+                aria-label={t("cardModal.archiveTooltip")}
+              >
+                <Archive className="h-4 w-4" />
+              </button>
+            )}
             <button
               onClick={handleDelete}
               disabled={deleting}

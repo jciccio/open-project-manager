@@ -1,5 +1,8 @@
+import { Suspense } from "react";
 import KanbanBoard from "@/components/KanbanBoard";
 import { getProjectById } from "@/actions/projects";
+import { getCardByProjectAndParam } from "@/actions/cards";
+import { findCardByParam } from "@/lib/cardFilter";
 import { getSession } from "@/lib/auth";
 import { notFound, redirect } from "next/navigation";
 
@@ -9,9 +12,12 @@ interface Props {
   params: Promise<{
     id: string;
   }>;
+  searchParams?: Promise<{
+    [key: string]: string | string[] | undefined;
+  }>;
 }
 
-export default async function ProjectBoardPage({ params }: Props) {
+export default async function ProjectBoardPage({ params, searchParams }: Props) {
   const { id } = await params;
   const session = await getSession();
   if (!session) {
@@ -26,5 +32,31 @@ export default async function ProjectBoardPage({ params }: Props) {
     notFound();
   }
 
-  return <KanbanBoard project={res.data} />;
+  const resolvedSearchParams = searchParams ? await searchParams : {};
+  const cardParam =
+    typeof resolvedSearchParams.card === "string"
+      ? resolvedSearchParams.card
+      : typeof resolvedSearchParams.cardId === "string"
+      ? resolvedSearchParams.cardId
+      : undefined;
+
+  let initialCard: any = null;
+  if (cardParam) {
+    const allCards = res.data.columns.flatMap((col: any) => col.cards || []);
+    const found = findCardByParam(allCards, cardParam, res.data.key);
+    if (found) {
+      initialCard = found;
+    } else {
+      const cardRes = await getCardByProjectAndParam(id, cardParam);
+      if (cardRes.success && cardRes.data) {
+        initialCard = cardRes.data;
+      }
+    }
+  }
+
+  return (
+    <Suspense fallback={null}>
+      <KanbanBoard project={res.data} initialCardParam={cardParam} initialCard={initialCard} />
+    </Suspense>
+  );
 }

@@ -281,6 +281,8 @@ export const es: TranslationKeys = {
     completedCount: "{completed} de {total} completadas",
     archiveConfirm: "¿Estás seguro de que deseas archivar esta tarjeta?",
     archiveTooltip: "Archivar tarjeta de tarea",
+    copyLink: "Copiar enlace de tarjeta",
+    linkCopied: "¡Enlace copiado!",
     deleteTooltip: "Eliminar tarjeta de tarea",
     doneBadge: "Hecha",
     dependenciesTitle: "Dependencias y Relaciones de Tarjetas",
