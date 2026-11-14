@@ -175,6 +175,28 @@ describe("MCP tools: cross-user ownership enforcement", () => {
     await expect(executeMcpTool("delete_project", { id: projectId }, asMember)).rejects.toThrow();
   });
 
+  it("returns identical 'not found' error messages for existing vs non-existing IDs to non-members on create_card and update_card", async () => {
+    const asIntruder = { userId: intruderId };
+    const missingProjectId = "non-existent-project-id";
+    const missingCardId = "non-existent-card-id";
+
+    await expect(
+      executeMcpTool("create_card", { projectId, columnId, title: "Probe" }, asIntruder)
+    ).rejects.toThrow(`Project with ID ${projectId} not found.`);
+
+    await expect(
+      executeMcpTool("create_card", { projectId: missingProjectId, columnId, title: "Probe" }, asIntruder)
+    ).rejects.toThrow(`Project with ID ${missingProjectId} not found.`);
+
+    await expect(
+      executeMcpTool("update_card", { id: cardId, title: "Probe" }, asIntruder)
+    ).rejects.toThrow(`Card with ID ${cardId} not found.`);
+
+    await expect(
+      executeMcpTool("update_card", { id: missingCardId, title: "Probe" }, asIntruder)
+    ).rejects.toThrow(`Card with ID ${missingCardId} not found.`);
+  });
+
   describe("add_card_relation target access", () => {
     const asIntruder = () => ({ userId: intruderId });
 
