@@ -5,6 +5,9 @@ import os from "os";
 import path from "path";
 import { getDatabaseProvider, createPrismaClient } from "../db";
 
+// `prisma generate` builds the client for one provider, and a Postgres client refuses the SQLite adapter.
+const clientIsPostgres = getDatabaseProvider() === "postgresql";
+
 describe("Database Provider & Client Configuration", () => {
   const originalEnv = { ...process.env };
 
@@ -55,7 +58,7 @@ describe("Database Provider & Client Configuration", () => {
   });
 
   describe("createPrismaClient()", () => {
-    it("instantiates PrismaClient with SQLite adapter by default", () => {
+    it.skipIf(clientIsPostgres)("instantiates PrismaClient with SQLite adapter by default", () => {
       delete process.env.DATABASE_PROVIDER;
       delete process.env.DATABASE_URL;
       const client = createPrismaClient();
@@ -64,7 +67,7 @@ describe("Database Provider & Client Configuration", () => {
       expect(typeof client.user.findMany).toBe("function");
     });
 
-    it("configures SQLite with WAL journal mode pragma", async () => {
+    it.skipIf(clientIsPostgres)("configures SQLite with WAL journal mode pragma", async () => {
       const dir = mkdtempSync(path.join(os.tmpdir(), "opm-wal-"));
       delete process.env.DATABASE_PROVIDER;
       process.env.DATABASE_URL = `file:${path.join(dir, "fresh.db")}`;
@@ -78,7 +81,7 @@ describe("Database Provider & Client Configuration", () => {
       }
     });
 
-    it("every client in the process sees writes from another process", async () => {
+    it.skipIf(clientIsPostgres)("every client in the process sees writes from another process", async () => {
       const dir = mkdtempSync(path.join(os.tmpdir(), "opm-wal-"));
       const dbPath = path.join(dir, "wal.db");
       delete process.env.DATABASE_PROVIDER;

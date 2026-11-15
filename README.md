@@ -422,9 +422,11 @@ text. A re-run doesn't update cards that are already imported.
 the `start_before`, `start_after`, `finish_before` and `finish_after` relations. Dry and
 live runs both list what they found of these, with counts, under "Not carried over".
 
-**Project keys:** OPM keys are limited to 6 characters, and a key that's taken gets a
-suffix, which would break references. A live run refuses to start if any new project has
-a longer key or one this account already uses. A dry run lists the same problems.
+**Project keys:** OPM keys hold up to 12 letters A-Z and digits, the same length as Plane
+identifiers, and a key that's taken gets a suffix. Either change would break references,
+so a live run refuses to start if any new project's key is longer, has other characters
+(Plane allows a few, such as `_` or a space), or is one this account already uses. A dry
+run lists the same problems.
 
 **Nesting:** OPM allows one level of subtasks. Deeper Plane hierarchies report a failure
 on the parent link, and the card itself still imports.
