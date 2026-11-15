@@ -10,9 +10,9 @@ import { db } from "../src/lib/db";
 import { ImportInProgressError, runImportJob } from "../src/lib/import/jobs";
 import { PlaneImporter } from "../src/lib/import/plane";
 import { findExistingMapping } from "../src/lib/import/runImport";
-import type { ImportDroppedField, ImportDryRunSummary, ImportProject, ImportSummary } from "../src/lib/import/types";
+import type { ImportDroppedField, ImportDryRunSummary, ImportSummary } from "../src/lib/import/types";
 import { parseImportPlaneArgs, type ImportPlaneArgs } from "./import-plane-args";
-import { projectKeyProblems } from "./import-plane-preflight";
+import { findKeyProblems } from "./import-plane-preflight";
 import { resolveImportUserId } from "./resolve-import-user";
 
 function parseArgs(argv: string[]): ImportPlaneArgs {
@@ -22,23 +22,6 @@ function parseArgs(argv: string[]): ImportPlaneArgs {
     console.error(err instanceof Error ? err.message : String(err));
     process.exit(2);
   }
-}
-
-async function findKeyProblems(importer: PlaneImporter, userId: string): Promise<string[]> {
-  const projects: ImportProject[] = [];
-  for await (const project of importer.fetchProjects()) projects.push(project);
-
-  const existing = await db.project.findMany({ where: { userId }, select: { id: true, key: true } });
-  const records = await db.importRecord.findMany({
-    where: { userId, source: importer.name, entityType: "project" },
-    select: { sourceId: true, localId: true },
-  });
-  const existingIds = new Set(existing.map((project) => project.id));
-  return projectKeyProblems(
-    projects,
-    new Set(existing.map((project) => project.key)),
-    new Set(records.filter((record) => existingIds.has(record.localId)).map((record) => record.sourceId))
-  );
 }
 
 function printRecordCounts(records: Array<{ entityType: string }>) {
