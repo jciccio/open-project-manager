@@ -68,7 +68,7 @@ export default function ArchivedClient({ archivedProjects, archivedCards, curren
               onClick={() => setActiveTab("projects")}
               className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all ${
                 activeTab === "projects"
-                  ? "bg-amber-500 text-white shadow-md"
+                  ? "bg-amber-500 text-slate-950 shadow-md"
                   : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
               }`}
             >
@@ -79,7 +79,7 @@ export default function ArchivedClient({ archivedProjects, archivedCards, curren
               onClick={() => setActiveTab("cards")}
               className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all ${
                 activeTab === "cards"
-                  ? "bg-amber-500 text-white shadow-md"
+                  ? "bg-amber-500 text-slate-950 shadow-md"
                   : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
               }`}
             >
