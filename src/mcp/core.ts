@@ -435,8 +435,8 @@ export const MCP_TOOLS = [
         owner: { type: "string", description: "Assignee or owner name" },
         dueDate: { type: "string", description: "ISO date string for deadline (e.g. 2026-09-01)" },
         parentId: { type: "string", description: "Optional parent card ID" },
+        labelIds: { type: "array", items: { type: "string" }, description: "Optional list of label IDs to attach to the card" },
         assigneeIds: { type: "array", items: { type: "string" }, description: "Optional list of assigned user IDs" },
-        labelIds: { type: "array", items: { type: "string" }, description: "Optional list of label IDs" },
         typeId: { type: "string", description: "Optional card type ID" },
       },
       required: ["projectId", "columnId", "title"],
@@ -448,7 +448,7 @@ export const MCP_TOOLS = [
   },
   {
     name: "update_card",
-    description: "Update task card fields (title, description, priority, story points, owner, due date, columnId, parentId, assigneeIds, labelIds, typeId).",
+    description: "Update task card fields (title, description, priority, story points, owner, due date, columnId, parentId, labelIds, assigneeIds, typeId).",
     inputSchema: {
       type: "object",
       properties: {
@@ -461,8 +461,8 @@ export const MCP_TOOLS = [
         dueDate: { type: "string", description: "Updated ISO due date string or empty string to clear" },
         columnId: { type: "string", description: "Move to a different column ID" },
         parentId: { type: "string", description: "Updated parent card ID or empty string to detach" },
+        labelIds: { type: "array", items: { type: "string" }, description: "Updated list of label IDs (pass [] to clear)" },
         assigneeIds: { type: "array", items: { type: "string" }, description: "Optional list of assigned user IDs" },
-        labelIds: { type: "array", items: { type: "string" }, description: "Optional list of label IDs to replace existing labels" },
         typeId: { type: "string", description: "Updated card type ID or empty string to clear" },
       },
       required: ["id"],
