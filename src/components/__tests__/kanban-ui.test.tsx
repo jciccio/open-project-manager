@@ -3,8 +3,15 @@ import { describe, it, expect, vi } from "vitest";
 import ProjectCard from "../ProjectCard";
 import TaskCard from "../TaskCard";
 import KanbanColumn from "../KanbanColumn";
+import KanbanBoard from "../KanbanBoard";
 import { LanguageProvider } from "../LanguageProvider";
 import { ThemeProvider } from "../ThemeProvider";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
+  usePathname: () => "/projects/p1",
+}));
 
 function renderWithProviders(ui: React.ReactNode) {
   return render(
@@ -121,6 +128,180 @@ describe("Kanban & Project UI Components", () => {
 
     fireEvent.click(rightBtn);
     expect(onMoveRight).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows 'Drop cards here' when column is empty and isFiltered is false", () => {
+    const mockColumn = {
+      id: "col1",
+      projectId: "p1",
+      name: "Empty Column",
+      order: 1,
+      cards: [],
+    };
+
+    renderWithProviders(
+      <KanbanColumn
+        column={mockColumn}
+        onCardClick={vi.fn()}
+        onRefresh={vi.fn()}
+        onDragStartCard={vi.fn()}
+        onDropCard={vi.fn()}
+        isFiltered={false}
+      />
+    );
+
+    expect(screen.getByText("Drop cards here")).toBeInTheDocument();
+    expect(screen.queryByText("No cards match")).not.toBeInTheDocument();
+  });
+
+  it("shows 'No cards match' and does not say 'Drop cards here' when isFiltered is true", () => {
+    const mockColumn = {
+      id: "col1",
+      projectId: "p1",
+      name: "Filtered Empty Column",
+      order: 1,
+      cards: [],
+    };
+
+    renderWithProviders(
+      <KanbanColumn
+        column={mockColumn}
+        onCardClick={vi.fn()}
+        onRefresh={vi.fn()}
+        onDragStartCard={vi.fn()}
+        onDropCard={vi.fn()}
+        isFiltered={true}
+      />
+    );
+
+    expect(screen.getByText("No cards match")).toBeInTheDocument();
+    expect(screen.queryByText("Drop cards here")).not.toBeInTheDocument();
+  });
+
+  it("shows match count and 'No cards match' for filtered columns, while truly empty columns keep 'Drop cards here'", () => {
+    const mockProject = {
+      id: "p1",
+      name: "Board Test",
+      key: "BRD",
+      columns: [
+        {
+          id: "col-1",
+          name: "To Do",
+          group: "UNSTARTED",
+          order: 0,
+          cards: [
+            {
+              id: "c1",
+              title: "Alpha Task",
+              number: 1,
+              priority: "HIGH",
+              projectId: "p1",
+              columnId: "col-1",
+            },
+          ],
+        },
+        {
+          id: "col-2",
+          name: "In Review",
+          group: "STARTED",
+          order: 1,
+          cards: [], // truly empty column
+        },
+      ],
+      members: [],
+      cardTypes: [],
+      savedViews: [],
+    };
+
+    renderWithProviders(<KanbanBoard project={mockProject} />);
+
+    // Initially no filter is active: col-1 shows "Alpha Task", col-2 shows "Drop cards here"
+    expect(screen.getByText("Alpha Task")).toBeInTheDocument();
+    expect(screen.getByText("Drop cards here")).toBeInTheDocument();
+    expect(screen.queryByText(/matching card/i)).not.toBeInTheDocument();
+
+    // Type a query that matches nothing
+    const searchInput = screen.getByPlaceholderText(/search/i);
+    fireEvent.change(searchInput, { target: { value: "NonExistent" } });
+
+    // Match count appears near the search box with status role for screen readers
+    expect(screen.getByRole("status")).toHaveTextContent("0 matching cards");
+
+    // Column 1 (which had cards) now shows "No cards match" instead of "Drop cards here"
+    expect(screen.getByText("No cards match")).toBeInTheDocument();
+
+    // Column 2 (which was originally empty) still shows "Drop cards here"
+    expect(screen.getByText("Drop cards here")).toBeInTheDocument();
+
+    // Change search to match Alpha Task
+    fireEvent.change(searchInput, { target: { value: "Alpha" } });
+    expect(screen.getByRole("status")).toHaveTextContent("1 matching card");
+    expect(screen.getByText("Alpha Task")).toBeInTheDocument();
+  });
+
+  it("does not show match count when only hideSubtasks is toggled", () => {
+    const mockProject = {
+      id: "p1",
+      name: "Subtask Test",
+      key: "SUB",
+      columns: [
+        {
+          id: "col-1",
+          name: "To Do",
+          group: "UNSTARTED",
+          order: 0,
+          cards: [
+            { id: "c1", title: "Parent Task", number: 1, priority: "NONE", projectId: "p1", columnId: "col-1" },
+            { id: "c2", title: "Subtask", number: 2, parentId: "c1", priority: "NONE", projectId: "p1", columnId: "col-1" },
+          ],
+        },
+      ],
+      members: [],
+      cardTypes: [],
+      savedViews: [],
+    };
+
+    renderWithProviders(<KanbanBoard project={mockProject} />);
+
+    // Toggle hide subtasks
+    const hideBtn = screen.getByRole("button", { name: /hide subtasks/i });
+    fireEvent.click(hideBtn);
+
+    // Subtask is hidden, but match count indicator should NOT be shown because search/filter is not active
+    expect(screen.queryByText(/matching card/i)).not.toBeInTheDocument();
+  });
+
+  it("counts matching subtasks in List view even when Hide subtasks is enabled", () => {
+    const mockProject = {
+      id: "p1",
+      name: "List Count Test",
+      key: "SUB",
+      columns: [
+        {
+          id: "col-1",
+          name: "To Do",
+          group: "UNSTARTED",
+          order: 0,
+          cards: [
+            { id: "c1", title: "Parent Task", number: 1, priority: "NONE", projectId: "p1", columnId: "col-1", labels: [], assignees: [] },
+            { id: "c2", title: "Child Bug", number: 2, parentId: "c1", priority: "NONE", projectId: "p1", columnId: "col-1", labels: [], assignees: [] },
+          ],
+        },
+      ],
+      members: [],
+      cardTypes: [],
+      savedViews: [],
+    };
+
+    renderWithProviders(<KanbanBoard project={mockProject} />);
+
+    // Switch to List view, toggle Hide subtasks, and search for the subtask
+    fireEvent.click(screen.getByRole("button", { name: /^list$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /hide subtasks/i }));
+    fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: "Child" } });
+
+    expect(screen.getByRole("status")).toHaveTextContent("1 matching card");
+    expect(screen.getByText("Child Bug")).toBeInTheDocument();
   });
 });
 
