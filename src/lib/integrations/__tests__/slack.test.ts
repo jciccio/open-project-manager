@@ -11,6 +11,7 @@ import {
   handleSlackSlashCommand,
   linkSlackUser,
   escapeSlackMrkdwn,
+  decodeSlackText,
 } from "../slack";
 
 describe("Slack Integration", () => {
@@ -614,6 +615,101 @@ describe("Slack Integration", () => {
       });
       expect(card).not.toBeNull();
       expect(card?.title).toBe("Fix A & B <feature> docs");
+    });
+
+    it("decodeSlackText decodes &amp; last to preserve encoded entities", () => {
+      expect(decodeSlackText("&amp;lt;b&amp;gt;")).toBe("&lt;b&gt;");
+    });
+
+    it("escapes project and owner names containing Slack mrkdwn in responses", async () => {
+      const malOwner = await createTestUser(`mal-owner-${Date.now()}`);
+      try {
+        await db.user.update({
+          where: { id: malOwner.user.id },
+          data: { name: "<https://evil.example|Click to pwn>" },
+        });
+
+        const evilProject = await db.project.create({
+          data: {
+            userId: malOwner.user.id,
+            name: "<https://evil.example|Phishing Project>",
+            key: "EVILP",
+            color: "#ef4444",
+            visibility: "INTERNAL",
+            members: {
+              create: {
+                userId,
+                role: "MEMBER",
+              },
+            },
+          },
+        });
+
+        // 1. Project with no columns escaping
+        const noColRes = await handleSlackSlashCommand({
+          command: "/opm",
+          text: `create EVILP Some title`,
+          user_id: "U_TEST_USER",
+        });
+        expect(noColRes.text).toContain("&lt;https://evil.example|Phishing Project&gt;");
+        expect(noColRes.text).not.toContain("<https://evil.example|Phishing Project>");
+
+        // Add a column to evil project
+        const evilCol = await db.column.create({
+          data: { projectId: evilProject.id, name: "Backlog", order: 1 },
+        });
+        await db.card.create({
+          data: { projectId: evilProject.id, columnId: evilCol.id, title: "Evil Card", number: 1, order: 1000 },
+        });
+
+        // Create second project with same key to trigger ambiguity
+        const secondOwner = await createTestUser(`second-owner-${Date.now()}`);
+        try {
+          const secondProject = await db.project.create({
+            data: {
+              userId: secondOwner.user.id,
+              name: "Legit Project",
+              key: "EVILP",
+              color: "#6366f1",
+              visibility: "INTERNAL",
+              members: {
+                create: {
+                  userId,
+                  role: "MEMBER",
+                },
+              },
+            },
+          });
+          const legitCol = await db.column.create({
+            data: { projectId: secondProject.id, name: "Backlog", order: 1 },
+          });
+          await db.card.create({
+            data: { projectId: secondProject.id, columnId: legitCol.id, title: "Legit Card", number: 1, order: 1000 },
+          });
+
+          // 2. Ambiguous get card owner escaping
+          const ambigRes = await handleSlackSlashCommand({
+            command: "/opm",
+            text: `get EVILP-1`,
+            user_id: "U_TEST_USER",
+          });
+          expect(ambigRes.text).toContain("&lt;https://evil.example|Click to pwn&gt;");
+          expect(ambigRes.text).not.toContain("<https://evil.example|Click to pwn>");
+
+          // 3. Ambiguous create project owner escaping
+          const ambigCreate = await handleSlackSlashCommand({
+            command: "/opm",
+            text: `create EVILP Ambiguous Title`,
+            user_id: "U_TEST_USER",
+          });
+          expect(ambigCreate.text).toContain("&lt;https://evil.example|Click to pwn&gt;");
+          expect(ambigCreate.text).not.toContain("<https://evil.example|Click to pwn>");
+        } finally {
+          await cleanupTestUser(secondOwner.user.id);
+        }
+      } finally {
+        await cleanupTestUser(malOwner.user.id);
+      }
     });
 
     it("invalidates linked user when the underlying API token is deleted", async () => {

@@ -30,10 +30,10 @@ export function decodeSlackText(text: string): string {
     .replace(/<@[A-Z0-9]+(?:\|([^>]+))?>/g, (_, name) => (name ? `@${name}` : "@user"))
     .replace(/<#[A-Z0-9]+(?:\|([^>]+))?>/g, (_, name) => (name ? `#${name}` : "#channel"))
     .replace(/<(https?:\/\/[^|>]+)(?:\|([^>]+))?>/g, (_, url, label) => label || url)
-    .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, "&")
     .trim();
 }
 
@@ -317,7 +317,7 @@ async function resolveProject(target: string, opmUserId: string) {
   if (candidates.length === 1) return { project: candidates[0] };
 
   // Ambiguous: multiple shared projects with same key
-  const owners = candidates.map((p) => p.user.name || p.user.email).join(", ");
+  const owners = candidates.map((p) => escapeSlackMrkdwn(p.user.name || p.user.email)).join(", ");
   return {
     error: `Multiple projects match key "${keyOrId.toUpperCase()}" (owned by: ${owners}). Please specify owner (e.g. \`/opm create <owner>/${keyOrId.toUpperCase()} <title>\`).`,
   };
@@ -336,7 +336,7 @@ async function createCardInProject(
   if (project.columns.length === 0) {
     return {
       response_type: "ephemeral" as const,
-      text: `Project "${project.name}" has no columns to place the card in.`,
+      text: `Project "${escapeSlackMrkdwn(project.name)}" has no columns to place the card in.`,
     };
   }
 
@@ -569,7 +569,7 @@ export async function handleSlackSlashCommand(params: {
 
     if (!card) {
       if (matchingCards.length > 1 && !ownerFilter) {
-        const owners = matchingCards.map((c) => c.project.user.name || c.project.user.email).join(", ");
+        const owners = matchingCards.map((c) => escapeSlackMrkdwn(c.project.user.name || c.project.user.email)).join(", ");
         return {
           response_type: "ephemeral",
           text: `Multiple projects have card "${identifier}" (owned by: ${owners}). Please disambiguate with \`/opm get <owner>/${identifier}\`.`,
