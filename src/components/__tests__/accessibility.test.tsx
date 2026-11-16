@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import NewProjectModal from "../NewProjectModal";
 import CardDetailModal from "../CardDetailModal";
@@ -584,35 +584,45 @@ describe("Accessibility (Issue #113)", () => {
     });
 
     it("does not prompt token-dismissal confirmation after copying generated token in UserProfileModal", async () => {
-      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
-      const writeTextMock = vi.fn().mockResolvedValue(undefined);
-      Object.defineProperty(navigator, "clipboard", {
-        configurable: true,
-        value: { writeText: writeTextMock },
-      });
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+        const writeTextMock = vi.fn().mockResolvedValue(undefined);
+        Object.defineProperty(navigator, "clipboard", {
+          configurable: true,
+          value: { writeText: writeTextMock },
+        });
 
-      const onClose = vi.fn();
-      render(
-        <LanguageProvider>
-          <UserProfileModal
-            user={{ userId: "u1", name: "Alice", email: "alice@example.com" }}
-            onClose={onClose}
-          />
-        </LanguageProvider>
-      );
+        const onClose = vi.fn();
+        render(
+          <LanguageProvider>
+            <UserProfileModal
+              user={{ userId: "u1", name: "Alice", email: "alice@example.com" }}
+              onClose={onClose}
+            />
+          </LanguageProvider>
+        );
 
-      const tokenInput = screen.getByPlaceholderText(/Token name/i);
-      fireEvent.change(tokenInput, { target: { value: "CI Token" } });
-      fireEvent.click(screen.getByRole("button", { name: /Generate API Token/i }));
+        const tokenInput = screen.getByPlaceholderText(/Token name/i);
+        fireEvent.change(tokenInput, { target: { value: "CI Token" } });
+        fireEvent.click(screen.getByRole("button", { name: /Generate API Token/i }));
 
-      expect(await screen.findByText(/Copy Token/i)).toBeInTheDocument();
-      fireEvent.click(screen.getByRole("button", { name: /Copy Token/i }));
-      await waitFor(() => expect(writeTextMock).toHaveBeenCalledWith("opm_secret_token_123"));
-      expect(await screen.findByText(/Copied!/i)).toBeInTheDocument();
+        expect(await screen.findByText(/Copy Token/i)).toBeInTheDocument();
+        fireEvent.click(screen.getByRole("button", { name: /Copy Token/i }));
+        await waitFor(() => expect(writeTextMock).toHaveBeenCalledWith("opm_secret_token_123"));
+        expect(await screen.findByText(/Copied!/i)).toBeInTheDocument();
 
-      fireEvent.keyDown(window, { key: "Escape" });
-      expect(confirmSpy).not.toHaveBeenCalled();
-      expect(onClose).toHaveBeenCalled();
+        // Advance timers past 2s so copiedToken expires back to false, exercising tokenCopiedOnce
+        act(() => {
+          vi.advanceTimersByTime(2100);
+        });
+
+        fireEvent.keyDown(window, { key: "Escape" });
+        expect(confirmSpy).not.toHaveBeenCalled();
+        expect(onClose).toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("moves focus to <main> fallback when opener is detached after modal close", async () => {

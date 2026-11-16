@@ -487,6 +487,12 @@ export default function CardDetailModal({
     setIsAddingSubtask(false);
     setNewSubtaskTitle("");
     setSubtaskError("");
+    setCommentContent("");
+    setNewLinkUrl("");
+    setNewLinkTitle("");
+    setTargetIdentifierInput("");
+    setEditingCommentId(null);
+    setEditingCommentText("");
     setSavedSnapshot(getCardSnapshot(card));
     // Only reset form state when opening a different card; keep in-progress edits on background refresh
     // eslint-disable-next-line react-hooks/exhaustive-deps
