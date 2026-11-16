@@ -196,6 +196,17 @@ describe("Card search by identifier and bare number (#270)", () => {
     expect(screen.getByText("Implement auth")).toBeInTheDocument();
     expect(screen.queryByText("Refactor database")).not.toBeInTheDocument();
   });
+
+  it("KanbanBoard reports correct matchingCardsCount when searching by identifier in list view", () => {
+    renderWithProviders(<KanbanBoard project={mockProject} />);
+    const listViewBtn = screen.getByRole("button", { name: /list/i });
+    fireEvent.click(listViewBtn);
+
+    const searchInput = screen.getByPlaceholderText(/search/i);
+    fireEvent.change(searchInput, { target: { value: "OPM-42" } });
+
+    expect(screen.getByText(/1 matching card/i)).toBeInTheDocument();
+  });
 });
 
 describe("Deep linking and Copy link in modal (#270)", () => {

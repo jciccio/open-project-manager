@@ -657,8 +657,9 @@ export async function getCardByProjectAndParam(projectId: string, param: string,
     if (!card && clean.includes("-")) {
       const lastDash = clean.lastIndexOf("-");
       const key = clean.slice(0, lastDash).toUpperCase();
-      const num = parseInt(clean.slice(lastDash + 1), 10);
-      if (!isNaN(num)) {
+      const numStr = clean.slice(lastDash + 1);
+      const num = parseInt(numStr, 10);
+      if (!isNaN(num) && String(num) === numStr) {
         card = await db.card.findFirst({
           where: { number: num, project: { key }, projectId },
           include,

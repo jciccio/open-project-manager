@@ -61,6 +61,15 @@ describe("getCardByProjectAndParam", () => {
     expect((await getCardByProjectAndParam(projectA.id, "1", viewerId)).data?.id).toBe(cardA.id);
     expect((await getCardByProjectAndParam(projectA.id, "#1", viewerId)).data?.id).toBe(cardA.id);
     expect((await getCardByProjectAndParam(projectA.id, cardA.id, viewerId)).data?.id).toBe(cardA.id);
+
+    // Invalid suffix or zero-padded numbers do not resolve
+    const invalidSuffix = await getCardByProjectAndParam(projectA.id, "ALPHA-1abc", viewerId);
+    expect(invalidSuffix.success).toBe(false);
+    expect(invalidSuffix.kind).toBe("not_found");
+
+    const leadingZero = await getCardByProjectAndParam(projectA.id, "ALPHA-001", viewerId);
+    expect(leadingZero.success).toBe(false);
+    expect(leadingZero.kind).toBe("not_found");
   });
 
   it("loads archived cards with active children and child column.isDone state while omitting archived children", async () => {

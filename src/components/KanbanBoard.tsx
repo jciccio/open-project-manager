@@ -426,8 +426,9 @@ export default function KanbanBoard({ project, initialCardParam, initialCard }: 
       searchQuery: deferredSearchQuery,
       priorityFilter,
       typeFilter,
+      projectKey: project.key,
     }).length;
-  }, [viewMode, columnsWithFilteredCards, project.columns, deferredSearchQuery, priorityFilter, typeFilter]);
+  }, [viewMode, columnsWithFilteredCards, project.columns, deferredSearchQuery, priorityFilter, typeFilter, project.key]);
 
   function toggleClosedColumn(columnId: string) {
     setExpandedClosedColumnIds((current) => {
