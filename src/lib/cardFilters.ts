@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { cardTextSearch } from "@/lib/cardSearch";
+import { cardTextSearch, containsText } from "@/lib/cardSearch";
 import { parseColumnGroupFilter } from "@/lib/columnGroups";
 import { startOfUtcToday } from "@/lib/services/projectStats";
 import { MAX_CARD_REFERENCE_IDS } from "@/lib/validation/cards";
@@ -113,7 +113,7 @@ export function buildCardWhere(
   }
 
   if (input.owner) {
-    conditions.push({ owner: { contains: input.owner } });
+    conditions.push({ owner: containsText(input.owner) });
   }
 
   if (input.assignedTo) {
@@ -457,40 +457,40 @@ export function parseCardFilterParams(
 }
 
 const cardFilterArgsShape = {
-  projectId: z.string().optional(),
-  columnId: z.string().optional(),
-  priority: z.string().optional(),
-  owner: z.string().optional(),
-  assignedTo: z.string().optional(),
-  query: z.string().optional(),
-  parentId: z.string().nullable().optional(),
-  hasParent: z.boolean().optional(),
-  typeId: z.string().optional(),
-  columnGroup: z.union([z.string(), z.array(z.string())]).optional(),
-  stateGroup: z.union([z.string(), z.array(z.string())]).optional(),
-  labelIds: z.union([z.string(), z.array(z.string())]).optional(),
-  dueBefore: z.string().optional(),
-  dueAfter: z.string().optional(),
-  isOverdue: z.boolean().optional(),
-  isArchived: z.boolean().optional(),
+  projectId: z.string().nullish(),
+  columnId: z.string().nullish(),
+  priority: z.string().nullish(),
+  owner: z.string().nullish(),
+  assignedTo: z.string().nullish(),
+  query: z.string().nullish(),
+  parentId: z.string().nullish(),
+  hasParent: z.boolean().nullish(),
+  typeId: z.string().nullish(),
+  columnGroup: z.union([z.string(), z.array(z.string())]).nullish(),
+  stateGroup: z.union([z.string(), z.array(z.string())]).nullish(),
+  labelIds: z.union([z.string(), z.array(z.string())]).nullish(),
+  dueBefore: z.string().nullish(),
+  dueAfter: z.string().nullish(),
+  isOverdue: z.boolean().nullish(),
+  isArchived: z.boolean().nullish(),
 };
 
 export const McpCountCardsArgsSchema = z
   .object({
     ...cardFilterArgsShape,
-    groupBy: z.string().optional(),
+    groupBy: z.string().nullish(),
   })
   .passthrough();
 
 export const McpListCardsArgsSchema = z
   .object({
     ...cardFilterArgsShape,
-    orderBy: z.string().optional(),
-    orderDirection: z.string().optional(),
-    count: z.boolean().optional(),
-    groupBy: z.string().optional(),
-    limit: z.union([z.number(), z.string().regex(/^\d+$/)]).optional(),
-    cursor: z.string().optional(),
-    after: z.string().optional(),
+    orderBy: z.string().nullish(),
+    orderDirection: z.string().nullish(),
+    count: z.boolean().nullish(),
+    groupBy: z.string().nullish(),
+    limit: z.union([z.number(), z.string().regex(/^\d+$/)]).nullish(),
+    cursor: z.string().nullish(),
+    after: z.string().nullish(),
   })
   .passthrough();

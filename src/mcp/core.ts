@@ -22,9 +22,7 @@ import { cardPage, cardPageQuery, decodeCardCursor, fetchCardsByPriority } from 
 import { generateProjectKey } from "@/lib/projectKey";
 import { createScopedLabel } from "@/lib/scopedLabels";
 import { verifyProjectAccess } from "@/lib/permissions";
-import { deriveCompletedAt } from "@/lib/cardCompletion";
 import { DEFAULT_PROJECT_COLUMNS, isClosedColumn, parseColumnGroupFilter } from "@/lib/columnGroups";
-import { nextCardNumber, withCardNumberRetry } from "@/lib/cardNumbering";
 import { parseColumnCreate, parseColumnUpdate } from "@/lib/validation/columns";
 import { CardCreateSchema, CardReorderSchema, CardUpdateSchema } from "@/lib/validation/cards";
 import { CardTypeCreateSchema, CardTypeUpdateSchema } from "@/lib/validation/cardTypes";
@@ -33,7 +31,6 @@ import { ProjectNameSchema } from "@/lib/validation/projects";
 import { INVALID_LINK_URL_ERROR, SafeUrlSchema } from "@/lib/validation/safeUrl";
 import { SavedViewCreateSchema, SavedViewUpdateSchema } from "@/lib/validation/views";
 import * as cardsService from "@/lib/services/cards";
-import { validateReferencedIds } from "@/lib/services/cards";
 import * as commentsService from "@/lib/services/comments";
 import * as projectsService from "@/lib/services/projects";
 import type { z } from "zod";

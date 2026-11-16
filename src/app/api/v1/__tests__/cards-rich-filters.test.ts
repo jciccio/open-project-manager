@@ -444,13 +444,15 @@ describe("REST API: Rich Card Filters & Counts (#135)", () => {
         dueDate: utcTodayStart,
       },
     });
+    const futureDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const futureDayStr = futureDate.toISOString().slice(0, 10);
     await db.card.create({
       data: {
         projectId,
         columnId: colTodoId,
         number: 303,
         title: "Same Day Late Night",
-        dueDate: new Date("2027-06-15T23:59:59.000Z"),
+        dueDate: new Date(`${futureDayStr}T23:59:59.000Z`),
       },
     });
 
@@ -458,7 +460,7 @@ describe("REST API: Rich Card Filters & Counts (#135)", () => {
     const overdueBody = await overdueRes.json();
     expect(overdueBody.data.map((c: any) => c.title)).toEqual(["Overdue Open With CompletedAt"]);
 
-    const eodRes = await authGet(`http://localhost/api/v1/cards?projectId=${projectId}&dueBefore=2027-06-15&dueAfter=2027-06-15`);
+    const eodRes = await authGet(`http://localhost/api/v1/cards?projectId=${projectId}&dueBefore=${futureDayStr}&dueAfter=${futureDayStr}`);
     const eodBody = await eodRes.json();
     expect(eodBody.data.map((c: any) => c.title)).toEqual(["Same Day Late Night"]);
   });

@@ -446,4 +446,32 @@ describe("MCP Rich Card Filters & Counts (#135)", () => {
     const eodRes = await executeMcpTool("list_cards", { projectId, dueBefore: "2026-05-10" }, { userId });
     expect(eodRes.cards.some((c: any) => c.title === "End Of Day")).toBe(true);
   });
+
+  it("accepts explicit null arguments in list_cards and count_cards without throwing validation errors", async () => {
+    const listRes = await executeMcpTool(
+      "list_cards",
+      {
+        projectId,
+        columnId: null,
+        priority: null,
+        owner: null,
+        limit: null,
+        cursor: null,
+        isOverdue: null,
+      },
+      { userId }
+    );
+    expect(listRes.cards).toBeDefined();
+
+    const countRes = await executeMcpTool(
+      "count_cards",
+      {
+        projectId,
+        priority: null,
+        groupBy: null,
+      },
+      { userId }
+    );
+    expect(countRes.count).toBeDefined();
+  });
 });
