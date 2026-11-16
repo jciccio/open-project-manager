@@ -31,7 +31,7 @@ describe("OIDC login route failures", () => {
     const res = await oidcLogin(new NextRequest("https://opm.example.com/api/v1/auth/oidc/login"));
 
     expect(res.headers.get("location")).toBe("https://opm.example.com/login?error=oidc_failed");
-    expect(res.cookies.get("opm_oidc_state")).toBeUndefined();
+    expect(res.cookies.getAll().some((c) => c.name.startsWith("opm_oidc_flow_"))).toBe(false);
     expect(error).toHaveBeenCalledWith("OIDC login error:", expect.any(Error));
   });
 });

@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { useTranslation } from "./LanguageProvider";
 import { formatDate } from "@/lib/formatDate";
 import ErrorBanner from "./ErrorBanner";
+import { useModalA11y, useBackdropClose } from "./useModalA11y";
 
 interface Props {
   user: {
@@ -34,6 +35,9 @@ interface ApiTokenSummary {
 }
 
 export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props) {
+  const { t, locale } = useTranslation();
+  const router = useRouter();
+
   const [name, setName] = useState(user.name);
   const [email, setEmail] = useState(user.email);
   const [currentPassword, setCurrentPassword] = useState("");
@@ -46,7 +50,31 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
   const [tokenLoading, setTokenLoading] = useState(false);
   const [showToken, setShowToken] = useState(false);
   const [copiedToken, setCopiedToken] = useState(false);
+  const [tokenCopiedOnce, setTokenCopiedOnce] = useState(false);
   const [copiedHeader, setCopiedHeader] = useState(false);
+
+  const isProfileDirty =
+    name.trim() !== (user.name || "").trim() ||
+    email.trim() !== (user.email || "").trim() ||
+    currentPassword !== "" ||
+    newPassword !== "";
+
+  const handleGuardedClose = () => {
+    if (apiToken && !copiedToken && !tokenCopiedOnce) {
+      if (!confirm(t("profileModal.confirmDismissToken"))) {
+        return;
+      }
+    }
+    if (isProfileDirty) {
+      if (!confirm(t("cardModal.confirmDiscard"))) {
+        return;
+      }
+    }
+    onClose();
+  };
+
+  const modalRef = useModalA11y(handleGuardedClose);
+  const backdropProps = useBackdropClose(handleGuardedClose);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -71,10 +99,6 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
   } | null>(null);
 
   const [currentTime] = useState(() => Date.now());
-
-  const { t, locale } = useTranslation();
-  const router = useRouter();
-
   const ssoLinkMessageKey = ssoLinkResult
     ? SSO_LINK_MESSAGES[ssoLinkResult as keyof typeof SSO_LINK_MESSAGES] ?? "ssoLinkFailed"
     : null;
@@ -117,6 +141,8 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
       const res = await createApiToken(newTokenName.trim(), expiresInDays);
       if (res.success && res.token) {
         setApiToken(res.token.secret);
+        setCopiedToken(false);
+        setTokenCopiedOnce(false);
         setNewTokenName("");
         setTokenExpiration("365");
         setShowToken(false);
@@ -158,6 +184,7 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
     }
     navigator.clipboard.writeText(apiToken).then(() => {
       setCopiedToken(true);
+      setTokenCopiedOnce(true);
       setTimeout(() => setCopiedToken(false), 2000);
     });
   }
@@ -170,6 +197,7 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
     }
     navigator.clipboard.writeText(`Authorization: Bearer ${apiToken}`).then(() => {
       setCopiedHeader(true);
+      setTokenCopiedOnce(true);
       setTimeout(() => setCopiedHeader(false), 2000);
     });
   }
@@ -235,19 +263,30 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4">
-      <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-5 relative max-h-[90vh] overflow-y-auto">
+    <div
+      {...backdropProps}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4"
+    >
+      <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        tabIndex={-1}
+        aria-labelledby="user-profile-title"
+        className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-5 relative max-h-[90vh] overflow-y-auto focus:outline-none"
+      >
         <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400">
               <User className="h-5 w-5" />
             </div>
-            <h3 className="font-bold text-lg text-slate-900 dark:text-white">
+            <h3 id="user-profile-title" className="font-bold text-lg text-slate-900 dark:text-white">
               {t("profileModal.title")}
             </h3>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleGuardedClose}
+            aria-label={t("profileModal.close")}
             className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
           >
             <X className="h-5 w-5" />
@@ -602,7 +641,7 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
           <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-200 dark:border-slate-800">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleGuardedClose}
               className="rounded-xl bg-slate-100 dark:bg-slate-800 px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
             >
               {t("kanban.cancel")}

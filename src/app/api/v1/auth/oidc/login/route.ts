@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as client from "openid-client";
-import { getOidcConfig, getOidcRedirectUri, isOidcConfigured } from "@/lib/oidc";
+import {
+  getOidcConfig,
+  getOidcFlowCookiePath,
+  getOidcRedirectUri,
+  isOidcConfigured,
+  OIDC_COOKIE_MAX_AGE,
+  OIDC_FLOW_COOKIE_PREFIX,
+  signOidcFlow,
+} from "@/lib/oidc";
 import { determineCookieSecurity, getSession } from "@/lib/auth";
-
-const OIDC_COOKIE_MAX_AGE = 600; // 10 minutes — long enough to complete a login redirect
 
 export async function GET(request: NextRequest) {
   if (!isOidcConfigured()) {
@@ -11,7 +17,8 @@ export async function GET(request: NextRequest) {
   }
 
   const linkMode = request.nextUrl.searchParams.get("link") === "1";
-  if (linkMode && !(await getSession())) {
+  const session = linkMode ? await getSession() : null;
+  if (linkMode && !session) {
     return NextResponse.redirect(new URL("/login", new URL(getOidcRedirectUri()).origin));
   }
 
@@ -35,21 +42,34 @@ export async function GET(request: NextRequest) {
 
     const response = NextResponse.redirect(authorizationUrl);
     const isSecure = await determineCookieSecurity();
-    const cookieOptions = {
+    const cookiePath = getOidcFlowCookiePath();
+    const flowCookieOptions = {
       httpOnly: true,
       secure: isSecure,
       sameSite: "lax" as const,
-      path: "/",
+      path: cookiePath,
       maxAge: OIDC_COOKIE_MAX_AGE,
     };
-    response.cookies.set("opm_oidc_verifier", codeVerifier, cookieOptions);
-    response.cookies.set("opm_oidc_state", state, cookieOptions);
-    response.cookies.set("opm_oidc_nonce", nonce, cookieOptions);
-    if (linkMode) {
-      response.cookies.set("opm_oidc_link", "1", cookieOptions);
-    } else {
-      response.cookies.delete("opm_oidc_link");
+
+    // Prune older flow cookies to prevent header size overflow
+    const existingFlowCookies = request.cookies
+      .getAll()
+      .filter((c) => c.name.startsWith(OIDC_FLOW_COOKIE_PREFIX));
+    if (existingFlowCookies.length >= 5) {
+      for (const oldCookie of existingFlowCookies.slice(0, existingFlowCookies.length - 4)) {
+        response.cookies.delete({ name: oldCookie.name, path: cookiePath });
+      }
     }
+
+    const signedFlow = await signOidcFlow({
+      verifier: codeVerifier,
+      state,
+      nonce,
+      link: linkMode ? 1 : 0,
+      linkUserId: session?.userId,
+    });
+
+    response.cookies.set(`${OIDC_FLOW_COOKIE_PREFIX}${state}`, signedFlow, flowCookieOptions);
 
     return response;
   } catch (error) {
