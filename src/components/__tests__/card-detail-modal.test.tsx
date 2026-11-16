@@ -308,7 +308,10 @@ describe("CardDetailModal", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /post/i }));
 
-    await waitFor(() => expect(addComment).toHaveBeenCalledWith("card1", "Posted while loading"));
+    await waitFor(() => {
+      expect(addComment).toHaveBeenCalledWith("card1", "Posted while loading");
+      expect(screen.getByPlaceholderText("Write a comment...")).toHaveValue("");
+    });
 
     resolveComments({
       success: true,
@@ -330,11 +333,30 @@ describe("CardDetailModal", () => {
     ).not.toBe(0);
   });
 
-  it("clears commentsError when posting a comment after initial comment load fails", async () => {
-    vi.mocked(listComments).mockResolvedValueOnce({
-      success: false,
-      error: "Failed to load",
-    } as never);
+  it("clears commentsError, refetches existing comments, and preserves count badge when posting after initial load fails", async () => {
+    vi.mocked(listComments)
+      .mockResolvedValueOnce({
+        success: false,
+        error: "Failed to load",
+      } as never)
+      .mockResolvedValueOnce({
+        success: true,
+        data: [
+          {
+            id: "c-existing-1",
+            author: "Bob",
+            content: "Existing comment 1",
+            createdAt: new Date(Date.now() - 60_000).toISOString(),
+          },
+          {
+            id: "c-existing-2",
+            author: "Charlie",
+            content: "Existing comment 2",
+            createdAt: new Date(Date.now() - 30_000).toISOString(),
+          },
+        ],
+      } as never);
+
     vi.mocked(addComment).mockResolvedValueOnce({
       success: true,
       data: {
@@ -357,6 +379,24 @@ describe("CardDetailModal", () => {
     fireEvent.click(screen.getByRole("button", { name: /post/i }));
 
     expect(await screen.findByText("Recovered comment")).toBeInTheDocument();
+    expect(await screen.findByText("Existing comment 1")).toBeInTheDocument();
+    expect(screen.getByText("Existing comment 2")).toBeInTheDocument();
     expect(screen.queryByText("Failed to load comments.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /comments/i })).toHaveTextContent("3");
+  });
+
+  it("reflects loaded comments count in badge when comments finish loading with 0 comments even with stale _count", async () => {
+    vi.mocked(listComments).mockResolvedValueOnce({
+      success: true,
+      data: [],
+    } as never);
+
+    renderWithProviders(
+      <CardDetailModal card={buildCard({ _count: { comments: 1 } })} columns={columns} onClose={vi.fn()} onRefresh={vi.fn()} />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /comments/i })).toHaveTextContent("0");
+    });
   });
 });
