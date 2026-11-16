@@ -3,6 +3,7 @@ import type { JWTPayload } from "jose";
 export const TOKEN_ISSUER = "open-project-manager";
 export const SESSION_AUDIENCE = "opm:session";
 export const API_TOKEN_AUDIENCE = "opm:api";
+export const OIDC_FLOW_AUDIENCE = "opm:oidc-flow";
 
 // Tokens signed before iss/aud were added carry neither claim. They still
 // verify until their own `exp`, at most 365 days after they were issued, so
