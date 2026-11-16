@@ -66,7 +66,8 @@ export async function readOidcFlow(
       typeof payload.state !== "string" ||
       typeof payload.nonce !== "string" ||
       typeof payload.link !== "number" ||
-      payload.state !== expectedState
+      payload.state !== expectedState ||
+      (payload.link === 1 && typeof payload.linkUserId !== "string")
     ) {
       return null;
     }

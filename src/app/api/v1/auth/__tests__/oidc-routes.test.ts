@@ -28,13 +28,19 @@ vi.mock("openid-client", () => ({
 import { GET as oidcLogin } from "../oidc/login/route";
 import { GET as oidcCallback } from "../oidc/callback/route";
 
-async function createFlowCookie(overrides: { verifier?: string; state?: string; nonce?: string; link?: number } = {}) {
-  const token = await new SignJWT({
+async function createFlowCookie(overrides: { verifier?: string; state?: string; nonce?: string; link?: number; linkUserId?: string } = {}) {
+  const payload: Record<string, unknown> = {
     verifier: overrides.verifier ?? "verifier",
     state: overrides.state ?? "state",
     nonce: overrides.nonce ?? "nonce",
     link: overrides.link ?? 0,
-  })
+  };
+  if (overrides.linkUserId !== undefined) {
+    payload.linkUserId = overrides.linkUserId;
+  } else if (overrides.link === 1) {
+    payload.linkUserId = "session-user";
+  }
+  const token = await new SignJWT(payload)
     .setProtectedHeader({ alg: "HS256" })
     .setIssuer(TOKEN_ISSUER)
     .setAudience(OIDC_FLOW_AUDIENCE)
@@ -117,7 +123,7 @@ describe("OIDC routes", () => {
     const sub = `sub-link-${Date.now()}`;
     idTokenClaims.current = { iss: "https://idp.example.com", sub, email: user.email, email_verified: true };
 
-    const flowCookie = await createFlowCookie({ link: 1 });
+    const flowCookie = await createFlowCookie({ link: 1, linkUserId: user.id });
     const res = await callback("", "state", flowCookie);
 
     expect(res.headers.get("location")).toBe("https://opm.example.com/?sso_link=linked");
@@ -127,7 +133,7 @@ describe("OIDC routes", () => {
   it("treats a link-mode callback without a session as expired", async () => {
     idTokenClaims.current = { iss: "https://idp.example.com", sub: `sub-${Date.now()}`, email: "x@example.com", email_verified: true };
 
-    const flowCookie = await createFlowCookie({ link: 1 });
+    const flowCookie = await createFlowCookie({ link: 1, linkUserId: "expired-test-user" });
     const res = await callback("", "state", flowCookie);
 
     expect(res.headers.get("location")).toBe("https://opm.example.com/login?error=oidc_session_expired");
@@ -222,6 +228,46 @@ describe("OIDC routes", () => {
       })
     );
     expect(resMismatch.headers.get("location")).toBe("https://opm.example.com/login?error=oidc_session_expired");
+
+    // Link-mode flow token missing linkUserId
+    const linkWithoutUser = await new SignJWT({
+      verifier: "v",
+      state: "state",
+      nonce: "n",
+      link: 1,
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuer(TOKEN_ISSUER)
+      .setAudience(OIDC_FLOW_AUDIENCE)
+      .setIssuedAt()
+      .setExpirationTime("600s")
+      .sign(JWT_SECRET);
+    const resNoUser = await oidcCallback(
+      new NextRequest("https://opm.example.com/api/v1/auth/oidc/callback?code=abc&state=state", {
+        headers: { cookie: `opm_oidc_flow_state=${linkWithoutUser}` },
+      })
+    );
+    expect(resNoUser.headers.get("location")).toBe("https://opm.example.com/login?error=oidc_session_expired");
+
+    // Expired flow token
+    const expiredToken = await new SignJWT({
+      verifier: "v",
+      state: "state",
+      nonce: "n",
+      link: 0,
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuer(TOKEN_ISSUER)
+      .setAudience(OIDC_FLOW_AUDIENCE)
+      .setIssuedAt(Math.floor(Date.now() / 1000) - 1000)
+      .setExpirationTime(Math.floor(Date.now() / 1000) - 10)
+      .sign(JWT_SECRET);
+    const resExpired = await oidcCallback(
+      new NextRequest("https://opm.example.com/api/v1/auth/oidc/callback?code=abc&state=state", {
+        headers: { cookie: `opm_oidc_flow_state=${expiredToken}` },
+      })
+    );
+    expect(resExpired.headers.get("location")).toBe("https://opm.example.com/login?error=oidc_session_expired");
 
     // Missing flow cookie with legacy cookies present
     const resLegacyOnly = await oidcCallback(
@@ -422,6 +468,7 @@ describe("OIDC routes", () => {
     expect(res.headers.get("location")).toBe("https://opm.example.com/?sso_link=failed");
     const del = res.cookies.get("opm_oidc_flow_state_cancel");
     expect(del?.value).toBe("");
+    expect(del?.path).toBe(getOidcFlowCookiePath());
   });
 
   it("falls back to '/' for root-level and rewritten redirect URIs so cookies reach both login and callback", () => {

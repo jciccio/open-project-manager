@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
     if (linkMode && !linkSession) {
       return redirectToLogin(publicOrigin, "oidc_session_expired", returnedState);
     }
-    if (linkMode && flow.linkUserId && linkSession?.userId !== flow.linkUserId) {
+    if (linkMode && linkSession?.userId !== flow.linkUserId) {
       return redirectClearingFlow(new URL("/?sso_link=failed", publicOrigin), returnedState);
     }
 
