@@ -388,7 +388,7 @@ export const MCP_TOOLS = [
   },
   {
     name: "get_card",
-    description: "Retrieve complete details for a specific task card including comments, labels, assignees, parent, and child cards.",
+    description: "Retrieve complete details for a specific task card including comments, labels, assignees, links, parent, and child cards.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1211,6 +1211,7 @@ export async function executeMcpTool(
           assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
           parent: { select: { id: true, number: true, title: true } },
           children: { select: { id: true, number: true, title: true, completedAt: true } },
+          links: true,
         },
       });
       if (!card || !(await verifyProjectAccess(card.projectId, userId, "VIEWER"))) {
@@ -1251,6 +1252,7 @@ export async function executeMcpTool(
           assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
           parent: { select: { id: true, number: true, title: true } },
           children: { select: { id: true, number: true, title: true, completedAt: true } },
+          links: true,
         },
       });
 
@@ -1688,6 +1690,7 @@ export async function readMcpResource(uri: string, userId: string) {
       include: {
         column: true,
         comments: true,
+        links: true,
       },
     });
     if (!card || !(await verifyProjectAccess(card.projectId, userId, "VIEWER"))) {
