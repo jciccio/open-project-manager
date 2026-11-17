@@ -5,7 +5,7 @@ import { POST } from "../interactions/route";
 import { POST as linkCodePOST } from "../link-code/route";
 import { createTestUser, cleanupTestUser } from "@/test/helpers";
 import { db } from "@/lib/db";
-import { signApiToken } from "@/lib/auth";
+import { signApiToken, signToken } from "@/lib/auth";
 import { handleDiscordInteraction } from "@/lib/integrations/discord";
 import { proxy } from "@/proxy";
 
@@ -149,7 +149,7 @@ describe("POST /api/v1/integrations/discord/interactions", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("issues short-lived link codes from POST /api/v1/integrations/discord/link-code for authenticated users", async () => {
+  it("issues short-lived link codes from POST /api/v1/integrations/discord/link-code for cookie sessions and rejects Bearer tokens", async () => {
     const unauthReq = new NextRequest("http://localhost/api/v1/integrations/discord/link-code", {
       method: "POST",
     });
@@ -164,9 +164,26 @@ describe("POST /api/v1/integrations/discord/interactions", () => {
       apiRow.id
     );
 
-    const authReq = new NextRequest("http://localhost/api/v1/integrations/discord/link-code", {
+    // Bearer token must be rejected with 403 to prevent leaked API tokens from minting link codes
+    const bearerReq = new NextRequest("http://localhost/api/v1/integrations/discord/link-code", {
       method: "POST",
       headers: { Authorization: `Bearer ${secret}` },
+    });
+    const bearerRes = await linkCodePOST(bearerReq);
+    expect(bearerRes.status).toBe(403);
+    const bearerData = await bearerRes.json();
+    expect(bearerData.error).toContain("Forbidden");
+
+    // Cookie session succeeds
+    const sessionToken = await signToken({
+      userId: user.id,
+      email: user.email,
+      name: user.name,
+      tokenVersion: user.tokenVersion,
+    });
+    const authReq = new NextRequest("http://localhost/api/v1/integrations/discord/link-code", {
+      method: "POST",
+      headers: { Cookie: `opm_session=${sessionToken}` },
     });
     const authRes = await linkCodePOST(authReq);
     expect(authRes.status).toBe(201);

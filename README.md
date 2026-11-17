@@ -322,12 +322,12 @@ Open Project Manager supports Discord Interactions for `/opm` slash commands (Pa
      ```
      *(Accepted option name aliases in the handler also include `code` for `link`, `project` for `key`, `card` for `identifier`, and `destination`/`to` for `column`.)*
 3. **Account Linking (Short-Lived Single-Use Code)**:
-   - Recommended: generate a 10-minute single-use link code (`opm_dl_...`) from `POST /api/v1/integrations/discord/link-code` while signed in (cookie or Bearer API token):
+   - Recommended: generate a 10-minute single-use link code (`opm_dl_...`) from `POST /api/v1/integrations/discord/link-code` while signed in with an interactive browser session (cookie):
      ```bash
      curl -X POST https://your-domain.com/api/v1/integrations/discord/link-code \
-       -H "Authorization: Bearer YOUR_API_TOKEN"
+       -H "Cookie: opm_session=YOUR_SESSION_COOKIE"
      ```
-     Then run `/opm link <code_here>` in Discord. Because the link code is single-use and decoupled from your API token, revoking or rotating your API token afterward will not break your Discord link.
+     Then run `/opm link <code_here>` in Discord. To prevent leaked API tokens from being used to mint permanent Discord links, link code generation requires an active session cookie and rejects Bearer API tokens.
    - Alternatively, you can still pass an OPM API token directly to `/opm link <token>`; when linked with an API token, deleting or expiring that API token automatically revokes the Discord link.
 4. **Commands & Scope Notes**:
    - `/opm whoami`: Check which OPM user is linked to your Discord account.
