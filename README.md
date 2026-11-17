@@ -66,7 +66,7 @@ Make sure you have the necessary tools installed for your preferred setup method
 | Tool | Required For | Recommended Version | Download / Installation Link |
 |---|---|---|---|
 | **[Docker Desktop](https://www.docker.com/products/docker-desktop/)** or Docker Engine + Compose | Docker Setup | v24+ / Compose v2+ | [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/) |
-| **[Node.js](https://nodejs.org/)** | Local Development | v18.x or v20.x+ (LTS) | [nodejs.org](https://nodejs.org/) |
+| **[Node.js](https://nodejs.org/)** | Local Development | v22.x LTS (22.22.2 or newer) | [nodejs.org](https://nodejs.org/) |
 | **[Yarn](https://yarnpkg.com/)** or **npm** | Local Development | `yarn` v1.22+ or `npm` v9+ | `npm install -g yarn` |
 | **[Git](https://git-scm.com/)** | Both | Any modern version | [git-scm.com](https://git-scm.com/) |
 | **OpenSSL** | Both (Token Generation) | Preinstalled on macOS/Linux | Windows: Included with Git Bash |
