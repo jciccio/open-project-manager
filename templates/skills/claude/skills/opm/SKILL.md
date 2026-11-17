@@ -10,7 +10,7 @@ This skill allows Claude Code to directly interact with Open Project Manager (OP
 ## Available Actions
 
 ### 1. Listing Projects and Kanban Boards
-- **MCP Tool:** `list_projects`, `get_project({ id })`, or `list_columns({ projectId })` + `list_cards({ projectId })`
+- **MCP Tool:** `list_projects`, then `list_columns({ projectId })` + `list_cards({ projectId })` for cards (page with `limit` and `cursor`). `get_project({ id })` returns the project overview with per-column card counts, not the cards themselves.
 - **REST API:**
   - `GET /api/v1/projects`
   - `GET /api/v1/projects/{projectId}/columns`

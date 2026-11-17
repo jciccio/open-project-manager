@@ -12,7 +12,7 @@ export const MCP_RESOURCE_TEMPLATES = [
     uriTemplate: "opm://projects/{projectId}",
     name: "Project",
     mimeType: "application/json",
-    description: "A project with its columns and cards",
+    description: "A project overview: columns with card counts, labels and card types (no embedded cards)",
   },
   {
     uriTemplate: "opm://cards/{cardId}",
