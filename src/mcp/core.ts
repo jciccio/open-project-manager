@@ -22,7 +22,7 @@ import { cardPage, cardPageQuery, decodeCardCursor, fetchCardsByPriority } from 
 import { generateProjectKey } from "@/lib/projectKey";
 import { createScopedLabel } from "@/lib/scopedLabels";
 import { verifyProjectAccess } from "@/lib/permissions";
-import { DEFAULT_PROJECT_COLUMNS, isClosedColumn, parseColumnGroupFilter } from "@/lib/columnGroups";
+import { DEFAULT_PROJECT_COLUMNS, parseColumnGroupFilter } from "@/lib/columnGroups";
 import { parseColumnCreate, parseColumnUpdate } from "@/lib/validation/columns";
 import { CardCreateSchema, CardReorderSchema, CardUpdateSchema } from "@/lib/validation/cards";
 import { CardTypeCreateSchema, CardTypeUpdateSchema } from "@/lib/validation/cardTypes";
@@ -33,6 +33,7 @@ import { SavedViewCreateSchema, SavedViewUpdateSchema } from "@/lib/validation/v
 import * as cardsService from "@/lib/services/cards";
 import * as commentsService from "@/lib/services/comments";
 import * as projectsService from "@/lib/services/projects";
+import * as relationsService from "@/lib/services/relations";
 import type { z } from "zod";
 import {
   buildCardWhere,
@@ -1381,43 +1382,10 @@ export async function executeMcpTool(
     }
 
     case "get_card_relations": {
-      const relCard = await db.card.findUnique({ where: { id: args.cardId } });
-      if (!relCard || !(await verifyProjectAccess(relCard.projectId, userId, "VIEWER"))) throw new Error(`Card with ID ${args.cardId} not found.`);
-
-      const outgoing = await db.cardRelation.findMany({
-        where: { sourceCardId: args.cardId },
-        include: { targetCard: { include: { project: true, column: true } } },
-      });
-      const incoming = await db.cardRelation.findMany({
-        where: { targetCardId: args.cardId },
-        include: { sourceCard: { include: { project: true, column: true } } },
-      });
-
-      const relations = [
-        ...outgoing.map((r) => ({
-          id: r.id,
-          relationType: r.type,
-          cardId: r.targetCardId,
-          cardTitle: r.targetCard.title,
-          identifier: `${r.targetCard.project.key}-${r.targetCard.number}`,
-          columnName: r.targetCard.column.name,
-          isDone: r.targetCard.column.isDone,
-          isClosed: isClosedColumn(r.targetCard.column),
-          direction: "outgoing",
-        })),
-        ...incoming.map((r) => ({
-          id: r.id,
-          relationType: r.type === "BLOCKS" ? "BLOCKED_BY" : r.type === "BLOCKED_BY" ? "BLOCKS" : r.type,
-          cardId: r.sourceCardId,
-          cardTitle: r.sourceCard.title,
-          identifier: `${r.sourceCard.project.key}-${r.sourceCard.number}`,
-          columnName: r.sourceCard.column.name,
-          isDone: r.sourceCard.column.isDone,
-          isClosed: isClosedColumn(r.sourceCard.column),
-          direction: "incoming",
-        })),
-      ];
-
+      const relations = unwrapService(
+        await relationsService.getCardRelations(args.cardId, userId),
+        `Card with ID ${args.cardId} not found.`
+      );
       return { success: true, relations };
     }
 
