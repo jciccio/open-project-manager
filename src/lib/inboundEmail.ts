@@ -74,6 +74,11 @@ function domainsAlign(signingDomain: string, fromDomain: string): boolean {
 export function validateWebhookAuthVerdicts(
   payload: InboundEmailPayload
 ): { valid: true } | { valid: false; error: string } {
+  const dmarcNorm = payload.dmarc?.trim().toLowerCase();
+  if (dmarcNorm === "pass") {
+    return { valid: true };
+  }
+
   if (isFailingAuthVerdict(payload.spf)) {
     return { valid: false, error: "Inbound email rejected: SPF validation failed" };
   }
@@ -83,12 +88,7 @@ export function validateWebhookAuthVerdicts(
   if (isFailingAuthVerdict(payload.dmarc)) {
     return { valid: false, error: "Inbound email rejected: DMARC validation failed" };
   }
-
-  const dmarcNorm = payload.dmarc?.trim().toLowerCase();
   if (dmarcNorm) {
-    if (dmarcNorm === "pass") {
-      return { valid: true };
-    }
     return { valid: false, error: "Inbound email rejected: DMARC validation failed" };
   }
 
@@ -356,11 +356,19 @@ export function extractSenderEmail(sender: string): string | null {
 }
 
 function stripMarkdownImages(markdown: string): string {
-  // Neutralize any inline markdown image (![alt](url)) so remote tracking pixels do not fire on render
-  return markdown.replace(/!\[([^\]]*)\]\([^)\n]+\)/g, (_match, alt: string) => {
+  if (!markdown) return "";
+  // Neutralize inline and reference-style markdown images (supporting one level of nested brackets in alt text)
+  // so remote tracking pixels do not fire on render
+  let text = markdown.replace(/!\[((?:[^\[\]]|\[[^\[\]]*\])*)\]\[[^\]]*\]/g, (_match, alt: string) => {
     const cleanAlt = alt.trim();
     return cleanAlt ? `[Image: ${cleanAlt}]` : "";
   });
+  text = text.replace(/!\[((?:[^\[\]]|\[[^\[\]]*\])*)\]\([^)\n]+\)/g, (_match, alt: string) => {
+    const cleanAlt = alt.trim();
+    return cleanAlt ? `[Image: ${cleanAlt}]` : "";
+  });
+  text = text.replace(/^\[[^\]]+\]:\s*\S+/gm, "");
+  return text;
 }
 
 export async function processInboundEmail(
@@ -488,9 +496,9 @@ export async function processInboundEmail(
   }
 
   // Derive unique messageId for duplicate delivery prevention.
-  // Explicit Message-ID deduplicates permanently per project; fallback hashes only deduplicate
-  // within FALLBACK_DEDUPE_WINDOW_MS so recurring emails with identical text are not swallowed.
-  const rawMessageId = (payload.messageId || payload.message_id || "").trim();
+  // Explicit Message-ID deduplicates permanently per project (only for webhook relays; session users are ignored);
+  // fallback hashes only deduplicate within FALLBACK_DEDUPE_WINDOW_MS so recurring emails with identical text are not swallowed.
+  const rawMessageId = sessionUser ? "" : (payload.messageId || payload.message_id || "").trim();
   const explicitMessageId = rawMessageId
     ? rawMessageId.length > 500
       ? `sha256:${crypto.createHash("sha256").update(rawMessageId).digest("hex")}`

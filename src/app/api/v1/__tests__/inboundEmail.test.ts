@@ -381,4 +381,56 @@ describe("POST /api/v1/inbound-email", () => {
     // Should not return 401 Unauthorized
     expect(proxyRes.status).not.toBe(401);
   });
+
+  it("ignores user-supplied messageId on session requests to prevent dedupe pre-poisoning", async () => {
+    process.env.INBOUND_EMAIL_TOKEN = "secret-webhook-key-123";
+    const user = await db.user.findUnique({ where: { id: userId } });
+    const targetMsgId = "<legit-mail-123@example.com>";
+
+    // 1. Session user tries to pre-poison targetMsgId
+    const sessionReq = new NextRequest("http://localhost/api/v1/inbound-email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        to: `opm+${projectKey}@opm.local`,
+        from: user!.email,
+        subject: "Session attempt with messageId",
+        text: "Attempting to claim targetMsgId",
+        messageId: targetMsgId,
+      }),
+    });
+    const sessionRes = await POST(sessionReq);
+    expect(sessionRes.status).toBe(201);
+    const sessionData = await sessionRes.json();
+
+    // Verify stored card does not have targetMsgId as its messageId
+    const card1 = await db.card.findUnique({ where: { id: sessionData.data.id } });
+    expect(card1?.messageId).not.toBe(targetMsgId);
+    expect(card1?.messageId).toMatch(/^hash:/);
+
+    // 2. Real inbound webhook email arrives with targetMsgId
+    const webhookReq = new NextRequest("http://localhost/api/v1/inbound-email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Inbound-Token": "secret-webhook-key-123",
+      },
+      body: JSON.stringify({
+        to: `opm+${projectKey}@opm.local`,
+        from: user!.email,
+        subject: "Real relayed email",
+        text: "Real content",
+        messageId: targetMsgId,
+        dmarc: "pass",
+      }),
+    });
+    const webhookRes = await POST(webhookReq);
+    expect(webhookRes.status).toBe(201);
+    const webhookData = await webhookRes.json();
+    expect(webhookData.duplicate).toBeUndefined();
+    expect(webhookData.data.id).not.toBe(sessionData.data.id);
+  });
 });

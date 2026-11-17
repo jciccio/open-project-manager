@@ -600,7 +600,7 @@ describe("Inbound Email", () => {
         to: `opm+${projectKey}@opm.local`,
         from: owner!.email,
         subject: "Plain text with markdown image",
-        text: "See ![pixel](https://tracker.evil.com/px.png) and ![](//cdn.evil.com/a.gif) details.",
+        text: "See ![pixel](https://tracker.evil.com/px.png) and ![](//cdn.evil.com/a.gif) and ![ref-image][1] details.\n\n[1]: https://tracker.evil.com/ref.gif",
       });
 
       expect(textRes.success).toBe(true);
@@ -608,6 +608,7 @@ describe("Inbound Email", () => {
       expect(textCard?.description).not.toContain("tracker.evil.com");
       expect(textCard?.description).not.toContain("![");
       expect(textCard?.description).toContain("[Image: pixel]");
+      expect(textCard?.description).toContain("[Image: ref-image]");
     });
 
     it("rejects user-supplied messageId in public CardCreateSchema", () => {

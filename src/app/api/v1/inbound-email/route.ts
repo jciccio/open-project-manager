@@ -70,10 +70,13 @@ export async function POST(request: NextRequest) {
 
   let payloadData = parsed.data;
   if (sessionUser) {
-    // If authenticated via user session, ignore client-provided `from` to prevent spoofing
+    // If authenticated via user session, ignore client-provided `from` to prevent spoofing,
+    // and ignore client-provided `messageId` / `message_id` to prevent dedupe pre-poisoning
     payloadData = {
       ...payloadData,
       from: sessionUser.email,
+      messageId: undefined,
+      message_id: undefined,
     };
   }
 
