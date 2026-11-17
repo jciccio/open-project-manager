@@ -1,4 +1,5 @@
 import { isClosedColumn } from "@/lib/columnGroups";
+import { normalizeRelation } from "@/lib/cardRelations";
 import { db } from "@/lib/db";
 import { verifyProjectAccess, accessDenial } from "@/lib/permissions";
 import { safeRevalidatePath } from "@/lib/revalidate";
@@ -11,20 +12,12 @@ export async function addCardRelation(
   userId: string
 ) {
   try {
-    if (sourceCardId === targetCardId) {
-      return { success: false, error: "A card cannot relate to itself", kind: "invalid" as ServiceErrorKind };
+    const canonical = normalizeRelation(sourceCardId, targetCardId, type);
+    if (!canonical.valid) {
+      return { success: false, error: canonical.error, kind: "invalid" as ServiceErrorKind };
     }
 
-    const validTypes = ["BLOCKS", "BLOCKED_BY", "RELATES_TO"];
-    const normalizedType = type.toUpperCase().trim();
-    if (!validTypes.includes(normalizedType)) {
-      return { success: false, error: `Invalid relation type '${type}'. Expected BLOCKS, BLOCKED_BY, or RELATES_TO`, kind: "invalid" as ServiceErrorKind };
-    }
-
-    const sourceCard = await db.card.findUnique({
-      where: { id: sourceCardId },
-      include: { project: true },
-    });
+    const sourceCard = await db.card.findUnique({ where: { id: sourceCardId } });
     const targetCard = await db.card.findUnique({ where: { id: targetCardId } });
 
     if (!sourceCard || !targetCard) {
@@ -38,12 +31,11 @@ export async function addCardRelation(
       return { success: false, error: "Unauthorized or card not found", kind: "not_found" as ServiceErrorKind };
     }
 
-    const relation = await db.cardRelation.create({
-      data: {
-        sourceCardId,
-        targetCardId,
-        type: normalizedType,
-      },
+    const triple = { sourceCardId: canonical.sourceId, targetCardId: canonical.targetId, type: canonical.type };
+    const relation = await db.cardRelation.upsert({
+      where: { sourceCardId_targetCardId_type: triple },
+      create: triple,
+      update: {},
       include: {
         sourceCard: { include: { project: true } },
         targetCard: { include: { project: true } },
@@ -51,6 +43,7 @@ export async function addCardRelation(
     });
 
     safeRevalidatePath(`/projects/${sourceCard.projectId}`);
+    if (targetCard.projectId !== sourceCard.projectId) safeRevalidatePath(`/projects/${targetCard.projectId}`);
     return { success: true, data: relation };
   } catch (error) {
     console.error("Error creating card relation:", error);

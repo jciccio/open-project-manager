@@ -33,6 +33,7 @@ import { SavedViewCreateSchema, SavedViewUpdateSchema } from "@/lib/validation/v
 import * as cardsService from "@/lib/services/cards";
 import * as commentsService from "@/lib/services/comments";
 import * as projectsService from "@/lib/services/projects";
+import * as relationsService from "@/lib/services/relations";
 import type { z } from "zod";
 import {
   buildCardWhere,
@@ -581,7 +582,11 @@ export const MCP_TOOLS = [
       properties: {
         sourceCardId: { type: "string", description: "Source card ID" },
         targetCardId: { type: "string", description: "Target card ID" },
-        type: { type: "string", description: "Relation type: BLOCKS, BLOCKED_BY, or RELATES_TO" },
+        type: {
+          type: "string",
+          enum: ["BLOCKS", "BLOCKED_BY", "RELATES_TO"],
+          description: "Relation type (default BLOCKS). BLOCKED_BY is stored as the reverse BLOCKS.",
+        },
       },
       required: ["sourceCardId", "targetCardId"],
     },
@@ -1359,15 +1364,10 @@ export async function executeMcpTool(
       const targetCard = await db.card.findUnique({ where: { id: args.targetCardId } });
       if (!targetCard || !(await verifyProjectAccess(targetCard.projectId, userId, "VIEWER"))) throw new Error(`Card with ID ${args.targetCardId} not found.`);
 
-      const type = args.type ? args.type.toUpperCase().trim() : "BLOCKS";
-      const relation = await db.cardRelation.create({
-        data: {
-          sourceCardId: args.sourceCardId,
-          targetCardId: args.targetCardId,
-          type,
-        },
-      });
-      return { success: true, relation };
+      const res = await relationsService.addCardRelation(args.sourceCardId, args.targetCardId, args.type || "BLOCKS", userId);
+      if (!res.success) throw new Error(res.error);
+      const { id, sourceCardId, targetCardId, type, createdAt } = res.data!;
+      return { success: true, relation: { id, sourceCardId, targetCardId, type, createdAt } };
     }
 
     case "remove_card_relation": {
