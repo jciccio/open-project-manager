@@ -398,6 +398,43 @@ Omit `--project` to include every project the key can see.
 Pass `--map-email plane@example.com=opm@example.com` (repeatable) when someone's email
 differs between the two, for example when OPM signs them in through SSO.
 
+#### Docker Compose
+
+The app container has no `scripts/` or `tsx`, so run the import through the `migrate`
+service, which has both and uses the same database. Run these from the directory that
+holds `docker-compose.yml` and its `.env`: Compose reads `JWT_SECRET` from there even
+for `migrate`.
+
+```bash
+# Back up the data volume (database and attachments) first.
+docker compose run --rm -T migrate tar -czf - -C /app data > opm-data-$(date +%Y%m%d).tar.gz
+
+export PLANE_API_KEY=…
+export PLANE_URL=https://plane.example.com  # leave out for Plane Cloud
+
+# See what would happen. Nothing is written.
+docker compose run --rm -e PLANE_API_KEY -e PLANE_URL migrate \
+  npx tsx scripts/import-plane.ts --workspace my-team --project ABC --user you@example.com --dry-run
+```
+
+Drop `--dry-run` for the live import. `PLANE_URL` must be reachable from inside the
+container, so `localhost` there means the container itself, not the Docker host.
+
+A large import takes hours, and closing the terminal stops it. Start it inside `tmux` or
+`screen`, or detach it with `nohup` and `-T` (no terminal), then follow the log:
+
+```bash
+nohup docker compose run --rm -T -e PLANE_API_KEY -e PLANE_URL migrate \
+  npx tsx scripts/import-plane.ts --workspace my-team --user you@example.com \
+  > plane-import.log 2>&1 &
+tail -f plane-import.log
+```
+
+On `docker-compose.postgres.yml` (add `-f docker-compose.postgres.yml` to each command),
+the `migrate` service doesn't mount the attachments volume, so attachment files from a
+live import there are lost when the container exits. The database backup there is
+`pg_dump`, as described in the installation guide.
+
 | Plane | OPM |
 |---|---|
 | Project identifier | Project key, so `ABC-123` references keep working |
