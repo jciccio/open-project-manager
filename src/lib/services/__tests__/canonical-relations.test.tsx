@@ -120,6 +120,31 @@ describe("card relations are stored in one canonical form", () => {
     expect(screen.getByText(`Blocked (${projectKey}-2)`)).toBeTruthy();
   });
 
+  it("lets a caller remove through MCP a 'blocked by' they added on a card in a project they only view", async () => {
+    const other = await createTestUser(`canonical-rel-other-${Date.now()}`);
+    try {
+      const otherProject = await createTestProject(other.user.id, "Viewed Project");
+      await db.projectMember.create({ data: { projectId: otherProject.id, userId: user.id, role: "VIEWER" } });
+      const otherColumn = await db.column.create({ data: { projectId: otherProject.id, name: "Todo" } });
+      const viewedCard = await db.card.create({
+        data: { projectId: otherProject.id, columnId: otherColumn.id, title: "Viewed", number: 1 },
+      });
+
+      const added = await executeMcpTool(
+        "add_card_relation",
+        { sourceCardId: cardA, targetCardId: viewedCard.id, type: "BLOCKED_BY" },
+        { userId: user.id }
+      );
+      expect(added.relation).toMatchObject({ sourceCardId: viewedCard.id, targetCardId: cardA, type: "BLOCKS" });
+
+      const removed = await executeMcpTool("remove_card_relation", { relationId: added.relation!.id }, { userId: user.id });
+      expect(removed.success).toBe(true);
+      expect(await db.cardRelation.count({ where: { id: added.relation!.id } })).toBe(0);
+    } finally {
+      await cleanupTestUser(other.user.id);
+    }
+  });
+
   it("MCP rejects an unknown type and a self-relation with the service's messages", async () => {
     await expect(
       executeMcpTool("add_card_relation", { sourceCardId: cardA, targetCardId: cardB, type: "blocking" }, { userId: user.id })

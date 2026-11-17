@@ -73,6 +73,7 @@ function parseProjectName(value: unknown): string {
 const SERVICE_NO_ACCESS_ERRORS = new Set([
   "Unauthorized",
   "Unauthorized or card not found",
+  "Unauthorized or relation not found",
   "Card not found or access denied",
   "Card not found",
   "Access denied",
@@ -1371,12 +1372,10 @@ export async function executeMcpTool(
     }
 
     case "remove_card_relation": {
-      const existingRelation = await db.cardRelation.findUnique({
-        where: { id: args.relationId },
-        include: { sourceCard: { select: { projectId: true } } },
-      });
-      if (!existingRelation || !(await verifyProjectAccess(existingRelation.sourceCard.projectId, userId, "MEMBER"))) throw new Error(`Card relation with ID ${args.relationId} not found.`);
-      await db.cardRelation.delete({ where: { id: args.relationId } });
+      unwrapService(
+        await relationsService.removeCardRelation(args.relationId, userId),
+        `Card relation with ID ${args.relationId} not found.`
+      );
       return { success: true, deletedId: args.relationId };
     }
 
