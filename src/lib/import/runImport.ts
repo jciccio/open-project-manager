@@ -107,7 +107,7 @@ interface ImportPlan {
   setParent(cardLocalId: string, parentLocalId: string): Promise<void>;
   addRelation(sourceCardId: string, targetCardId: string, type: ValidRelationType): Promise<void>;
   /** Whether an earlier run finished this card's parent and relation steps. */
-  linksDone(cardSourceId: string): Promise<boolean>;
+  linksDone(cardSourceId: string, cardLocalId: string): Promise<boolean>;
   markLinksDone(cardSourceId: string, cardLocalId: string): Promise<void>;
 }
 
@@ -382,7 +382,7 @@ async function createOrSkip(
 
 const LINKS_DONE_ENTITY = "cardLinks";
 
-async function linksDone(ctx: RunCtx, cardSourceId: string): Promise<boolean> {
+async function linksDone(ctx: RunCtx, cardSourceId: string, cardLocalId: string): Promise<boolean> {
   const marker = await db.importRecord.findUnique({
     where: {
       userId_source_entityType_sourceId: {
@@ -392,9 +392,9 @@ async function linksDone(ctx: RunCtx, cardSourceId: string): Promise<boolean> {
         sourceId: cardSourceId,
       },
     },
-    select: { id: true },
+    select: { localId: true },
   });
-  return !!marker;
+  return marker?.localId === cardLocalId;
 }
 
 async function liveLocalId(ctx: RunCtx, entityType: ImportEntityType, mappingKey: string): Promise<string | undefined> {
@@ -418,7 +418,7 @@ function livePlan(ctx: RunCtx): ImportPlan {
         update: {},
       });
     },
-    linksDone: (cardSourceId) => linksDone(ctx, cardSourceId),
+    linksDone: (cardSourceId, cardLocalId) => linksDone(ctx, cardSourceId, cardLocalId),
     markLinksDone: async (cardSourceId, cardLocalId) => {
       await db.importRecord.upsert({
         where: {
@@ -509,7 +509,7 @@ function dryPlan(ctx: RunCtx): ImportPlan {
       plannedParents.set(cardLocalId, parentLocalId);
     },
     addRelation: async () => {},
-    linksDone: (cardSourceId) => linksDone(ctx, cardSourceId),
+    linksDone: (cardSourceId, cardLocalId) => linksDone(ctx, cardSourceId, cardLocalId),
     markLinksDone: async () => {},
   };
   return plan;
@@ -818,7 +818,7 @@ async function traverseImport(ctx: TraversalCtx) {
             }
             // A skipped card without a marker was written by a run that stopped before
             // its parent and relation steps, or by a version that kept no markers.
-            if (cardResult.status === "created" || !(await ctx.plan.linksDone(card.sourceId))) {
+            if (cardResult.status === "created" || !(await ctx.plan.linksDone(card.sourceId, cardLocalId))) {
               linkQueue.push({ cardLocalId, cardSourceId: card.sourceId });
               if (cardResult.status !== "created") skippedCardIds.add(cardLocalId);
               if (card.parentSourceId) {

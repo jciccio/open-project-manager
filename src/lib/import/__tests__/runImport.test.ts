@@ -891,6 +891,27 @@ describe("runImport resuming an interrupted import", () => {
     expect(await relationCount()).toBe(1);
   });
 
+  it("ignores a link marker left by a card that was deleted and imported again", async () => {
+    const fixture = linkedFixture();
+    await runImport(makeFakeImporter(fixture), userId);
+    await db.project.deleteMany({ where: { userId } });
+
+    const stopper = {
+      sourceId: "stopper",
+      title: "Never written",
+      get columnSourceId(): string {
+        throw new Error("process stopped");
+      },
+    } as ImportCard;
+    await runImport({ ...makeFakeImporter(fixture), async *fetchCards() { yield* fixture.cards["proj-1"]; yield stopper; } }, userId);
+
+    const rerun = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
+
+    expect(rerun.totals.failed).toBe(0);
+    expect((await cardByTitle("Child")).parentId).toBe((await cardByTitle("Parent")).id);
+    expect(await relationCount()).toBe(1);
+  });
+
   it("does not retry a relation into a project that is never imported once the card list was complete", async () => {
     const fixture = linkedFixture();
     fixture.cards["proj-1"][0].relations = [{ targetCardSourceId: "card-in-unimported-project", type: "RELATES_TO" }];
