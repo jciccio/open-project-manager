@@ -48,7 +48,7 @@ import { MarkdownRenderer } from "./MarkdownRenderer";
 import CardTypeManagerModal from "./CardTypeManagerModal";
 import ErrorBanner from "./ErrorBanner";
 import { CardTypeIcon } from "./cardTypeIcons";
-import { useModalA11y, useBackdropClose } from "./useModalA11y";
+import { Modal, ModalDismissButton } from "./Modal";
 import { chipTextColor } from "@/lib/colors";
 
 interface Props {
@@ -347,8 +347,6 @@ export default function CardDetailModal({
     onOpenCard?.(targetCardId);
   };
 
-  const modalRef = useModalA11y(handleEscape);
-  const backdropProps = useBackdropClose(handleGuardedClose);
   const [feedTab, setFeedTab] = useState<"comments" | "activity">("comments");
   const [isLoadingActivities, setIsLoadingActivities] = useState(false);
 
@@ -798,18 +796,8 @@ export default function CardDetailModal({
   }
 
   return (
-    <div
-      {...backdropProps}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-    >
-      <div
-        ref={modalRef}
-        role="dialog"
-        aria-modal="true"
-        tabIndex={-1}
-        aria-labelledby="card-modal-title"
-        className="w-full max-w-2xl max-h-[90vh] flex flex-col rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden focus:outline-none"
-      >
+    <>
+      <Modal labelledBy="card-modal-title" size="2xl" onBackdropClick={handleGuardedClose} onEscape={handleEscape}>
         <h2 id="card-modal-title" className="sr-only">
           {card.title}
         </h2>
@@ -1796,13 +1784,7 @@ export default function CardDetailModal({
 
         {/* Modal Footer Actions */}
         <div className="flex items-center justify-end gap-2 px-6 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50">
-          <button
-            type="button"
-            onClick={handleGuardedClose}
-            className="rounded-lg px-4 py-2 text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-colors"
-          >
-            {t("kanban.cancel")}
-          </button>
+          <ModalDismissButton onClick={handleGuardedClose}>{t("kanban.cancel")}</ModalDismissButton>
           <button
             type="button"
             onClick={handleSave}
@@ -1815,7 +1797,7 @@ export default function CardDetailModal({
             {justSaved ? t("cardModal.saved") : ""}
           </span>
         </div>
-      </div>
+      </Modal>
 
       {isCardTypeModalOpen && (
         <CardTypeManagerModal
@@ -1829,6 +1811,6 @@ export default function CardDetailModal({
           }}
         />
       )}
-    </div>
+    </>
   );
 }
