@@ -48,7 +48,7 @@ import { MarkdownRenderer } from "./MarkdownRenderer";
 import CardTypeManagerModal from "./CardTypeManagerModal";
 import ErrorBanner from "./ErrorBanner";
 import { CardTypeIcon } from "./cardTypeIcons";
-import { Modal, ModalDismissButton } from "./Modal";
+import { Modal, ModalFooter, ModalDismissButton } from "./Modal";
 import { chipTextColor } from "@/lib/colors";
 
 interface Props {
@@ -1783,7 +1783,7 @@ export default function CardDetailModal({
         )}
 
         {/* Modal Footer Actions */}
-        <div className="flex items-center justify-end gap-2 px-6 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50">
+        <ModalFooter className="bg-slate-50 dark:bg-slate-950/50">
           <ModalDismissButton onClick={handleGuardedClose}>{t("kanban.cancel")}</ModalDismissButton>
           <button
             type="button"
@@ -1796,7 +1796,7 @@ export default function CardDetailModal({
           <span role="status" className="sr-only">
             {justSaved ? t("cardModal.saved") : ""}
           </span>
-        </div>
+        </ModalFooter>
       </Modal>
 
       {isCardTypeModalOpen && (

@@ -1,8 +1,23 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import { readdirSync, readFileSync, statSync } from "fs";
 import path from "path";
 import { Modal, ModalHeader, ModalBody, ModalFooter, ModalCloseButton, ModalDismissButton } from "../Modal";
+import KanbanBoard from "../KanbanBoard";
+import { LanguageProvider } from "../LanguageProvider";
+import { ThemeProvider } from "../ThemeProvider";
+
+const { createSavedView } = vi.hoisted(() => ({
+  createSavedView: vi.fn(async () => ({ success: true, data: { id: "v1", name: "Mine", filterJson: "{}", isDefault: false } })),
+}));
+
+vi.mock("@/actions/views", () => ({ createSavedView, deleteSavedView: vi.fn() }));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
+  usePathname: () => "/projects/p1",
+}));
 
 function renderModal(props: Partial<Parameters<typeof Modal>[0]> = {}, onSubmit = vi.fn((e) => e.preventDefault())) {
   render(
@@ -79,6 +94,27 @@ describe("Modal shell", () => {
     fireEvent.click(backdrop);
     fireEvent.keyDown(window, { key: "Escape" });
     expect(screen.getByRole("dialog")).toBeDefined();
+  });
+});
+
+describe("Save view dialog", () => {
+  it("saves the view from the pinned footer button", async () => {
+    render(
+      <ThemeProvider>
+        <LanguageProvider>
+          <KanbanBoard
+            project={{ id: "p1", name: "Board", key: "B", columns: [], members: [], cardTypes: [], savedViews: [] }}
+          />
+        </LanguageProvider>
+      </ThemeProvider>
+    );
+
+    fireEvent.click(screen.getByTitle("Save Current View"));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.change(within(dialog).getByPlaceholderText(/view name/i), { target: { value: "Mine" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(createSavedView).toHaveBeenCalledWith("p1", expect.objectContaining({ name: "Mine" })));
   });
 });
 
