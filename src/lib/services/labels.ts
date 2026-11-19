@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import type { Prisma } from "@prisma/client";
 import { safeRevalidatePath } from "@/lib/revalidate";
-import { verifyProjectAccess, accessDenial } from "@/lib/permissions";
+import { verifyProjectAccess, accessDenial, viewableProjectWhere } from "@/lib/permissions";
 import { parseLabelDetails, type LabelDetailsInput } from "@/lib/validation/labels";
 import { createScopedLabel, LabelExistsError } from "@/lib/scopedLabels";
 import type { ServiceErrorKind } from "@/lib/services/result";
@@ -15,7 +15,13 @@ export async function getLabels(projectId: string | undefined, userId: string) {
 
     const where: Prisma.LabelWhereInput = projectId
       ? { OR: [{ projectId }, { userId }, { userId: null, projectId: null }] }
-      : { OR: [{ userId }, { userId: null }] };
+      : {
+          OR: [
+            { userId, projectId: null },
+            { userId: null, projectId: null },
+            { project: viewableProjectWhere(userId) },
+          ],
+        };
 
     const labels = await db.label.findMany({
       where,

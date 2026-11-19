@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import type { Prisma } from "@prisma/client";
 
 export type ProjectRole = "OWNER" | "ADMIN" | "MEMBER" | "VIEWER";
 export type ProjectVisibility = "PRIVATE" | "INTERNAL";
@@ -124,6 +125,12 @@ export async function accessDenial(
   const result = await getProjectAccess(projectId, userId, minimumRole);
   if (result.hasAccess) return null;
   return result.role ? "forbidden" : "not_found";
+}
+
+export function viewableProjectWhere(userId: string): Prisma.ProjectWhereInput {
+  return {
+    OR: [{ userId }, { members: { some: { userId } } }, { visibility: "INTERNAL" }],
+  };
 }
 
 export async function canViewProject(projectId: string, userId: string): Promise<boolean> {
