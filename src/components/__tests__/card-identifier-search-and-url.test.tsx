@@ -13,7 +13,8 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/projects/p1",
 }));
 
-const { mockUnarchiveCard } = vi.hoisted(() => ({
+const { mockArchiveCard, mockUnarchiveCard } = vi.hoisted(() => ({
+  mockArchiveCard: vi.fn(),
   mockUnarchiveCard: vi.fn(),
 }));
 
@@ -21,6 +22,7 @@ vi.mock("@/actions/cards", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/actions/cards")>();
   return {
     ...actual,
+    archiveCard: (...args: Parameters<typeof actual.archiveCard>) => mockArchiveCard(...args),
     unarchiveCard: (...args: Parameters<typeof actual.unarchiveCard>) => mockUnarchiveCard(...args),
   };
 });
@@ -335,6 +337,56 @@ describe("Deep linking and Copy link in modal (#270)", () => {
 
       expect(screen.queryByDisplayValue("Archived ticket")).not.toBeInTheDocument();
     } finally {
+      window.history.replaceState({}, "", previousUrl);
+    }
+  });
+
+  it("stays closed when archiving a card opened by clicking and revalidation returns the archived card", async () => {
+    const previousUrl = window.location.pathname + window.location.search;
+    window.history.replaceState({}, "", "/projects/p1");
+    mockArchiveCard.mockResolvedValue({ success: true });
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    try {
+      const { rerender } = renderWithProviders(<KanbanBoard project={mockProject} />);
+
+      // Open card by clicking it on the board (not via deep link)
+      fireEvent.click(screen.getByText("Implement auth"));
+      expect(await screen.findByDisplayValue("Implement auth")).toBeInTheDocument();
+      expect(window.location.search).toBe("?card=OPM-42");
+
+      // Archive the card from the modal
+      fireEvent.click(screen.getByRole("button", { name: /archive task card/i }));
+
+      await waitFor(() => {
+        expect(mockArchiveCard).toHaveBeenCalledWith("card-1");
+        expect(screen.queryByDisplayValue("Implement auth")).not.toBeInTheDocument();
+      });
+      expect(window.location.search).toBe("");
+
+      // Simulate Next.js Server Action revalidation that ran while ?card=OPM-42 was still in the URL
+      const archivedCard = { ...mockCards[0], isArchived: true, project: { id: "p1", key: "OPM", name: "My Project" } };
+      const refreshedProject = {
+        ...mockProject,
+        columns: [
+          {
+            ...mockProject.columns[0],
+            cards: [mockCards[1]],
+          },
+        ],
+      };
+
+      rerender(
+        <ThemeProvider>
+          <LanguageProvider>
+            <KanbanBoard project={refreshedProject} initialCardParam="OPM-42" initialCard={archivedCard} />
+          </LanguageProvider>
+        </ThemeProvider>
+      );
+
+      expect(screen.queryByDisplayValue("Implement auth")).not.toBeInTheDocument();
+    } finally {
+      confirmSpy.mockRestore();
       window.history.replaceState({}, "", previousUrl);
     }
   });

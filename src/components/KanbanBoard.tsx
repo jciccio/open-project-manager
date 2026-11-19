@@ -73,11 +73,17 @@ export default function KanbanBoard({ project, initialCardParam, initialCard }: 
     : initialCard
     ? `card:${initialCard.id}`
     : null;
+  const prevDeepLinkKeyRef = useRef<string | null>(deepLinkKey);
   const handledDeepLinkRef = useRef<string | null>(deepLinkKey);
 
   useEffect(() => {
+    const prevKey = prevDeepLinkKeyRef.current;
+    prevDeepLinkKeyRef.current = deepLinkKey;
+
     if (!deepLinkKey) {
-      handledDeepLinkRef.current = null;
+      if (prevKey !== null) {
+        handledDeepLinkRef.current = null;
+      }
       return;
     }
     if (deepLinkKey === handledDeepLinkRef.current) {
@@ -104,6 +110,7 @@ export default function KanbanBoard({ project, initialCardParam, initialCard }: 
       const allCards = project.columns.flatMap((col: any) => col.cards || []);
       const card = allCards.find((c: any) => c.id === cardId) || (standaloneCard?.id === cardId ? standaloneCard : null);
       const param = card && project.key && card.number ? `${project.key}-${card.number}` : cardId;
+      handledDeepLinkRef.current = `param:${param}`;
       const url = new URL(window.location.href);
       url.searchParams.set("card", param);
       window.history.replaceState({}, "", url.pathname + url.search);
@@ -115,6 +122,10 @@ export default function KanbanBoard({ project, initialCardParam, initialCard }: 
     setStandaloneCard(null);
     if (typeof window !== "undefined" && (window.location.search.includes("card") || window.location.search.includes("cardId"))) {
       const url = new URL(window.location.href);
+      const closingParam = url.searchParams.get("card") || url.searchParams.get("cardId");
+      if (closingParam) {
+        handledDeepLinkRef.current = `param:${closingParam}`;
+      }
       url.searchParams.delete("card");
       url.searchParams.delete("cardId");
       window.history.replaceState({}, "", url.pathname + (url.search ? url.search : ""));
