@@ -497,6 +497,7 @@ async function traverseImport(ctx: TraversalCtx) {
                 description: projectRec.description,
                 color: projectRec.color || "#6366f1",
                 key,
+                members: { create: { userId: ctx.userId, role: "OWNER" } },
               },
             });
             return project.id;

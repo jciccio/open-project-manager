@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { db } from "@/lib/db";
 import { createTestUser, cleanupTestUser } from "@/test/helpers";
 import { runImport } from "../runImport";
+import { getProjectMembers } from "@/lib/services/members";
 import type {
   Importer,
   ImportProject,
@@ -177,6 +178,23 @@ describe("runImport", () => {
 
     const recreated = await db.project.findFirst({ where: { userId } });
     expect(recreated).toBeTruthy();
+    expect(await db.projectMember.findMany({ where: { projectId: recreated!.id } })).toMatchObject([
+      { userId, role: "OWNER" },
+    ]);
+  });
+
+  it("makes the importing account the owner member of each imported project, once", async () => {
+    const importer = makeFakeImporter(baseFixture());
+    await runImport(importer, userId);
+    await runImport(importer, userId);
+
+    const project = await db.project.findFirstOrThrow({ where: { userId } });
+    const rows = await db.projectMember.findMany({ where: { projectId: project.id } });
+    expect(rows).toMatchObject([{ userId, role: "OWNER" }]);
+
+    const members = await getProjectMembers(project.id, userId);
+    expect(members.success).toBe(true);
+    expect(members.data?.map((m: { userId: string }) => m.userId)).toEqual([userId]);
   });
 
   it("reports a failed record for a card referencing an unknown column, without aborting the rest of the import", async () => {

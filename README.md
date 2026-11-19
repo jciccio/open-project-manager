@@ -418,6 +418,12 @@ differs between the two, for example when OPM signs them in through SSO.
 The import doesn't add anyone to a project, so anyone else's name goes in the card owner
 text. A re-run doesn't update cards that are already imported.
 
+**Project members:** the account that runs the import becomes each imported project's
+owner member, so it shows up in the members list and the card owner and assignee
+selects. Projects imported by an earlier version, from Plane or Vikunja, have no member
+row. Add the missing owner rows once with `npx tsx scripts/backfill-project-members.ts`,
+which skips projects that already have one.
+
 **Not imported:** start dates, cycles, modules, label parents, non-integer estimates and
 the `start_before`, `start_after`, `finish_before` and `finish_after` relations. Dry and
 live runs both list what they found of these, with counts, under "Not carried over".
