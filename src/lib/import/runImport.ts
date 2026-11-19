@@ -106,6 +106,9 @@ interface ImportPlan {
   cardCreated(cardLocalId: string, projectLocalId: string): void;
   setParent(cardLocalId: string, parentLocalId: string): Promise<void>;
   addRelation(sourceCardId: string, targetCardId: string, type: ValidRelationType): Promise<void>;
+  /** Whether an earlier run finished this card's parent and relation steps. */
+  linksDone(cardSourceId: string, cardLocalId: string): Promise<boolean>;
+  markLinksDone(cardSourceId: string, cardLocalId: string): Promise<void>;
 }
 
 interface TraversalCtx extends RunCtx {
@@ -377,6 +380,23 @@ async function createOrSkip(
   }
 }
 
+const LINKS_DONE_ENTITY = "cardLinks";
+
+async function linksDone(ctx: RunCtx, cardSourceId: string, cardLocalId: string): Promise<boolean> {
+  const marker = await db.importRecord.findUnique({
+    where: {
+      userId_source_entityType_sourceId: {
+        userId: ctx.userId,
+        source: ctx.source,
+        entityType: LINKS_DONE_ENTITY,
+        sourceId: cardSourceId,
+      },
+    },
+    select: { localId: true },
+  });
+  return marker?.localId === cardLocalId;
+}
+
 async function liveLocalId(ctx: RunCtx, entityType: ImportEntityType, mappingKey: string): Promise<string | undefined> {
   const existing = await findExistingMapping(ctx.userId, ctx.source, entityType, mappingKey);
   return existing && (await rowStillExists(entityType, existing.localId)) ? existing.localId : undefined;
@@ -396,6 +416,28 @@ function livePlan(ctx: RunCtx): ImportPlan {
         where: { sourceCardId_targetCardId_type: { sourceCardId, targetCardId, type } },
         create: { sourceCardId, targetCardId, type },
         update: {},
+      });
+    },
+    linksDone: (cardSourceId, cardLocalId) => linksDone(ctx, cardSourceId, cardLocalId),
+    markLinksDone: async (cardSourceId, cardLocalId) => {
+      await db.importRecord.upsert({
+        where: {
+          userId_source_entityType_sourceId: {
+            userId: ctx.userId,
+            source: ctx.source,
+            entityType: LINKS_DONE_ENTITY,
+            sourceId: cardSourceId,
+          },
+        },
+        create: {
+          userId: ctx.userId,
+          source: ctx.source,
+          entityType: LINKS_DONE_ENTITY,
+          sourceId: cardSourceId,
+          localId: cardLocalId,
+          importRunId: ctx.importRunId,
+        },
+        update: { localId: cardLocalId, importRunId: ctx.importRunId },
       });
     },
   };
@@ -421,7 +463,9 @@ function dryPlan(ctx: RunCtx): ImportPlan {
       card: async (cardId) => {
         const projectId = plannedCardProjects.get(cardId);
         if (projectId) return { projectId, parentId: plannedParents.get(cardId) ?? null };
-        return db.card.findUnique({ where: { id: cardId }, select: { projectId: true, parentId: true } });
+        const row = await db.card.findUnique({ where: { id: cardId }, select: { projectId: true, parentId: true } });
+        const plannedParent = plannedParents.get(cardId);
+        return row && plannedParent ? { ...row, parentId: plannedParent } : row;
       },
     },
     resolve: async (entityType, mappingKey) =>
@@ -465,6 +509,8 @@ function dryPlan(ctx: RunCtx): ImportPlan {
       plannedParents.set(cardLocalId, parentLocalId);
     },
     addRelation: async () => {},
+    linksDone: (cardSourceId, cardLocalId) => linksDone(ctx, cardSourceId, cardLocalId),
+    markLinksDone: async () => {},
   };
   return plan;
 }
@@ -619,11 +665,13 @@ async function traverseImport(ctx: TraversalCtx) {
         }
 
         const cards: ImportCard[] = [];
+        let cardListComplete = true;
         try {
           for await (const card of ctx.importer.fetchCards(projectRec.sourceId)) {
             cards.push(card);
           }
         } catch (err) {
+          cardListComplete = false;
           records.push({
             entityType: "card",
             sourceId: `${projectRec.sourceId}:cards`,
@@ -652,6 +700,9 @@ async function traverseImport(ctx: TraversalCtx) {
         const cardMap = new Map<string, string>();
         const pendingParents: Array<{ cardLocalId: string; cardSourceId: string; parentSourceId: string }> = [];
         const pendingRelations: Array<{ cardLocalId: string; cardSourceId: string; relations: ImportCardRelation[] }> = [];
+        const linkQueue: Array<{ cardLocalId: string; cardSourceId: string }> = [];
+        const skippedCardIds = new Set<string>();
+        const unresolvedCards = new Set<string>();
         const assignable = await assignableUsersByEmail(projectLocalId, ctx.userId);
 
         try {
@@ -765,6 +816,12 @@ async function traverseImport(ctx: TraversalCtx) {
             if (cardResult.status === "created") {
               ctx.plan.cardCreated(cardLocalId, projectLocalId);
               ctx.tally.unmatchedAssignees += assignees.unmatched.length;
+            }
+            // A skipped card without a marker was written by a run that stopped before
+            // its parent and relation steps, or by a version that kept no markers.
+            if (cardResult.status === "created" || !(await ctx.plan.linksDone(card.sourceId, cardLocalId))) {
+              linkQueue.push({ cardLocalId, cardSourceId: card.sourceId });
+              if (cardResult.status !== "created") skippedCardIds.add(cardLocalId);
               if (card.parentSourceId) {
                 pendingParents.push({ cardLocalId, cardSourceId: card.sourceId, parentSourceId: card.parentSourceId });
               }
@@ -811,8 +868,14 @@ async function traverseImport(ctx: TraversalCtx) {
               continue;
             }
 
+            if (skippedCardIds.has(cardLocalId)) {
+              const existing = await db.card.findUnique({ where: { id: cardLocalId }, select: { parentId: true } });
+              if (existing?.parentId) continue;
+            }
+
             const parentLocalId = cardMap.get(parentSourceId) ?? (await ctx.plan.resolve("card", parentSourceId));
             if (!parentLocalId) {
+              unresolvedCards.add(cardSourceId);
               records.push({
                 entityType: "card",
                 sourceId: `${cardSourceId}:parent`,
@@ -861,6 +924,7 @@ async function traverseImport(ctx: TraversalCtx) {
               const targetCardLocalId =
                 cardMap.get(rel.targetCardSourceId) ?? (await ctx.plan.resolve("card", rel.targetCardSourceId));
               if (!targetCardLocalId) {
+                unresolvedCards.add(cardSourceId);
                 records.push({
                   entityType: "card",
                   sourceId: `${cardSourceId}:relation:${rel.targetCardSourceId}`,
@@ -898,6 +962,12 @@ async function traverseImport(ctx: TraversalCtx) {
                 });
               }
             }
+          }
+
+          // A target missing from a cut-short card list may arrive on the next run.
+          for (const { cardLocalId, cardSourceId } of linkQueue) {
+            if (!cardListComplete && unresolvedCards.has(cardSourceId)) continue;
+            await ctx.plan.markLinksDone(cardSourceId, cardLocalId);
           }
         } catch (err) {
           records.push({

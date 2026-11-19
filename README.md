@@ -352,8 +352,11 @@ VIKUNJA_URL=http://localhost:3456/api/v1 VIKUNJA_API_TOKEN=… \
 ```
 
 Every imported entity is recorded in `ImportRecord`, so **the import is safe to
-re-run**: previously imported rows come back `skipped` instead of duplicating, and
-a partially failed run is fixed by simply calling it again.
+re-run**: previously imported rows come back `skipped` instead of duplicating. A run
+that stopped partway (a crash, a restart, a closed terminal) or read only part of a
+project's cards finishes the job when you run it again: cards it already wrote get the
+parent links and relations the earlier run didn't reach. Records that failed for a
+lasting reason, such as an invalid link URL, fail again.
 
 How Vikunja concepts land in OPM:
 
@@ -447,6 +450,10 @@ the rate limit window to reset and retries 429 and 5xx responses.
 **Re-running:** a re-run skips what's already imported and adds new comments and
 attachments. It reads
 everything from Plane again, so it takes about as long. Use `--project` to limit it.
+The first re-run after upgrading from a version that didn't track finished parent and
+relation steps goes over the cards imported before once, setting any parent that's
+missing (never replacing one) and adding missing relations. That can bring back a parent
+link or relation someone removed by hand since that import.
 
 **Relations across projects:** projects import one at a time, and a relation is created
 when the second of its two projects runs. That holds across separate `--project` runs too:
@@ -455,8 +462,10 @@ relation into a project you never import isn't created. A dry run doesn't check 
 relations, and prints how many it left out.
 
 If Plane fails to return a work item's links or relations, the import carries on and the
-summary counts the work items affected. Re-running restores missing relations, but not
-links, because links are only written when a card is first created.
+summary counts the work items affected. A re-run doesn't apply them to cards that are
+already imported, so those links and relations don't come back. A relation still
+arrives from the other card's side when Plane returns it there, since Plane lists a
+relation on both work items.
 
 Plane's public API does not return archived work items, drafts or intake items, so an
 import does not include them. Unarchive anything you need in Plane first.
