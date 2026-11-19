@@ -87,6 +87,12 @@ export async function removeCardRelation(relationId: string, userId: string) {
   }
 }
 
+export async function viewableProjectIds(projectIds: Iterable<string>, userId: string): Promise<Set<string>> {
+  const distinct = [...new Set(projectIds)];
+  const allowed = await Promise.all(distinct.map((id) => verifyProjectAccess(id, userId, "VIEWER")));
+  return new Set(distinct.filter((_, i) => allowed[i]));
+}
+
 export async function getCardRelations(cardId: string, userId: string) {
   try {
     const card = await db.card.findUnique({ where: { id: cardId } });
@@ -95,7 +101,7 @@ export async function getCardRelations(cardId: string, userId: string) {
       return { success: false, error: "Unauthorized or card not found", kind: "not_found" as ServiceErrorKind };
     }
 
-    const outgoing = await db.cardRelation.findMany({
+    const allOutgoing = await db.cardRelation.findMany({
       where: { sourceCardId: cardId },
       include: {
         targetCard: {
@@ -104,7 +110,7 @@ export async function getCardRelations(cardId: string, userId: string) {
       },
     });
 
-    const incoming = await db.cardRelation.findMany({
+    const allIncoming = await db.cardRelation.findMany({
       where: { targetCardId: cardId },
       include: {
         sourceCard: {
@@ -112,6 +118,13 @@ export async function getCardRelations(cardId: string, userId: string) {
         },
       },
     });
+
+    const viewable = await viewableProjectIds(
+      [...allOutgoing.map((r) => r.targetCard.projectId), ...allIncoming.map((r) => r.sourceCard.projectId)],
+      userId
+    );
+    const outgoing = allOutgoing.filter((r) => viewable.has(r.targetCard.projectId));
+    const incoming = allIncoming.filter((r) => viewable.has(r.sourceCard.projectId));
 
     const formattedOutgoing = outgoing.map((r) => ({
       id: r.id,
