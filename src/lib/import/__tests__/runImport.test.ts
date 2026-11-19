@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { db } from "@/lib/db";
 import { createTestUser, cleanupTestUser } from "@/test/helpers";
 import { runImport } from "../runImport";
+import { getProjectMembers } from "@/lib/services/members";
 import type {
   Importer,
   ImportProject,
@@ -120,8 +121,9 @@ describe("runImport", () => {
     expect(comments[0].author).toBe("Original Author");
     expect(comments[0].createdAt.toISOString()).toBe("2020-01-01T00:00:00.000Z");
 
-    const mappings = await db.importRecord.findMany({ where: { userId, source: "fake" } });
+    const mappings = await db.importRecord.findMany({ where: { userId, source: "fake", entityType: { not: "cardLinks" } } });
     expect(mappings.length).toBe(summary.records.length);
+    expect(await db.importRecord.count({ where: { userId, source: "fake", entityType: "cardLinks" } })).toBe(2);
   });
 
   it("preserves the source's completion timestamp on finished cards", async () => {
@@ -177,6 +179,23 @@ describe("runImport", () => {
 
     const recreated = await db.project.findFirst({ where: { userId } });
     expect(recreated).toBeTruthy();
+    expect(await db.projectMember.findMany({ where: { projectId: recreated!.id } })).toMatchObject([
+      { userId, role: "OWNER" },
+    ]);
+  });
+
+  it("makes the importing account the owner member of each imported project, once", async () => {
+    const importer = makeFakeImporter(baseFixture());
+    await runImport(importer, userId);
+    await runImport(importer, userId);
+
+    const project = await db.project.findFirstOrThrow({ where: { userId } });
+    const rows = await db.projectMember.findMany({ where: { projectId: project.id } });
+    expect(rows).toMatchObject([{ userId, role: "OWNER" }]);
+
+    const members = await getProjectMembers(project.id, userId);
+    expect(members.success).toBe(true);
+    expect(members.data?.map((m: { userId: string }) => m.userId)).toEqual([userId]);
   });
 
   it("reports a failed record for a card referencing an unknown column, without aborting the rest of the import", async () => {
@@ -810,5 +829,139 @@ describe("runImport", () => {
     // ParentId should still be null (not overwritten!)
     const childAfterReimport = await db.card.findUnique({ where: { id: childInDb!.id } });
     expect(childAfterReimport?.parentId).toBeNull();
+  });
+});
+
+describe("runImport resuming an interrupted import", () => {
+  let userId: string;
+
+  beforeEach(async () => {
+    userId = (await createTestUser(`import-resume-${Date.now()}`)).user.id;
+  });
+
+  afterEach(async () => {
+    await cleanupTestUser(userId);
+  });
+
+  function linkedFixture(): FakeData {
+    const fixture = baseFixture();
+    fixture.cards["proj-1"] = [
+      { sourceId: "child", columnSourceId: "col-todo", title: "Child", parentSourceId: "parent" },
+      { sourceId: "blocker", columnSourceId: "col-todo", title: "Blocker", relations: [{ targetCardSourceId: "child", type: "BLOCKS" }] },
+      { sourceId: "parent", columnSourceId: "col-todo", title: "Parent" },
+    ];
+    return fixture;
+  }
+
+  async function cardByTitle(title: string) {
+    return db.card.findFirstOrThrow({ where: { project: { userId }, title } });
+  }
+
+  async function relationCount() {
+    return db.cardRelation.count({ where: { sourceCard: { project: { userId } } } });
+  }
+
+  it("sets a child's parent on the re-run when the card list was cut short before the parent", async () => {
+    const fixture = linkedFixture();
+    const cutShort: Importer = {
+      ...makeFakeImporter(fixture),
+      async *fetchCards() {
+        yield fixture.cards["proj-1"][0];
+        yield fixture.cards["proj-1"][1];
+        throw new Error("Mid-stream 500 error from source");
+      },
+    };
+    await runImport(cutShort, userId);
+    expect((await cardByTitle("Child")).parentId).toBeNull();
+
+    const rerun = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
+
+    expect(rerun.totals.failed).toBe(0);
+    expect((await cardByTitle("Child")).parentId).toBe((await cardByTitle("Parent")).id);
+    expect(await relationCount()).toBe(1);
+  });
+
+  it("restores parents and relations on the re-run when the run stopped inside the card loop", async () => {
+    const fixture = linkedFixture();
+    const stopper = {
+      sourceId: "stopper",
+      title: "Never written",
+      get columnSourceId(): string {
+        throw new Error("process stopped");
+      },
+    } as ImportCard;
+    const interrupted: Importer = {
+      ...makeFakeImporter(fixture),
+      async *fetchCards() {
+        yield* fixture.cards["proj-1"];
+        yield stopper;
+      },
+    };
+    await runImport(interrupted, userId);
+    expect((await cardByTitle("Child")).parentId).toBeNull();
+    expect(await relationCount()).toBe(0);
+
+    const rerun = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
+
+    expect(rerun.totals.created).toBe(0);
+    expect(rerun.totals.failed).toBe(0);
+    expect((await cardByTitle("Child")).parentId).toBe((await cardByTitle("Parent")).id);
+    expect(await relationCount()).toBe(1);
+  });
+
+  it("ignores a link marker left by a card that was deleted and imported again", async () => {
+    const fixture = linkedFixture();
+    await runImport(makeFakeImporter(fixture), userId);
+    await db.project.deleteMany({ where: { userId } });
+
+    const stopper = {
+      sourceId: "stopper",
+      title: "Never written",
+      get columnSourceId(): string {
+        throw new Error("process stopped");
+      },
+    } as ImportCard;
+    await runImport({ ...makeFakeImporter(fixture), async *fetchCards() { yield* fixture.cards["proj-1"]; yield stopper; } }, userId);
+
+    const rerun = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
+
+    expect(rerun.totals.failed).toBe(0);
+    expect((await cardByTitle("Child")).parentId).toBe((await cardByTitle("Parent")).id);
+    expect(await relationCount()).toBe(1);
+  });
+
+  it("does not retry a relation into a project that is never imported once the card list was complete", async () => {
+    const fixture = linkedFixture();
+    fixture.cards["proj-1"][0].relations = [{ targetCardSourceId: "card-in-unimported-project", type: "RELATES_TO" }];
+    const first = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
+    expect(first.records.find((r) => r.sourceId === "child:relation:card-in-unimported-project")?.status).toBe("failed");
+
+    const child = await cardByTitle("Child");
+    await db.card.update({ where: { id: child.id }, data: { parentId: null } });
+
+    const rerun = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
+
+    expect(rerun.totals.failed).toBe(0);
+    expect((await cardByTitle("Child")).parentId).toBeNull();
+  });
+
+  it("fills a missing parent once for cards imported before link markers existed, without replacing a parent", async () => {
+    const fixture = linkedFixture();
+    fixture.cards["proj-1"].push({ sourceId: "moved", columnSourceId: "col-todo", title: "Moved", parentSourceId: "parent" });
+    await runImport(makeFakeImporter(fixture), userId);
+
+    const child = await cardByTitle("Child");
+    const moved = await cardByTitle("Moved");
+    const blocker = await cardByTitle("Blocker");
+    await db.card.update({ where: { id: child.id }, data: { parentId: null } });
+    await db.card.update({ where: { id: moved.id }, data: { parentId: blocker.id } });
+    await db.importRecord.deleteMany({ where: { userId, entityType: "cardLinks" } });
+
+    const rerun = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
+
+    expect(rerun.totals.failed).toBe(0);
+    expect((await cardByTitle("Child")).parentId).toBe((await cardByTitle("Parent")).id);
+    expect((await cardByTitle("Moved")).parentId).toBe(blocker.id);
+    expect(await db.importRecord.count({ where: { userId, entityType: "cardLinks" } })).toBe(4);
   });
 });

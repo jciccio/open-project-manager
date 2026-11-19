@@ -9,6 +9,7 @@ import { generateProjectKey } from "@/lib/projectKey";
 import { parseInput } from "@/lib/validation/errors";
 import { ProjectNameSchema, ProjectVisibilitySchema } from "@/lib/validation/projects";
 import { getProjectAccess } from "@/lib/permissions";
+import { viewableProjectIds } from "@/lib/services/relations";
 import { isHexColor, INVALID_COLOR_ERROR } from "@/lib/colors";
 import type { ServiceErrorKind } from "@/lib/services/result";
 
@@ -168,6 +169,19 @@ export async function getProjectById(id: string, userId: string) {
 
     if (!project) {
       return { success: false, error: "Project not found or access denied", kind: "not_found" as ServiceErrorKind };
+    }
+
+    const cards = project.columns.flatMap((column) => column.cards);
+    const viewable = await viewableProjectIds(
+      cards.flatMap((card) => [
+        ...card.incomingRelations.map((r) => r.sourceCard.projectId),
+        ...card.outgoingRelations.map((r) => r.targetCard.projectId),
+      ]),
+      userId
+    );
+    for (const card of cards) {
+      card.incomingRelations = card.incomingRelations.filter((r) => viewable.has(r.sourceCard.projectId));
+      card.outgoingRelations = card.outgoingRelations.filter((r) => viewable.has(r.targetCard.projectId));
     }
 
     return { success: true, data: { ...project, currentUserRole: access.role } };

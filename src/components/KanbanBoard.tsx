@@ -16,7 +16,6 @@ import {
   BookmarkPlus,
   Trash2,
   Tag,
-  X,
   Pencil,
   ListTree,
   Users,
@@ -27,6 +26,7 @@ import {
 import Link from "next/link";
 import KanbanColumn from "./KanbanColumn";
 import CardDetailModal from "./CardDetailModal";
+import { Modal, ModalHeader, ModalBody, ModalFooter, ModalCloseButton, ModalDismissButton } from "./Modal";
 import EditProjectModal from "./EditProjectModal";
 import ProjectMembersModal from "./ProjectMembersModal";
 import WebhookManagerModal from "./WebhookManagerModal";
@@ -773,24 +773,19 @@ export default function KanbanBoard({ project }: Props) {
 
       {/* Save View Modal */}
       {isSavingView && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+        <Modal labelledBy="save-view-title">
+            <ModalHeader>
               <div className="flex items-center gap-2">
                 <Bookmark className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
-                <h3 className="font-bold text-sm text-slate-900 dark:text-white">
+                <h3 id="save-view-title" className="font-bold text-sm text-slate-900 dark:text-white">
                   {t("savedViews.saveViewTitle")}
                 </h3>
               </div>
-              <button
-                onClick={() => setIsSavingView(false)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
+              <ModalCloseButton onClick={() => setIsSavingView(false)} label={t("cardModal.close")} />
+            </ModalHeader>
 
-            <form onSubmit={handleSaveView} className="space-y-4">
+            <ModalBody>
+            <form id="save-view-form" onSubmit={handleSaveView} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
                   {t("savedViews.saveViewTitle")}
@@ -830,25 +825,21 @@ export default function KanbanBoard({ project }: Props) {
                 </label>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setIsSavingView(false)}
-                  className="rounded-xl px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                >
-                  {t("kanban.cancel")}
-                </button>
-                <button
-                  type="submit"
-                  disabled={savingViewLoading || !newViewName.trim()}
-                  className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 transition-colors shadow-md shadow-indigo-600/20"
-                >
-                  {savingViewLoading ? t("savedViews.saving") : t("savedViews.save")}
-                </button>
-              </div>
             </form>
-          </div>
-        </div>
+            </ModalBody>
+
+            <ModalFooter>
+              <ModalDismissButton onClick={() => setIsSavingView(false)}>{t("kanban.cancel")}</ModalDismissButton>
+              <button
+                type="submit"
+                form="save-view-form"
+                disabled={savingViewLoading || !newViewName.trim()}
+                className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 transition-colors shadow-md shadow-indigo-600/20"
+              >
+                {savingViewLoading ? t("savedViews.saving") : t("savedViews.save")}
+              </button>
+            </ModalFooter>
+        </Modal>
       )}
 
       {/* Card Detail Modal */}

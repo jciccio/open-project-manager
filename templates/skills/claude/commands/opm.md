@@ -26,7 +26,7 @@ Display the available OPM commands and connection status:
 ### 2. `/opm list [project]`
 1. Check available projects using MCP `list_projects` or `GET /api/v1/projects`.
 2. If no project argument was given and multiple projects exist, list them or ask which project to view. If only one active project exists, use it automatically.
-3. Fetch the columns and cards using `get_project` or `list_columns` + `list_cards`.
+3. Fetch the columns with `list_columns` and the cards with `list_cards` (page with `limit` and `cursor`). `get_project` returns per-column card counts, not the cards.
 4. Display the Kanban board cleanly in columns (e.g., **Backlog**, **To Do**, **In Progress**, **In Review**, **Done**), showing each card's identifier (e.g., `PROJ-42`), title, and priority/labels.
 
 ### 3. `/opm move <card> <column>`
