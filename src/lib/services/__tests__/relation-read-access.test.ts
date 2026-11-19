@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { NextRequest } from "next/server";
 import { GET as listRelationsRoute } from "@/app/api/v1/cards/[id]/relations/route";
 import { getCardRelations as getCardRelationsAction } from "@/actions/relations";
-import { getProjectById } from "@/lib/services/projects";
+import { getProjectById, getProjectBoard } from "@/lib/services/projects";
 import { executeMcpTool } from "@/mcp/core";
 import { createSession, destroySession } from "@/lib/auth";
 import { createTestUser, cleanupTestUser, createTestProject } from "@/test/helpers";
@@ -95,14 +95,18 @@ describe("relation reads across projects", () => {
 
   it("hides the other project's card from the board load", async () => {
     const res = await getProjectById(projectAId, viewer.id);
+    const boardRes = await getProjectBoard(projectAId, viewer.id);
 
     expect(res.success).toBe(true);
     expectNoProjectBData(res);
+    expect(boardRes.success).toBe(true);
+    expectNoProjectBData(boardRes);
   });
 
   it("still shows every relation to an account that can view both projects", async () => {
     const relations = await executeMcpTool("get_card_relations", { cardId: cardAId }, { userId: owner.id });
-    const board = await getProjectById(projectAId, owner.id);
+    const project = await getProjectById(projectAId, owner.id);
+    const board = await getProjectBoard(projectAId, owner.id);
 
     expect(relations.relations).toHaveLength(3);
     const directions = relations.relations
@@ -110,6 +114,7 @@ describe("relation reads across projects", () => {
       .map((r: { direction: string }) => r.direction)
       .sort();
     expect(directions).toEqual(["incoming", "outgoing"]);
+    expect(JSON.stringify(project)).toContain(HIDDEN_TITLE);
     expect(JSON.stringify(board)).toContain(HIDDEN_TITLE);
   });
 

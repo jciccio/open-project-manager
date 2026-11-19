@@ -336,6 +336,19 @@ export async function getProjectBoard(id: string, userId: string) {
       return { success: false, error: "Project not found or access denied", kind: "not_found" as ServiceErrorKind };
     }
 
+    const cards = project.columns.flatMap((column) => column.cards);
+    const viewable = await viewableProjectIds(
+      cards.flatMap((card) => [
+        ...card.incomingRelations.map((r) => r.sourceCard.project.id),
+        ...card.outgoingRelations.map((r) => r.targetCard.project.id),
+      ]),
+      userId
+    );
+    for (const card of cards) {
+      card.incomingRelations = card.incomingRelations.filter((r) => viewable.has(r.sourceCard.project.id));
+      card.outgoingRelations = card.outgoingRelations.filter((r) => viewable.has(r.targetCard.project.id));
+    }
+
     return { success: true, data: { ...project, currentUserRole: access.role } };
   } catch (error) {
     console.error(`Error fetching project board ${id}:`, error);
