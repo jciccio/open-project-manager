@@ -11,7 +11,7 @@ This skill allows Antigravity to manage Kanban tasks and columns in Open Project
 
 ### 1. Board Inspection (`/opm list`)
 - Fetch active projects via MCP tool `list_projects` (or REST `GET /api/v1/projects`).
-- Fetch columns and cards using `get_project` or `list_columns` + `list_cards`.
+- Fetch columns with `list_columns` and cards with `list_cards` (page with `limit` and `cursor`). `get_project` returns per-column card counts, not the cards.
 - Display cards categorized by column (e.g., **Backlog**, **To Do**, **In Progress**, **In Review**, **Done**), displaying card identifier (e.g. `OPM-101`), title, and tags/labels.
 
 ### 2. Moving Cards (`/opm move <card> <column>`)
