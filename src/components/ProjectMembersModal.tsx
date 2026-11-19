@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { X, Users, UserPlus, Shield, Globe, Lock, Trash2 } from "lucide-react";
+import { Users, UserPlus, Shield, Globe, Lock, Trash2 } from "lucide-react";
 import {
   getProjectMembers,
   addProjectMember,
@@ -12,6 +12,7 @@ import { updateProject } from "@/actions/projects";
 import { ProjectRole } from "@/lib/permissions";
 import { useRouter } from "next/navigation";
 import ErrorBanner from "./ErrorBanner";
+import { Modal, ModalHeader, ModalBody, ModalFooter, ModalCloseButton, ModalDismissButton } from "./Modal";
 
 interface Props {
   project: {
@@ -144,16 +145,14 @@ export default function ProjectMembersModal({ project, onClose, onMembersChange 
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="w-full max-w-xl rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl max-h-[90vh] flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800 shrink-0">
+    <Modal labelledBy="project-members-title" size="xl">
+        <ModalHeader>
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
               <Users className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+              <h3 id="project-members-title" className="text-lg font-bold text-slate-900 dark:text-white">
                 Members & Privacy
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -161,23 +160,21 @@ export default function ProjectMembersModal({ project, onClose, onMembersChange 
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-colors"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
+          <ModalCloseButton onClick={onClose} label="Close" />
+        </ModalHeader>
 
-        {/* Alerts */}
-        {error && <div className="mt-4"><ErrorBanner message={error} /></div>}
-        {successMsg && (
-          <div className="mt-4 rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-3 text-xs text-emerald-500 font-medium">
-            {successMsg}
+        {(error || successMsg) && (
+          <div className="shrink-0 px-6 pt-4 space-y-3">
+            {error && <ErrorBanner message={error} />}
+            {successMsg && (
+              <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-3 text-xs text-emerald-500 font-medium">
+                {successMsg}
+              </div>
+            )}
           </div>
         )}
 
-        <div className="mt-4 space-y-6 overflow-y-auto flex-1 pr-1">
+        <ModalBody className="space-y-6">
           {/* Visibility Section */}
           <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 bg-slate-50/50 dark:bg-slate-800/30">
             <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2 flex items-center gap-1.5">
@@ -355,19 +352,11 @@ export default function ProjectMembersModal({ project, onClose, onMembersChange 
               </div>
             )}
           </div>
-        </div>
+        </ModalBody>
 
-        {/* Footer */}
-        <div className="flex justify-end pt-4 border-t border-slate-200 dark:border-slate-800 mt-4 shrink-0">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg bg-slate-100 dark:bg-slate-800 px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
-          >
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
+        <ModalFooter>
+          <ModalDismissButton onClick={onClose}>Close</ModalDismissButton>
+        </ModalFooter>
+    </Modal>
   );
 }
