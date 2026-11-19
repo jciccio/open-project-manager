@@ -8,7 +8,7 @@ import { CARD_TYPE_ICON_NAMES, CardTypeIcon } from "./cardTypeIcons";
 import ColorPicker from "./ColorPicker";
 import ErrorBanner from "./ErrorBanner";
 import { DEFAULT_PROJECT_COLOR, chipTextColor } from "@/lib/colors";
-import { useModalA11y, useBackdropClose } from "./useModalA11y";
+import { Modal, ModalHeader, ModalBody, ModalFooter, ModalCloseButton, ModalDismissButton } from "./Modal";
 
 interface Props {
   projectId: string;
@@ -50,8 +50,6 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
     }
     onClose();
   };
-  const modalRef = useModalA11y(handleGuardedClose);
-  const backdropProps = useBackdropClose(handleGuardedClose);
 
   const fetchCardTypes = useCallback(async () => {
     try {
@@ -136,19 +134,8 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
   }
 
   return (
-    <div
-      {...backdropProps}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-    >
-      <div
-        ref={modalRef}
-        role="dialog"
-        aria-modal="true"
-        tabIndex={-1}
-        aria-labelledby="card-type-modal-title"
-        className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-6 focus:outline-none"
-      >
-        <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
+    <Modal labelledBy="card-type-modal-title" onBackdropClick={handleGuardedClose} onEscape={handleGuardedClose}>
+        <ModalHeader>
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
               <Layers className="h-5 w-5" />
@@ -157,15 +144,10 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
               {t("cardTypeModal.title")}
             </h3>
           </div>
-          <button
-            onClick={handleGuardedClose}
-            aria-label={t("cardModal.close")}
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-colors"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
+          <ModalCloseButton onClick={handleGuardedClose} label={t("cardModal.close")} />
+        </ModalHeader>
 
+        <ModalBody className="space-y-6">
         {error && <ErrorBanner message={error} />}
 
         {/* Create Form */}
@@ -302,15 +284,11 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
           </div>
         </div>
 
-        <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-end">
-          <button
-            onClick={onClose}
-            className="rounded-lg bg-slate-200 dark:bg-slate-800 px-4 py-2 text-xs font-semibold text-slate-800 dark:text-white hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors"
-          >
-            {t("cardTypeModal.done")}
-          </button>
-        </div>
-      </div>
-    </div>
+        </ModalBody>
+
+        <ModalFooter>
+          <ModalDismissButton onClick={onClose}>{t("cardTypeModal.done")}</ModalDismissButton>
+        </ModalFooter>
+    </Modal>
   );
 }

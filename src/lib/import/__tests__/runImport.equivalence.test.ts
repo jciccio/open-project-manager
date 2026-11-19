@@ -166,4 +166,21 @@ describe("runImport dry run and live run agree", () => {
     expect(live.records.find((record) => record.sourceId === "with-files")?.status).toBe("created");
     expect(live.records.find((record) => record.sourceId === "late-child")?.status).toBe("created");
   });
+
+  it("reports the same records when resuming an import that stopped before its parent and relation steps", async () => {
+    const stopped = fixture();
+    stopped.cards["proj-a"].push({
+      sourceId: "stopper",
+      title: "Never written",
+      get columnSourceId(): string {
+        throw new Error("process stopped");
+      },
+    } as ImportCard);
+    await runImport(importer(stopped, async () => Buffer.from("abc")), userId);
+    expect(await db.card.count({ where: { project: { userId }, parentId: { not: null } } })).toBe(0);
+
+    const live = await compare(fixture());
+    expect(live.records.find((record) => record.sourceId === "epic")?.status).toBe("skipped");
+    expect(await db.card.count({ where: { project: { userId }, parentId: { not: null } } })).toBeGreaterThan(0);
+  });
 });

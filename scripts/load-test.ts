@@ -27,6 +27,7 @@ async function runLoadTest() {
       userId: user.id,
       name: "Load Test Workspace",
       color: "#6366f1",
+      members: { create: { userId: user.id, role: "OWNER" } },
     },
   });
 

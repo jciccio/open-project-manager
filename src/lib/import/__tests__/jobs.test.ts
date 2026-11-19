@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { db } from "@/lib/db";
 import { cleanupTestUser, createTestUser } from "@/test/helpers";
-import { ImportInProgressError, runImportJob } from "../jobs";
+import { ImportInProgressError, STALE_JOB_MS, runImportJob } from "../jobs";
 import type { Importer, ImportSummary } from "../types";
 
 function importerWithAFailingCard(): Importer {
@@ -36,6 +36,25 @@ describe("runImportJob (the CLI path)", () => {
     await expect(runImportJob(importerWithAFailingCard(), userId)).rejects.toThrow(ImportInProgressError);
     await expect(runImportJob(importerWithAFailingCard(), userId)).rejects.toMatchObject({ jobId: running.id });
     expect(await db.project.count({ where: { userId } })).toBe(0);
+  });
+
+  it("says when a silent lock holder may have stopped, and when a re-run is allowed", async () => {
+    const heartbeatAt = new Date(Date.now() - 2 * 60_000);
+    const silent = await db.importJob.create({ data: { userId, source: "fake", lockKey: userId, heartbeatAt } });
+
+    const err = await runImportJob(importerWithAFailingCard(), userId).catch((e) => e);
+    expect(err).toBeInstanceOf(ImportInProgressError);
+    expect(err.stoppedResponding).toBe(true);
+    expect(err.message).toMatch(new RegExp(`job ${silent.id}\\), but it last reported 1[12]\\d seconds ago`));
+    expect(err.message).toContain(new Date(heartbeatAt.getTime() + STALE_JOB_MS).toISOString());
+  });
+
+  it("keeps the plain message for a holder that is still reporting", async () => {
+    const running = await db.importJob.create({ data: { userId, source: "fake", lockKey: userId } });
+
+    const err = await runImportJob(importerWithAFailingCard(), userId).catch((e) => e);
+    expect(err.stoppedResponding).toBe(false);
+    expect(err.message).toBe(`An import is already running for this account (job ${running.id}).`);
   });
 
   it("returns the full summary to the caller but stores per-record errors redacted", async () => {
