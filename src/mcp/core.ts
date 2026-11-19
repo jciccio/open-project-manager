@@ -73,6 +73,7 @@ function parseProjectName(value: unknown): string {
 const SERVICE_NO_ACCESS_ERRORS = new Set([
   "Unauthorized",
   "Unauthorized or card not found",
+  "Unauthorized or relation not found",
   "Card not found or access denied",
   "Card not found",
   "Access denied",
@@ -582,7 +583,11 @@ export const MCP_TOOLS = [
       properties: {
         sourceCardId: { type: "string", description: "Source card ID" },
         targetCardId: { type: "string", description: "Target card ID" },
-        type: { type: "string", description: "Relation type: BLOCKS, BLOCKED_BY, or RELATES_TO" },
+        type: {
+          type: "string",
+          enum: ["BLOCKS", "BLOCKED_BY", "RELATES_TO"],
+          description: "Relation type (default BLOCKS). BLOCKED_BY is stored as the reverse BLOCKS.",
+        },
       },
       required: ["sourceCardId", "targetCardId"],
     },
@@ -1397,24 +1402,17 @@ export async function executeMcpTool(
       const targetCard = await db.card.findUnique({ where: { id: args.targetCardId } });
       if (!targetCard || !(await verifyProjectAccess(targetCard.projectId, userId, "VIEWER"))) throw new Error(`Card with ID ${args.targetCardId} not found.`);
 
-      const type = args.type ? args.type.toUpperCase().trim() : "BLOCKS";
-      const relation = await db.cardRelation.create({
-        data: {
-          sourceCardId: args.sourceCardId,
-          targetCardId: args.targetCardId,
-          type,
-        },
-      });
-      return { success: true, relation };
+      const res = await relationsService.addCardRelation(args.sourceCardId, args.targetCardId, args.type || "BLOCKS", userId);
+      if (!res.success) throw new Error(res.error);
+      const { id, sourceCardId, targetCardId, type, createdAt } = res.data!;
+      return { success: true, relation: { id, sourceCardId, targetCardId, type, createdAt } };
     }
 
     case "remove_card_relation": {
-      const existingRelation = await db.cardRelation.findUnique({
-        where: { id: args.relationId },
-        include: { sourceCard: { select: { projectId: true } } },
-      });
-      if (!existingRelation || !(await verifyProjectAccess(existingRelation.sourceCard.projectId, userId, "MEMBER"))) throw new Error(`Card relation with ID ${args.relationId} not found.`);
-      await db.cardRelation.delete({ where: { id: args.relationId } });
+      unwrapService(
+        await relationsService.removeCardRelation(args.relationId, userId),
+        `Card relation with ID ${args.relationId} not found.`
+      );
       return { success: true, deletedId: args.relationId };
     }
 
