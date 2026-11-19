@@ -26,9 +26,11 @@ import type {
   RunImportOptions,
   ImportCardRelation,
   ImportCard,
+  ImportProgressEvent,
 } from "./types";
 
 const ORDER_GAP = 10000;
+export const PROGRESS_INTERVAL_CARDS = 25;
 
 export const VALID_RELATION_TYPES = ["BLOCKS", "BLOCKED_BY", "RELATES_TO"] as const;
 export type ValidRelationType = (typeof VALID_RELATION_TYPES)[number];
@@ -113,6 +115,26 @@ interface ImportPlan {
 
 interface TraversalCtx extends RunCtx {
   plan: ImportPlan;
+  progress: (event: ImportProgressEvent) => void;
+}
+
+function failureReportingRecords(ctx: TraversalCtx) {
+  return {
+    push(result: ImportRecordResult) {
+      ctx.plan.records.push(result);
+      if (result.status === "failed") ctx.progress({ kind: "failed", record: result });
+    },
+  };
+}
+
+function guardedProgress(onProgress: RunImportOptions["onProgress"]): (event: ImportProgressEvent) => void {
+  return (event) => {
+    try {
+      onProgress?.(event);
+    } catch {
+      // A broken progress sink (e.g. a closed stdout) must not change the import.
+    }
+  };
 }
 
 interface DroppedTally {
@@ -193,7 +215,7 @@ async function storeImportedAttachment(attachment: ImportAttachment, cardLocalId
 }
 
 async function importCardAttachments(ctx: TraversalCtx, cardSourceId: string, cardLocalId: string) {
-  const records = ctx.plan.records;
+  const records = failureReportingRecords(ctx);
   if (!ctx.importer.fetchAttachments) return;
   try {
     for await (const attachment of ctx.importer.fetchAttachments(cardSourceId)) {
@@ -527,9 +549,11 @@ function asDryRunRecord(record: ImportRecordResult): ImportDryRunRecordResult {
 }
 
 async function traverseImport(ctx: TraversalCtx) {
-  const records = ctx.plan.records;
+  const records = failureReportingRecords(ctx);
   try {
     for await (const projectRec of ctx.importer.fetchProjects()) {
+      const projectLabel = projectRec.key || projectRec.name;
+      ctx.progress({ kind: "project", project: projectLabel });
       try {
         const { localId: projectLocalId, result: projectResult } = await ctx.plan.createOrSkip(
           "project",
@@ -669,6 +693,9 @@ async function traverseImport(ctx: TraversalCtx) {
         try {
           for await (const card of ctx.importer.fetchCards(projectRec.sourceId)) {
             cards.push(card);
+            if (cards.length % PROGRESS_INTERVAL_CARDS === 0) {
+              ctx.progress({ kind: "cardsRead", project: projectLabel, count: cards.length });
+            }
           }
         } catch (err) {
           cardListComplete = false;
@@ -679,6 +706,10 @@ async function traverseImport(ctx: TraversalCtx) {
             error: err instanceof Error ? err.message : String(err),
           });
           if (cards.length === 0) continue;
+        }
+
+        if (cards.length === 0 || cards.length % PROGRESS_INTERVAL_CARDS !== 0) {
+          ctx.progress({ kind: "cardsRead", project: projectLabel, count: cards.length });
         }
 
         const existingCards = await db.card.findMany({
@@ -706,7 +737,10 @@ async function traverseImport(ctx: TraversalCtx) {
         const assignable = await assignableUsersByEmail(projectLocalId, ctx.userId);
 
         try {
-          for (const card of cards) {
+          for (const [index, card] of cards.entries()) {
+            if (index > 0 && index % PROGRESS_INTERVAL_CARDS === 0) {
+              ctx.progress({ kind: "cardsProcessed", project: projectLabel, count: index, total: cards.length });
+            }
             const assignees = splitAssignees(card.assignees, assignable);
             const columnLocalId = columnMap.get(card.columnSourceId);
             if (!columnLocalId) {
@@ -856,6 +890,7 @@ async function traverseImport(ctx: TraversalCtx) {
 
             await importCardAttachments(ctx, card.sourceId, cardLocalId);
           }
+          ctx.progress({ kind: "cardsProcessed", project: projectLabel, count: cards.length, total: cards.length });
 
           for (const { cardLocalId, cardSourceId, parentSourceId } of pendingParents) {
             if (parentSourceId === cardSourceId) {
@@ -1005,7 +1040,7 @@ export async function runImport(
   const tally: DroppedTally = { unmatchedAssignees: 0 };
   const ctx: RunCtx = { importer, userId, source: importer.name, importRunId, tally };
   const plan = options.dryRun ? dryPlan(ctx) : livePlan(ctx);
-  await traverseImport({ ...ctx, plan });
+  await traverseImport({ ...ctx, plan, progress: guardedProgress(options.onProgress) });
 
   if (options.dryRun) {
     const records = plan.records.map(asDryRunRecord);
