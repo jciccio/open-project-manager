@@ -928,11 +928,14 @@ export default function KanbanBoard({ project, initialCardParam, initialCard }: 
       {/* Card Detail Modal */}
       {activeCard && (
         <CardDetailModal
+          key={activeCard.id}
           card={{
             ...activeCard,
             project: activeCard.project || { key: project.key, id: project.id },
           }}
           columns={project.columns}
+          projectKey={project.key}
+          cardTypes={project.cardTypes}
           members={project.members}
           onClose={handleCloseCard}
           onRefresh={() => router.refresh()}

@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import KanbanBoard from "@/components/KanbanBoard";
-import { getProjectById } from "@/actions/projects";
+import { getProjectBoard } from "@/actions/projects";
 import { getCardByProjectAndParam } from "@/actions/cards";
 import { findCardByParam } from "@/lib/cardFilter";
 import { getSession } from "@/lib/auth";
@@ -23,7 +23,7 @@ export default async function ProjectBoardPage({ params, searchParams }: Props) 
   if (!session) {
     redirect("/api/v1/auth/session-expired");
   }
-  const res = await getProjectById(id);
+  const res = await getProjectBoard(id);
 
   if (!res.success && "kind" in res && res.kind === "internal") {
     throw new Error(res.error);

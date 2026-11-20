@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { getApiSession } from "@/lib/auth";
 import { createCard } from "@/lib/services/cards";
 import { db } from "@/lib/db";
@@ -89,8 +90,10 @@ export async function GET(request: NextRequest) {
     const includeOptions = {
       type: true,
       labels: { include: { label: true } },
+      _count: { select: { comments: true } },
       comments: {
-        orderBy: { createdAt: "asc" as const },
+        take: 10,
+        orderBy: [{ createdAt: "desc" as const }, { id: "desc" as const }],
         include: { authorUser: { select: { id: true, name: true, email: true } } },
       },
       assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
@@ -105,6 +108,11 @@ export async function GET(request: NextRequest) {
         sortRes.sort.direction,
         includeOptions
       );
+      for (const card of cards) {
+        if ((card as any).comments) {
+          (card as any).comments.reverse();
+        }
+      }
       return NextResponse.json({ success: true, data: cards, nextCursor });
     }
 
@@ -115,6 +123,11 @@ export async function GET(request: NextRequest) {
 
     const rows = await db.card.findMany(queryOptions);
     const { cards, nextCursor } = cardPage(rows, limit, sortRes.sort.field);
+    for (const card of cards) {
+      if ((card as any).comments) {
+        (card as any).comments.reverse();
+      }
+    }
 
     return NextResponse.json({ success: true, data: cards, nextCursor });
   } catch (err) {
