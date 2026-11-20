@@ -236,7 +236,8 @@ describe("Slack Integration", () => {
         text: `link ${userToken}`,
         user_id: "U_REVOKE_TARGET",
       });
-      await linkSlackUser("U_REVOKE_STANDALONE", userId);
+      const standaloneTok = await db.apiToken.create({ data: { userId, name: "Standalone Revoke Token" } });
+      await linkSlackUser("U_REVOKE_STANDALONE", userId, standaloneTok.id);
 
       const whoBefore = await handleSlackSlashCommand({
         command: "/opm",
@@ -401,7 +402,8 @@ describe("Slack Integration", () => {
           role: "VIEWER",
         },
       });
-      await linkSlackUser("U_VIEWER", viewerRes.user.id);
+      const viewerTok = await db.apiToken.create({ data: { userId: viewerRes.user.id, name: "Viewer Token" } });
+      await linkSlackUser("U_VIEWER", viewerRes.user.id, viewerTok.id);
 
       const res = await handleSlackSlashCommand({
         command: "/opm",
@@ -433,7 +435,8 @@ describe("Slack Integration", () => {
             order: 1,
           },
         });
-        await linkSlackUser("U_OWNER_B", ownerB.user.id);
+        const ownerBTok = await db.apiToken.create({ data: { userId: ownerB.user.id, name: "Owner B Token" } });
+        await linkSlackUser("U_OWNER_B", ownerB.user.id, ownerBTok.id);
 
         const cardTitle = `Card for Owner B ${Date.now()}`;
         // Owner B creates card with projectKey
@@ -558,7 +561,8 @@ describe("Slack Integration", () => {
           role: "ADMIN",
         },
       });
-      await linkSlackUser("U_ADMIN", adminRes.user.id);
+      const adminTok = await db.apiToken.create({ data: { userId: adminRes.user.id, name: "Admin Token" } });
+      await linkSlackUser("U_ADMIN", adminRes.user.id, adminTok.id);
 
       const resCreate = await handleSlackSlashCommand({
         command: "/opm",
@@ -935,6 +939,119 @@ describe("Slack Integration", () => {
         expect(resGet.text).toContain("Internal Visible Card");
       } finally {
         await cleanupTestUser(internalOwner.user.id);
+      }
+    });
+
+    it("escapes owner emails containing Slack mrkdwn in owner-filter ambiguity replies", async () => {
+      const stamp = Date.now();
+      const owner1 = await createTestUser(`alice-one-${stamp}`);
+      const owner2 = await createTestUser(`alice-two-${stamp}`);
+      try {
+        await db.user.update({
+          where: { id: owner1.user.id },
+          data: { email: `alice<https://evil.example|re-link opm here>${stamp}@x.io` },
+        });
+        await db.user.update({
+          where: { id: owner2.user.id },
+          data: { email: `alice-second-${stamp}@x.io` },
+        });
+
+        const p1 = await db.project.create({
+          data: {
+            userId: owner1.user.id,
+            name: "Alice One Eng",
+            key: "ALENG",
+            color: "#6366f1",
+            visibility: "INTERNAL",
+            members: { create: { userId, role: "MEMBER" } },
+          },
+        });
+        const p2 = await db.project.create({
+          data: {
+            userId: owner2.user.id,
+            name: "Alice Two Eng",
+            key: "ALENG",
+            color: "#6366f1",
+            visibility: "INTERNAL",
+            members: { create: { userId, role: "MEMBER" } },
+          },
+        });
+        const c1 = await db.column.create({ data: { projectId: p1.id, name: "Todo", order: 1 } });
+        const c2 = await db.column.create({ data: { projectId: p2.id, name: "Todo", order: 1 } });
+        await db.card.create({ data: { projectId: p1.id, columnId: c1.id, title: "Card 1", number: 1, order: 1000 } });
+        await db.card.create({ data: { projectId: p2.id, columnId: c2.id, title: "Card 2", number: 1, order: 1000 } });
+
+        const getRes = await handleSlackSlashCommand({
+          command: "/opm",
+          text: "get alice/ALENG-1",
+          user_id: "U_TEST_USER",
+        });
+        expect(getRes.text).toContain("&lt;https://evil.example|re-link opm here&gt;");
+        expect(getRes.text).not.toContain("<https://evil.example|re-link opm here>");
+
+        const createRes = await handleSlackSlashCommand({
+          command: "/opm",
+          text: "create alice/ALENG New task",
+          user_id: "U_TEST_USER",
+        });
+        expect(createRes.text).toContain("&lt;https://evil.example|re-link opm here&gt;");
+        expect(createRes.text).not.toContain("<https://evil.example|re-link opm here>");
+      } finally {
+        await cleanupTestUser(owner1.user.id);
+        await cleanupTestUser(owner2.user.id);
+      }
+    });
+
+    it("prefers explicit project membership over INTERNAL projects in /opm get KEY-N", async () => {
+      const stamp = Date.now();
+      const teamOwner = await createTestUser(`team-owner-${stamp}`);
+      const stranger = await createTestUser(`stranger-owner-${stamp}`);
+      try {
+        const teamProject = await db.project.create({
+          data: {
+            userId: teamOwner.user.id,
+            name: "Team Eng",
+            key: "TMENG",
+            color: "#6366f1",
+            visibility: "PRIVATE",
+            members: { create: { userId, role: "MEMBER" } },
+          },
+        });
+        const internalProject = await db.project.create({
+          data: {
+            userId: stranger.user.id,
+            name: "Stranger Internal Eng",
+            key: "TMENG",
+            color: "#ef4444",
+            visibility: "INTERNAL",
+          },
+        });
+        const teamCol = await db.column.create({ data: { projectId: teamProject.id, name: "Todo", order: 1 } });
+        const intCol = await db.column.create({ data: { projectId: internalProject.id, name: "Todo", order: 1 } });
+        await db.card.create({ data: { projectId: teamProject.id, columnId: teamCol.id, title: "Team Card 5", number: 5, order: 1000 } });
+        await db.card.create({ data: { projectId: internalProject.id, columnId: intCol.id, title: "Stranger Card 5", number: 5, order: 1000 } });
+        await db.card.create({ data: { projectId: internalProject.id, columnId: intCol.id, title: "Stranger Card 9", number: 9, order: 2000 } });
+
+        // Member project beats colliding INTERNAL project
+        const hitRes = await handleSlackSlashCommand({
+          command: "/opm",
+          text: "get TMENG-5",
+          user_id: "U_TEST_USER",
+        });
+        expect(hitRes.text).toContain("Team Card 5");
+        expect(hitRes.text).not.toContain("Stranger Card 5");
+
+        // Missing card in member project must not silently return stranger's INTERNAL card
+        const missRes = await handleSlackSlashCommand({
+          command: "/opm",
+          text: "get TMENG-9",
+          user_id: "U_TEST_USER",
+        });
+        expect(missRes.text).toContain("not found");
+        expect(missRes.text).not.toContain("Stranger Card 9");
+      } finally {
+        await cleanupTestUser(teamOwner.user.id);
+        await cleanupTestUser(stranger.user.id);
       }
     });
   });

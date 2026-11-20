@@ -63,22 +63,24 @@ export async function getLinkedOpmUser(slackUserId: string) {
   }
 
   // Active token verification: ensure the API token used to establish the link
-  // has not been revoked or expired.
-  if (record.importRunId && record.importRunId !== "slack-link") {
-    const apiToken = await db.apiToken.findUnique({
-      where: { id: record.importRunId },
-      select: { id: true, userId: true, expiresAt: true },
-    });
-    if (!apiToken || apiToken.userId !== user.id || (apiToken.expiresAt && apiToken.expiresAt < new Date())) {
-      await db.importRecord.deleteMany({ where: { id: record.id } });
-      return null;
-    }
+  // exists, belongs to this user, and has not been revoked or expired.
+  if (!record.importRunId) {
+    await db.importRecord.deleteMany({ where: { id: record.id } });
+    return null;
+  }
+  const apiToken = await db.apiToken.findUnique({
+    where: { id: record.importRunId },
+    select: { id: true, userId: true, expiresAt: true },
+  });
+  if (!apiToken || apiToken.userId !== user.id || (apiToken.expiresAt && apiToken.expiresAt < new Date())) {
+    await db.importRecord.deleteMany({ where: { id: record.id } });
+    return null;
   }
 
   return user;
 }
 
-export async function linkSlackUser(slackUserId: string, opmUserId: string, apiTokenId = "slack-link") {
+export async function linkSlackUser(slackUserId: string, opmUserId: string, apiTokenId: string) {
   await db.$transaction(async (tx) => {
     // Clear any existing mappings for this Slack user so one Slack account holds exactly one link
     await tx.importRecord.deleteMany({
@@ -302,12 +304,12 @@ async function resolveProject(target: string, opmUserId: string) {
     const filtered = filterByOwner(candidates, ownerFilter, (p) => p);
     if ("match" in filtered) return { project: filtered.match };
     if ("ambiguous" in filtered) {
-      const owners = filtered.ambiguous.map((p) => p.user.email).join(", ");
+      const owners = filtered.ambiguous.map((p) => escapeSlackMrkdwn(p.user.email)).join(", ");
       return {
-        error: `Multiple projects with key "${keyOrId.toUpperCase()}" match owner "${ownerFilter}" (${owners}). Please specify the full owner email or project ID.`,
+        error: `Multiple projects with key "${keyOrId.toUpperCase()}" match owner "${escapeSlackMrkdwn(ownerFilter)}" (${owners}). Please specify the full owner email or project ID.`,
       };
     }
-    return { error: `No project with key "${keyOrId.toUpperCase()}" owned by "${ownerFilter}" found.` };
+    return { error: `No project with key "${keyOrId.toUpperCase()}" owned by "${escapeSlackMrkdwn(ownerFilter)}" found.` };
   }
 
   // If no owner filter specified, prefer owned project
@@ -437,7 +439,7 @@ export async function handleSlackSlashCommand(params: {
     await linkSlackUser(params.user_id, apiTokenAuth.session.userId, apiTokenAuth.apiTokenId);
     return {
       response_type: "ephemeral",
-      text: `Successfully linked your Slack account to Open Project Manager as *${escapeSlackMrkdwn(apiTokenAuth.session.name)}* (${apiTokenAuth.session.email}).`,
+      text: `Successfully linked your Slack account to Open Project Manager as *${escapeSlackMrkdwn(apiTokenAuth.session.name)}* (${escapeSlackMrkdwn(apiTokenAuth.session.email)}).`,
     };
   }
 
@@ -454,7 +456,7 @@ export async function handleSlackSlashCommand(params: {
     }
     return {
       response_type: "ephemeral",
-      text: `You are linked as *${escapeSlackMrkdwn(opmUser.name || "")}* (${opmUser.email}) in Open Project Manager.`,
+      text: `You are linked as *${escapeSlackMrkdwn(opmUser.name || "")}* (${escapeSlackMrkdwn(opmUser.email)}) in Open Project Manager.`,
     };
   }
 
@@ -534,6 +536,7 @@ export async function handleSlackSlashCommand(params: {
         project: {
           include: {
             user: { select: { id: true, name: true, email: true } },
+            members: { where: { userId: opmUser.id }, select: { userId: true } },
           },
         },
         column: true,
@@ -549,10 +552,10 @@ export async function handleSlackSlashCommand(params: {
     if (ownerFilter) {
       const filtered = filterByOwner(matchingCards, ownerFilter, (c) => c.project);
       if ("ambiguous" in filtered) {
-        const owners = filtered.ambiguous.map((c) => c.project.user.email).join(", ");
+        const owners = filtered.ambiguous.map((c) => escapeSlackMrkdwn(c.project.user.email)).join(", ");
         return {
           response_type: "ephemeral",
-          text: `Multiple projects with card "${identifier}" match owner "${ownerFilter}" (${owners}). Please specify the full owner email or project ID.`,
+          text: `Multiple projects with card "${identifier}" match owner "${escapeSlackMrkdwn(ownerFilter)}" (${owners}). Please specify the full owner email or project ID.`,
         };
       }
       if ("match" in filtered) {
@@ -562,8 +565,24 @@ export async function handleSlackSlashCommand(params: {
       const owned = matchingCards.find((c) => c.project.userId === opmUser.id);
       if (owned) {
         card = owned;
-      } else if (matchingCards.length === 1) {
-        card = matchingCards[0];
+      } else {
+        const memberMatches = matchingCards.filter((c) => c.project.members.length > 0);
+        if (memberMatches.length === 1) {
+          card = memberMatches[0];
+        } else if (memberMatches.length === 0 && matchingCards.length === 1) {
+          // Only fall back to an INTERNAL project when the caller isn't an owner/member of another active project with this key
+          const callerHasKeyProject = await db.project.findFirst({
+            where: {
+              key: projectKey,
+              isArchived: false,
+              OR: [{ userId: opmUser.id }, { members: { some: { userId: opmUser.id } } }],
+            },
+            select: { id: true },
+          });
+          if (!callerHasKeyProject) {
+            card = matchingCards[0];
+          }
+        }
       }
     }
 

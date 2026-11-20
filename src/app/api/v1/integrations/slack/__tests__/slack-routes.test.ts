@@ -28,7 +28,8 @@ describe("Slack Routes", () => {
       },
     });
 
-    await linkSlackUser("U_ROUTE_TEST", userId);
+    const tok = await db.apiToken.create({ data: { userId, name: "Route Test Token" } });
+    await linkSlackUser("U_ROUTE_TEST", userId, tok.id);
   });
 
   afterEach(async () => {
