@@ -634,7 +634,7 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
                 disabled={discordBusy}
                 className="shrink-0 rounded-xl border border-indigo-200 dark:border-indigo-500/30 bg-indigo-50 dark:bg-indigo-500/10 px-3 py-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 disabled:opacity-50 transition-colors"
               >
-                Generate Link Code
+                New Link Code
               </button>
             </div>
 

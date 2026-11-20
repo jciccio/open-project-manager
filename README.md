@@ -322,7 +322,7 @@ Open Project Manager supports Discord Interactions for `/opm` slash commands (Pa
      ```
      *(Accepted option name aliases in the handler also include `code` for `link`, `project` for `key`, `card` for `identifier`, and `destination`/`to` for `column`.)*
 3. **Account Linking (Short-Lived Single-Use Code)**:
-   - Open your **User Profile** modal in Open Project Manager, scroll to **Discord Bot**, and click **Generate Link Code** (calls `POST /api/v1/integrations/discord/link-code` with your interactive browser session; Bearer API tokens are rejected with `403`).
+   - Open your **User Profile** modal in Open Project Manager, scroll to **Discord Bot**, and click **New Link Code** (calls `POST /api/v1/integrations/discord/link-code` with your interactive browser session; Bearer API tokens are rejected with `403`).
    - Run the generated `/opm link <code_here>` command in Discord within 10 minutes.
    - You can view and revoke linked Discord accounts at any time from the same **Discord Bot** section in your User Profile (`GET`/`DELETE /api/v1/integrations/discord/links`), or run `/opm unlink` in Discord.
 4. **Commands & Scope Notes**:
