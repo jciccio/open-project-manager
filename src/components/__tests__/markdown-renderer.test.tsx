@@ -70,6 +70,14 @@ describe("MarkdownRenderer Component", () => {
     expect(container.querySelector("img")).toBeNull();
   });
 
+  it("renders markdown images as text placeholders without rendering img tags", () => {
+    const markdown = "![Tracking pixel](https://tracker.example.com/pixel.gif)";
+    const { container } = render(<MarkdownRenderer content={markdown} />);
+
+    expect(container.querySelector("img")).toBeNull();
+    expect(screen.getByText("[Image: Tracking pixel]")).toBeInTheDocument();
+  });
+
   it("returns null for empty content", () => {
     const { container } = render(<MarkdownRenderer content="" />);
     expect(container.firstChild).toBeNull();

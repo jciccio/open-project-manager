@@ -50,6 +50,13 @@ export function MarkdownRenderer({ content, className = "" }: Props) {
               </p>
             );
           },
+          img({ alt }) {
+            return (
+              <span className="inline-flex items-center gap-1 text-slate-500 italic text-[11px]">
+                {alt ? `[Image: ${alt}]` : "[Image]"}
+              </span>
+            );
+          },
           table({ children, ...props }) {
             return (
               <div className="overflow-x-auto my-2">
