@@ -66,7 +66,7 @@ Make sure you have the necessary tools installed for your preferred setup method
 | Tool | Required For | Recommended Version | Download / Installation Link |
 |---|---|---|---|
 | **[Docker Desktop](https://www.docker.com/products/docker-desktop/)** or Docker Engine + Compose | Docker Setup | v24+ / Compose v2+ | [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/) |
-| **[Node.js](https://nodejs.org/)** | Local Development | v18.x or v20.x+ (LTS) | [nodejs.org](https://nodejs.org/) |
+| **[Node.js](https://nodejs.org/)** | Local Development | v22.x LTS (22.22.2 or newer) | [nodejs.org](https://nodejs.org/) |
 | **[Yarn](https://yarnpkg.com/)** or **npm** | Local Development | `yarn` v1.22+ or `npm` v9+ | `npm install -g yarn` |
 | **[Git](https://git-scm.com/)** | Both | Any modern version | [git-scm.com](https://git-scm.com/) |
 | **OpenSSL** | Both (Token Generation) | Preinstalled on macOS/Linux | Windows: Included with Git Bash |
@@ -276,7 +276,7 @@ curl -X GET http://localhost:3000/api/v1/cards/by-identifier/OPM-1 \
 ```
 
 ### 7. Paginated Card Listing
-Pass the `nextCursor` value from the previous response as `cursor` to fetch the next page. `nextCursor` is `null` on the last page. Cursor pagination is only supported with `orderBy=order` (the default); non-`order` sorts (`priority`, `dueDate`, `createdAt`, `updatedAt`) return up to `limit` (max 100) matching cards with `nextCursor: null`.
+Pass the `nextCursor` value from the previous response as `cursor` to fetch the next page. `nextCursor` is `null` on the last page. Cursor pagination is only supported with `orderBy=order` (the default); non-`order` sorts (`priority`, `dueDate`, `createdAt`, `updatedAt`) return up to `limit` (max 100) matching cards with `nextCursor: null`. Note that card listings return `_count.comments` and cap the included inline comments at the 10 most recent comments per card; use `GET /api/v1/cards/:id/comments` to retrieve full comment history.
 ```bash
 curl -X GET "http://localhost:3000/api/v1/cards?projectId=PROJECT_ID&limit=10&cursor=NEXT_CURSOR" \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
@@ -372,8 +372,11 @@ VIKUNJA_URL=http://localhost:3456/api/v1 VIKUNJA_API_TOKEN=… \
 ```
 
 Every imported entity is recorded in `ImportRecord`, so **the import is safe to
-re-run**: previously imported rows come back `skipped` instead of duplicating, and
-a partially failed run is fixed by simply calling it again.
+re-run**: previously imported rows come back `skipped` instead of duplicating. A run
+that stopped partway (a crash, a restart, a closed terminal) or read only part of a
+project's cards finishes the job when you run it again: cards it already wrote get the
+parent links and relations the earlier run didn't reach. Records that failed for a
+lasting reason, such as an invalid link URL, fail again.
 
 How Vikunja concepts land in OPM:
 
@@ -438,6 +441,12 @@ differs between the two, for example when OPM signs them in through SSO.
 The import doesn't add anyone to a project, so anyone else's name goes in the card owner
 text. A re-run doesn't update cards that are already imported.
 
+**Project members:** the account that runs the import becomes each imported project's
+owner member, so it shows up in the members list and the card owner and assignee
+selects. Projects imported by an earlier version, from Plane or Vikunja, have no member
+row. Add the missing owner rows once with `npx tsx scripts/backfill-project-members.ts`,
+which skips projects that already have one.
+
 **Not imported:** start dates, cycles, modules, label parents, non-integer estimates and
 the `start_before`, `start_after`, `finish_before` and `finish_after` relations. Dry and
 live runs both list what they found of these, with counts, under "Not carried over".
@@ -461,6 +470,10 @@ the rate limit window to reset and retries 429 and 5xx responses.
 **Re-running:** a re-run skips what's already imported and adds new comments and
 attachments. It reads
 everything from Plane again, so it takes about as long. Use `--project` to limit it.
+The first re-run after upgrading from a version that didn't track finished parent and
+relation steps goes over the cards imported before once, setting any parent that's
+missing (never replacing one) and adding missing relations. That can bring back a parent
+link or relation someone removed by hand since that import.
 
 **Relations across projects:** projects import one at a time, and a relation is created
 when the second of its two projects runs. That holds across separate `--project` runs too:
@@ -469,8 +482,10 @@ relation into a project you never import isn't created. A dry run doesn't check 
 relations, and prints how many it left out.
 
 If Plane fails to return a work item's links or relations, the import carries on and the
-summary counts the work items affected. Re-running restores missing relations, but not
-links, because links are only written when a card is first created.
+summary counts the work items affected. A re-run doesn't apply them to cards that are
+already imported, so those links and relations don't come back. A relation still
+arrives from the other card's side when Plane returns it there, since Plane lists a
+relation on both work items.
 
 Plane's public API does not return archived work items, drafts or intake items, so an
 import does not include them. Unarchive anything you need in Plane first.

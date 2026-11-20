@@ -40,11 +40,13 @@ describe("projects with more cards than Prisma's default SQLite parameter limit"
     expect(cardCount(res.data!)).toBe(CARD_COUNT);
   });
 
-  it("MCP get_project returns every card", async () => {
+  it("MCP get_project counts every card without embedding them", async () => {
     const res = (await executeMcpTool("get_project", { id: projectId }, { userId })) as unknown as {
-      project: { columns: Array<{ cards: unknown[] }> };
+      project: { cardCount: number; columns: Array<{ cardCount: number; cards?: unknown }> };
     };
 
-    expect(cardCount(res.project)).toBe(CARD_COUNT);
+    expect(res.project.cardCount).toBe(CARD_COUNT);
+    expect(res.project.columns[0].cardCount).toBe(CARD_COUNT);
+    expect(res.project.columns[0].cards).toBeUndefined();
   });
 });

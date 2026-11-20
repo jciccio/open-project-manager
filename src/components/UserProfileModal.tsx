@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X, User, Mail, Lock, CheckCircle2, Key, Copy, Eye, EyeOff, Check, Trash2, Activity, ShieldCheck } from "lucide-react";
+import { User, Mail, Lock, CheckCircle2, Key, Copy, Eye, EyeOff, Check, Trash2, Activity, ShieldCheck } from "lucide-react";
 import { updateUserProfile, listApiTokens, createApiToken, revokeApiToken, getSsoStatus } from "@/actions/auth";
 import { getTelemetryStatus, updateTelemetryPreference } from "@/actions/telemetry";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "./LanguageProvider";
 import { formatDate } from "@/lib/formatDate";
 import ErrorBanner from "./ErrorBanner";
-import { useModalA11y, useBackdropClose } from "./useModalA11y";
+import { Modal, ModalHeader, ModalBody, ModalFooter, ModalCloseButton, ModalDismissButton } from "./Modal";
 
 interface Props {
   user: {
@@ -73,8 +73,6 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
     onClose();
   };
 
-  const modalRef = useModalA11y(handleGuardedClose);
-  const backdropProps = useBackdropClose(handleGuardedClose);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -263,19 +261,13 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
   }
 
   return (
-    <div
-      {...backdropProps}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4"
+    <Modal
+      labelledBy="user-profile-title"
+      size="lg"
+      onBackdropClick={handleGuardedClose}
+      onEscape={handleGuardedClose}
     >
-      <div
-        ref={modalRef}
-        role="dialog"
-        aria-modal="true"
-        tabIndex={-1}
-        aria-labelledby="user-profile-title"
-        className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-5 relative max-h-[90vh] overflow-y-auto focus:outline-none"
-      >
-        <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4">
+        <ModalHeader>
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400">
               <User className="h-5 w-5" />
@@ -284,25 +276,23 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
               {t("profileModal.title")}
             </h3>
           </div>
-          <button
-            onClick={handleGuardedClose}
-            aria-label={t("profileModal.close")}
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
+          <ModalCloseButton onClick={handleGuardedClose} label={t("profileModal.close")} />
+        </ModalHeader>
 
-        {error && <ErrorBanner message={error} />}
-
-        {successMsg && (
-          <div className="flex items-center justify-center gap-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 p-3 text-xs font-semibold text-emerald-600 dark:text-emerald-400 text-center">
-            <CheckCircle2 className="h-4 w-4" />
-            <span>{successMsg}</span>
+        {(error || successMsg) && (
+          <div className="shrink-0 px-6 pt-4 space-y-3">
+            {error && <ErrorBanner message={error} />}
+            {successMsg && (
+              <div className="flex items-center justify-center gap-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 p-3 text-xs font-semibold text-emerald-600 dark:text-emerald-400 text-center">
+                <CheckCircle2 className="h-4 w-4" />
+                <span>{successMsg}</span>
+              </div>
+            )}
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <ModalBody>
+        <form id="user-profile-form" onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
               {t("profileModal.nameLabel")}
@@ -638,24 +628,20 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
             )}
           </div>
 
-          <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-200 dark:border-slate-800">
-            <button
-              type="button"
-              onClick={handleGuardedClose}
-              className="rounded-xl bg-slate-100 dark:bg-slate-800 px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
-            >
-              {t("kanban.cancel")}
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-500 shadow-md shadow-indigo-600/20 disabled:opacity-50 transition-all"
-            >
-              {loading ? t("profileModal.updating") : t("profileModal.updateProfile")}
-            </button>
-          </div>
         </form>
-      </div>
-    </div>
+        </ModalBody>
+
+        <ModalFooter>
+          <ModalDismissButton onClick={handleGuardedClose}>{t("kanban.cancel")}</ModalDismissButton>
+          <button
+            type="submit"
+            form="user-profile-form"
+            disabled={loading}
+            className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-500 shadow-md shadow-indigo-600/20 disabled:opacity-50 transition-all"
+          >
+            {loading ? t("profileModal.updating") : t("profileModal.updateProfile")}
+          </button>
+        </ModalFooter>
+    </Modal>
   );
 }
