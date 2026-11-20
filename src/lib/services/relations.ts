@@ -1,4 +1,5 @@
 import { isClosedColumn } from "@/lib/columnGroups";
+import { normalizeRelation } from "@/lib/cardRelations";
 import { db } from "@/lib/db";
 import { verifyProjectAccess, accessDenial } from "@/lib/permissions";
 import { safeRevalidatePath } from "@/lib/revalidate";
@@ -11,20 +12,12 @@ export async function addCardRelation(
   userId: string
 ) {
   try {
-    if (sourceCardId === targetCardId) {
-      return { success: false, error: "A card cannot relate to itself", kind: "invalid" as ServiceErrorKind };
+    const canonical = normalizeRelation(sourceCardId, targetCardId, type);
+    if (!canonical.valid) {
+      return { success: false, error: canonical.error, kind: "invalid" as ServiceErrorKind };
     }
 
-    const validTypes = ["BLOCKS", "BLOCKED_BY", "RELATES_TO"];
-    const normalizedType = type.toUpperCase().trim();
-    if (!validTypes.includes(normalizedType)) {
-      return { success: false, error: `Invalid relation type '${type}'. Expected BLOCKS, BLOCKED_BY, or RELATES_TO`, kind: "invalid" as ServiceErrorKind };
-    }
-
-    const sourceCard = await db.card.findUnique({
-      where: { id: sourceCardId },
-      include: { project: true },
-    });
+    const sourceCard = await db.card.findUnique({ where: { id: sourceCardId } });
     const targetCard = await db.card.findUnique({ where: { id: targetCardId } });
 
     if (!sourceCard || !targetCard) {
@@ -38,12 +31,11 @@ export async function addCardRelation(
       return { success: false, error: "Unauthorized or card not found", kind: "not_found" as ServiceErrorKind };
     }
 
-    const relation = await db.cardRelation.create({
-      data: {
-        sourceCardId,
-        targetCardId,
-        type: normalizedType,
-      },
+    const triple = { sourceCardId: canonical.sourceId, targetCardId: canonical.targetId, type: canonical.type };
+    const relation = await db.cardRelation.upsert({
+      where: { sourceCardId_targetCardId_type: triple },
+      create: triple,
+      update: {},
       include: {
         sourceCard: { include: { project: true } },
         targetCard: { include: { project: true } },
@@ -51,6 +43,7 @@ export async function addCardRelation(
     });
 
     safeRevalidatePath(`/projects/${sourceCard.projectId}`);
+    if (targetCard.projectId !== sourceCard.projectId) safeRevalidatePath(`/projects/${targetCard.projectId}`);
     return { success: true, data: relation };
   } catch (error) {
     console.error("Error creating card relation:", error);
@@ -87,6 +80,12 @@ export async function removeCardRelation(relationId: string, userId: string) {
   }
 }
 
+export async function viewableProjectIds(projectIds: Iterable<string>, userId: string): Promise<Set<string>> {
+  const distinct = [...new Set(projectIds)];
+  const allowed = await Promise.all(distinct.map((id) => verifyProjectAccess(id, userId, "VIEWER")));
+  return new Set(distinct.filter((_, i) => allowed[i]));
+}
+
 export async function getCardRelations(cardId: string, userId: string) {
   try {
     const card = await db.card.findUnique({ where: { id: cardId } });
@@ -95,7 +94,7 @@ export async function getCardRelations(cardId: string, userId: string) {
       return { success: false, error: "Unauthorized or card not found", kind: "not_found" as ServiceErrorKind };
     }
 
-    const outgoing = await db.cardRelation.findMany({
+    const allOutgoing = await db.cardRelation.findMany({
       where: { sourceCardId: cardId },
       include: {
         targetCard: {
@@ -104,7 +103,7 @@ export async function getCardRelations(cardId: string, userId: string) {
       },
     });
 
-    const incoming = await db.cardRelation.findMany({
+    const allIncoming = await db.cardRelation.findMany({
       where: { targetCardId: cardId },
       include: {
         sourceCard: {
@@ -112,6 +111,13 @@ export async function getCardRelations(cardId: string, userId: string) {
         },
       },
     });
+
+    const viewable = await viewableProjectIds(
+      [...allOutgoing.map((r) => r.targetCard.projectId), ...allIncoming.map((r) => r.sourceCard.projectId)],
+      userId
+    );
+    const outgoing = allOutgoing.filter((r) => viewable.has(r.targetCard.projectId));
+    const incoming = allIncoming.filter((r) => viewable.has(r.sourceCard.projectId));
 
     const formattedOutgoing = outgoing.map((r) => ({
       id: r.id,

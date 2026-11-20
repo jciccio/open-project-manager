@@ -65,6 +65,7 @@ async function main() {
   const proj1 = await db.project.create({
     data: {
       userId: adminUser.id,
+      members: { create: { userId: adminUser.id, role: "OWNER" } },
       name: "Open Project Manager MVP",
       description: "Lightweight self-hosted task & project management tool built with Next.js & SQLite.",
       color: "#6366f1",
@@ -150,6 +151,7 @@ async function main() {
   const proj2 = await db.project.create({
     data: {
       userId: demoUser.id,
+      members: { create: { userId: demoUser.id, role: "OWNER" } },
       name: "Jose's Autonomous Systems",
       description: "Isolated workspace for Jose Ciccio's internal projects.",
       color: "#ec4899",

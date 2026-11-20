@@ -12,6 +12,7 @@ import { withCardNumberRetry } from "@/lib/cardNumbering";
 import { validateParentCard, type CardParentReader } from "@/lib/cardParent";
 import { SafeUrlSchema } from "@/lib/validation/safeUrl";
 import { removeAttachmentFiles } from "@/lib/attachmentCleanup";
+import { normalizeRelation, type ValidRelationType } from "@/lib/cardRelations";
 import { MAX_ATTACHMENT_BYTES, writeAttachmentFile } from "@/lib/attachmentStorage";
 import type {
   Importer,
@@ -26,34 +27,11 @@ import type {
   RunImportOptions,
   ImportCardRelation,
   ImportCard,
+  ImportProgressEvent,
 } from "./types";
 
 const ORDER_GAP = 10000;
-
-export const VALID_RELATION_TYPES = ["BLOCKS", "BLOCKED_BY", "RELATES_TO"] as const;
-export type ValidRelationType = (typeof VALID_RELATION_TYPES)[number];
-
-export function normalizeRelation(
-  sourceCardId: string,
-  targetCardId: string,
-  rawType: string
-): { valid: false; error: string } | { valid: true; sourceId: string; targetId: string; type: ValidRelationType } {
-  if (sourceCardId === targetCardId) {
-    return { valid: false, error: "A card cannot relate to itself" };
-  }
-  const normType = (rawType || "").toUpperCase().trim();
-  if (!VALID_RELATION_TYPES.includes(normType as ValidRelationType)) {
-    return { valid: false, error: `Invalid relation type '${rawType}'. Expected BLOCKS, BLOCKED_BY, or RELATES_TO` };
-  }
-  if (normType === "BLOCKED_BY") {
-    return { valid: true, sourceId: targetCardId, targetId: sourceCardId, type: "BLOCKS" };
-  }
-  if (normType === "RELATES_TO") {
-    const [sourceId, targetId] = sourceCardId < targetCardId ? [sourceCardId, targetCardId] : [targetCardId, sourceCardId];
-    return { valid: true, sourceId, targetId, type: "RELATES_TO" };
-  }
-  return { valid: true, sourceId: sourceCardId, targetId: targetCardId, type: "BLOCKS" };
-}
+export const PROGRESS_INTERVAL_CARDS = 25;
 
 function isUniqueViolation(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
@@ -106,10 +84,33 @@ interface ImportPlan {
   cardCreated(cardLocalId: string, projectLocalId: string): void;
   setParent(cardLocalId: string, parentLocalId: string): Promise<void>;
   addRelation(sourceCardId: string, targetCardId: string, type: ValidRelationType): Promise<void>;
+  /** Whether an earlier run finished this card's parent and relation steps. */
+  linksDone(cardSourceId: string, cardLocalId: string): Promise<boolean>;
+  markLinksDone(cardSourceId: string, cardLocalId: string): Promise<void>;
 }
 
 interface TraversalCtx extends RunCtx {
   plan: ImportPlan;
+  progress: (event: ImportProgressEvent) => void;
+}
+
+function failureReportingRecords(ctx: TraversalCtx) {
+  return {
+    push(result: ImportRecordResult) {
+      ctx.plan.records.push(result);
+      if (result.status === "failed") ctx.progress({ kind: "failed", record: result });
+    },
+  };
+}
+
+function guardedProgress(onProgress: RunImportOptions["onProgress"]): (event: ImportProgressEvent) => void {
+  return (event) => {
+    try {
+      onProgress?.(event);
+    } catch {
+      // A broken progress sink (e.g. a closed stdout) must not change the import.
+    }
+  };
 }
 
 interface DroppedTally {
@@ -190,7 +191,7 @@ async function storeImportedAttachment(attachment: ImportAttachment, cardLocalId
 }
 
 async function importCardAttachments(ctx: TraversalCtx, cardSourceId: string, cardLocalId: string) {
-  const records = ctx.plan.records;
+  const records = failureReportingRecords(ctx);
   if (!ctx.importer.fetchAttachments) return;
   try {
     for await (const attachment of ctx.importer.fetchAttachments(cardSourceId)) {
@@ -377,6 +378,23 @@ async function createOrSkip(
   }
 }
 
+const LINKS_DONE_ENTITY = "cardLinks";
+
+async function linksDone(ctx: RunCtx, cardSourceId: string, cardLocalId: string): Promise<boolean> {
+  const marker = await db.importRecord.findUnique({
+    where: {
+      userId_source_entityType_sourceId: {
+        userId: ctx.userId,
+        source: ctx.source,
+        entityType: LINKS_DONE_ENTITY,
+        sourceId: cardSourceId,
+      },
+    },
+    select: { localId: true },
+  });
+  return marker?.localId === cardLocalId;
+}
+
 async function liveLocalId(ctx: RunCtx, entityType: ImportEntityType, mappingKey: string): Promise<string | undefined> {
   const existing = await findExistingMapping(ctx.userId, ctx.source, entityType, mappingKey);
   return existing && (await rowStillExists(entityType, existing.localId)) ? existing.localId : undefined;
@@ -396,6 +414,28 @@ function livePlan(ctx: RunCtx): ImportPlan {
         where: { sourceCardId_targetCardId_type: { sourceCardId, targetCardId, type } },
         create: { sourceCardId, targetCardId, type },
         update: {},
+      });
+    },
+    linksDone: (cardSourceId, cardLocalId) => linksDone(ctx, cardSourceId, cardLocalId),
+    markLinksDone: async (cardSourceId, cardLocalId) => {
+      await db.importRecord.upsert({
+        where: {
+          userId_source_entityType_sourceId: {
+            userId: ctx.userId,
+            source: ctx.source,
+            entityType: LINKS_DONE_ENTITY,
+            sourceId: cardSourceId,
+          },
+        },
+        create: {
+          userId: ctx.userId,
+          source: ctx.source,
+          entityType: LINKS_DONE_ENTITY,
+          sourceId: cardSourceId,
+          localId: cardLocalId,
+          importRunId: ctx.importRunId,
+        },
+        update: { localId: cardLocalId, importRunId: ctx.importRunId },
       });
     },
   };
@@ -421,7 +461,9 @@ function dryPlan(ctx: RunCtx): ImportPlan {
       card: async (cardId) => {
         const projectId = plannedCardProjects.get(cardId);
         if (projectId) return { projectId, parentId: plannedParents.get(cardId) ?? null };
-        return db.card.findUnique({ where: { id: cardId }, select: { projectId: true, parentId: true } });
+        const row = await db.card.findUnique({ where: { id: cardId }, select: { projectId: true, parentId: true } });
+        const plannedParent = plannedParents.get(cardId);
+        return row && plannedParent ? { ...row, parentId: plannedParent } : row;
       },
     },
     resolve: async (entityType, mappingKey) =>
@@ -465,6 +507,8 @@ function dryPlan(ctx: RunCtx): ImportPlan {
       plannedParents.set(cardLocalId, parentLocalId);
     },
     addRelation: async () => {},
+    linksDone: (cardSourceId, cardLocalId) => linksDone(ctx, cardSourceId, cardLocalId),
+    markLinksDone: async () => {},
   };
   return plan;
 }
@@ -481,9 +525,11 @@ function asDryRunRecord(record: ImportRecordResult): ImportDryRunRecordResult {
 }
 
 async function traverseImport(ctx: TraversalCtx) {
-  const records = ctx.plan.records;
+  const records = failureReportingRecords(ctx);
   try {
     for await (const projectRec of ctx.importer.fetchProjects()) {
+      const projectLabel = projectRec.key || projectRec.name;
+      ctx.progress({ kind: "project", project: projectLabel });
       try {
         const { localId: projectLocalId, result: projectResult } = await ctx.plan.createOrSkip(
           "project",
@@ -497,6 +543,7 @@ async function traverseImport(ctx: TraversalCtx) {
                 description: projectRec.description,
                 color: projectRec.color || "#6366f1",
                 key,
+                members: { create: { userId: ctx.userId, role: "OWNER" } },
               },
             });
             return project.id;
@@ -618,11 +665,16 @@ async function traverseImport(ctx: TraversalCtx) {
         }
 
         const cards: ImportCard[] = [];
+        let cardListComplete = true;
         try {
           for await (const card of ctx.importer.fetchCards(projectRec.sourceId)) {
             cards.push(card);
+            if (cards.length % PROGRESS_INTERVAL_CARDS === 0) {
+              ctx.progress({ kind: "cardsRead", project: projectLabel, count: cards.length });
+            }
           }
         } catch (err) {
+          cardListComplete = false;
           records.push({
             entityType: "card",
             sourceId: `${projectRec.sourceId}:cards`,
@@ -630,6 +682,10 @@ async function traverseImport(ctx: TraversalCtx) {
             error: err instanceof Error ? err.message : String(err),
           });
           if (cards.length === 0) continue;
+        }
+
+        if (cards.length === 0 || cards.length % PROGRESS_INTERVAL_CARDS !== 0) {
+          ctx.progress({ kind: "cardsRead", project: projectLabel, count: cards.length });
         }
 
         const existingCards = await db.card.findMany({
@@ -651,10 +707,16 @@ async function traverseImport(ctx: TraversalCtx) {
         const cardMap = new Map<string, string>();
         const pendingParents: Array<{ cardLocalId: string; cardSourceId: string; parentSourceId: string }> = [];
         const pendingRelations: Array<{ cardLocalId: string; cardSourceId: string; relations: ImportCardRelation[] }> = [];
+        const linkQueue: Array<{ cardLocalId: string; cardSourceId: string }> = [];
+        const skippedCardIds = new Set<string>();
+        const unresolvedCards = new Set<string>();
         const assignable = await assignableUsersByEmail(projectLocalId, ctx.userId);
 
         try {
-          for (const card of cards) {
+          for (const [index, card] of cards.entries()) {
+            if (index > 0 && index % PROGRESS_INTERVAL_CARDS === 0) {
+              ctx.progress({ kind: "cardsProcessed", project: projectLabel, count: index, total: cards.length });
+            }
             const assignees = splitAssignees(card.assignees, assignable);
             const columnLocalId = columnMap.get(card.columnSourceId);
             if (!columnLocalId) {
@@ -764,6 +826,12 @@ async function traverseImport(ctx: TraversalCtx) {
             if (cardResult.status === "created") {
               ctx.plan.cardCreated(cardLocalId, projectLocalId);
               ctx.tally.unmatchedAssignees += assignees.unmatched.length;
+            }
+            // A skipped card without a marker was written by a run that stopped before
+            // its parent and relation steps, or by a version that kept no markers.
+            if (cardResult.status === "created" || !(await ctx.plan.linksDone(card.sourceId, cardLocalId))) {
+              linkQueue.push({ cardLocalId, cardSourceId: card.sourceId });
+              if (cardResult.status !== "created") skippedCardIds.add(cardLocalId);
               if (card.parentSourceId) {
                 pendingParents.push({ cardLocalId, cardSourceId: card.sourceId, parentSourceId: card.parentSourceId });
               }
@@ -798,6 +866,7 @@ async function traverseImport(ctx: TraversalCtx) {
 
             await importCardAttachments(ctx, card.sourceId, cardLocalId);
           }
+          ctx.progress({ kind: "cardsProcessed", project: projectLabel, count: cards.length, total: cards.length });
 
           for (const { cardLocalId, cardSourceId, parentSourceId } of pendingParents) {
             if (parentSourceId === cardSourceId) {
@@ -810,8 +879,14 @@ async function traverseImport(ctx: TraversalCtx) {
               continue;
             }
 
+            if (skippedCardIds.has(cardLocalId)) {
+              const existing = await db.card.findUnique({ where: { id: cardLocalId }, select: { parentId: true } });
+              if (existing?.parentId) continue;
+            }
+
             const parentLocalId = cardMap.get(parentSourceId) ?? (await ctx.plan.resolve("card", parentSourceId));
             if (!parentLocalId) {
+              unresolvedCards.add(cardSourceId);
               records.push({
                 entityType: "card",
                 sourceId: `${cardSourceId}:parent`,
@@ -860,6 +935,7 @@ async function traverseImport(ctx: TraversalCtx) {
               const targetCardLocalId =
                 cardMap.get(rel.targetCardSourceId) ?? (await ctx.plan.resolve("card", rel.targetCardSourceId));
               if (!targetCardLocalId) {
+                unresolvedCards.add(cardSourceId);
                 records.push({
                   entityType: "card",
                   sourceId: `${cardSourceId}:relation:${rel.targetCardSourceId}`,
@@ -898,6 +974,12 @@ async function traverseImport(ctx: TraversalCtx) {
               }
             }
           }
+
+          // A target missing from a cut-short card list may arrive on the next run.
+          for (const { cardLocalId, cardSourceId } of linkQueue) {
+            if (!cardListComplete && unresolvedCards.has(cardSourceId)) continue;
+            await ctx.plan.markLinksDone(cardSourceId, cardLocalId);
+          }
         } catch (err) {
           records.push({
             entityType: "card",
@@ -934,7 +1016,7 @@ export async function runImport(
   const tally: DroppedTally = { unmatchedAssignees: 0 };
   const ctx: RunCtx = { importer, userId, source: importer.name, importRunId, tally };
   const plan = options.dryRun ? dryPlan(ctx) : livePlan(ctx);
-  await traverseImport({ ...ctx, plan });
+  await traverseImport({ ...ctx, plan, progress: guardedProgress(options.onProgress) });
 
   if (options.dryRun) {
     const records = plan.records.map(asDryRunRecord);

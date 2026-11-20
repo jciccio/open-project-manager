@@ -13,6 +13,7 @@ import { findExistingMapping } from "../src/lib/import/runImport";
 import type { ImportDroppedField, ImportDryRunSummary, ImportSummary } from "../src/lib/import/types";
 import { parseImportPlaneArgs, type ImportPlaneArgs } from "./import-plane-args";
 import { findKeyProblems } from "./import-plane-preflight";
+import { importInProgressMessage, printImportProgress } from "./import-progress";
 import { resolveImportUserId } from "./resolve-import-user";
 
 function parseArgs(argv: string[]): ImportPlaneArgs {
@@ -93,12 +94,15 @@ async function main() {
   }
 
   try {
-    const { summary } = await runImportJob(importer, userId, { dryRun: args.dryRun });
+    const { summary } = await runImportJob(importer, userId, {
+      dryRun: args.dryRun,
+      onProgress: printImportProgress(args.dryRun),
+    });
     if (summary.mode === "dry-run") printDryRun(summary, importer);
     else printLive(summary);
   } catch (err) {
     if (err instanceof ImportInProgressError) {
-      console.error(`${err.message} Wait for it to finish (GET /api/v1/import/<jobId>), then run this again.`);
+      console.error(importInProgressMessage(err));
       process.exit(1);
     }
     throw err;

@@ -21,7 +21,7 @@ Evaluate the arguments provided:
 
 ### Step 2: List Tasks and Kanban Columns (`/opm list`)
 1. Fetch projects using MCP tool `list_projects` or `GET /api/v1/projects`.
-2. Retrieve the active board's columns and cards using `get_project` or `list_columns` + `list_cards`.
+2. Retrieve the active board's columns with `list_columns` and its cards with `list_cards` (page with `limit` and `cursor`). `get_project` returns per-column card counts, not the cards.
 3. Format output clearly by Kanban column:
    - **Backlog**: Cards waiting for triage
    - **To Do**: Prioritized tasks ready to begin

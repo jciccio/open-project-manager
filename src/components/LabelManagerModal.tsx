@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X, Tag, Plus, Trash2, Pencil } from "lucide-react";
+import { Tag, Plus, Trash2, Pencil } from "lucide-react";
 import { getLabels, createLabel, deleteLabel, updateLabel } from "@/actions/labels";
 import { useTranslation } from "./LanguageProvider";
 import ColorPicker from "./ColorPicker";
 import ErrorBanner from "./ErrorBanner";
 import { DEFAULT_PROJECT_COLOR, chipTextColor } from "@/lib/colors";
-import { useModalA11y, useBackdropClose } from "./useModalA11y";
+import { Modal, ModalHeader, ModalBody, ModalFooter, ModalCloseButton, ModalDismissButton } from "./Modal";
 
 interface Props {
   onClose: () => void;
@@ -39,8 +39,6 @@ export default function LabelManagerModal({ onClose }: Props) {
     onClose();
   };
 
-  const modalRef = useModalA11y(handleModalClose);
-  const backdropProps = useBackdropClose(handleModalClose);
 
   useEffect(() => {
     fetchLabels();
@@ -133,19 +131,8 @@ export default function LabelManagerModal({ onClose }: Props) {
   }
 
   return (
-    <div
-      {...backdropProps}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-    >
-      <div
-        ref={modalRef}
-        role="dialog"
-        aria-modal="true"
-        tabIndex={-1}
-        aria-labelledby="label-modal-title"
-        className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-6 focus:outline-none"
-      >
-        <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
+    <Modal labelledBy="label-modal-title" onBackdropClick={handleModalClose} onEscape={handleModalClose}>
+        <ModalHeader>
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
               <Tag className="h-5 w-5" />
@@ -154,15 +141,10 @@ export default function LabelManagerModal({ onClose }: Props) {
               {t("labelModal.title")}
             </h3>
           </div>
-          <button
-            onClick={handleModalClose}
-            aria-label={t("cardModal.close")}
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-colors"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
+          <ModalCloseButton onClick={handleModalClose} label={t("cardModal.close")} />
+        </ModalHeader>
 
+        <ModalBody className="space-y-6">
         {error && <ErrorBanner message={error} />}
 
         {/* Create Form */}
@@ -296,15 +278,11 @@ export default function LabelManagerModal({ onClose }: Props) {
           </div>
         </div>
 
-        <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-end">
-          <button
-            onClick={onClose}
-            className="rounded-lg bg-slate-200 dark:bg-slate-800 px-4 py-2 text-xs font-semibold text-slate-800 dark:text-white hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors"
-          >
-            {t("labelModal.done")}
-          </button>
-        </div>
-      </div>
-    </div>
+        </ModalBody>
+
+        <ModalFooter>
+          <ModalDismissButton onClick={onClose}>{t("labelModal.done")}</ModalDismissButton>
+        </ModalFooter>
+    </Modal>
   );
 }
