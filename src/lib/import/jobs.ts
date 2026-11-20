@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { runImport } from "./runImport";
-import type { Importer, ImportDryRunSummary, ImportSummary } from "./types";
+import type { Importer, ImportDryRunSummary, ImportSummary, RunImportOptions } from "./types";
 
 export const HEARTBEAT_INTERVAL_MS = 30_000;
 // A live job refreshes its heartbeat every HEARTBEAT_INTERVAL_MS, so one that
@@ -11,8 +11,20 @@ export const STALE_JOB_MS = 5 * 60_000;
 export const IMPORT_FAILED_MESSAGE = "Import failed; see the server log.";
 
 export class ImportInProgressError extends Error {
-  constructor(readonly jobId: string | undefined) {
-    super(`An import is already running for this account${jobId ? ` (job ${jobId})` : ""}.`);
+  readonly stoppedResponding: boolean;
+
+  constructor(readonly jobId: string | undefined, heartbeatAt?: Date) {
+    const job = jobId ? ` (job ${jobId})` : "";
+    const silentMs = heartbeatAt ? Date.now() - heartbeatAt.getTime() : 0;
+    const stoppedResponding = silentMs > 2 * HEARTBEAT_INTERVAL_MS;
+    super(
+      stoppedResponding
+        ? `An import is registered for this account${job}, but it last reported ${Math.round(silentMs / 1000)} seconds ago, ` +
+            `so it may have stopped. Its lock is released, and a new run allowed, at ` +
+            `${new Date(heartbeatAt!.getTime() + STALE_JOB_MS).toISOString()}.`
+        : `An import is already running for this account${job}.`
+    );
+    this.stoppedResponding = stoppedResponding;
   }
 }
 
@@ -34,7 +46,7 @@ async function acquireJob(userId: string, source: string, dryRun: boolean) {
 
   const holder = await db.importJob.findUnique({ where: { lockKey: userId } });
   if (holder && Date.now() - holder.heartbeatAt.getTime() < STALE_JOB_MS) {
-    throw new ImportInProgressError(holder.id);
+    throw new ImportInProgressError(holder.id, holder.heartbeatAt);
   }
   if (holder) {
     await db.importJob.updateMany({
@@ -62,14 +74,20 @@ function redactFailures(summary: ImportSummary | ImportDryRunSummary): ImportSum
   };
 }
 
-async function runJob(jobId: string, importer: Importer, userId: string, dryRun: boolean) {
+async function runJob(
+  jobId: string,
+  importer: Importer,
+  userId: string,
+  dryRun: boolean,
+  onProgress?: RunImportOptions["onProgress"]
+) {
   const heartbeat = setInterval(() => {
     db.importJob.update({ where: { id: jobId }, data: { heartbeatAt: new Date() } }).catch(() => {});
   }, HEARTBEAT_INTERVAL_MS);
 
   try {
-    const summary = await runImport(importer, userId, { dryRun, importRunId: jobId });
-    if (summary.mode === "live") {
+    const summary = await runImport(importer, userId, { dryRun, importRunId: jobId, onProgress });
+    if (summary.mode === "live" && !onProgress) {
       for (const record of summary.records.filter((r) => r.status === "failed")) {
         console.error(`Import ${jobId} ${record.entityType} ${record.sourceId} failed:`, record.error);
       }
@@ -110,10 +128,14 @@ export async function startImportJob(
 }
 
 /** Runs an import under the same per-user lock and waits for it, returning the unredacted summary. */
-export async function runImportJob(importer: Importer, userId: string, options: { dryRun?: boolean } = {}) {
+export async function runImportJob(
+  importer: Importer,
+  userId: string,
+  options: Pick<RunImportOptions, "dryRun" | "onProgress"> = {}
+) {
   const dryRun = options.dryRun === true;
   const job = await acquireJob(userId, importer.name, dryRun);
-  return { jobId: job.id, summary: await runJob(job.id, importer, userId, dryRun) };
+  return { jobId: job.id, summary: await runJob(job.id, importer, userId, dryRun, options.onProgress) };
 }
 
 export async function getImportJob(jobId: string, userId: string) {

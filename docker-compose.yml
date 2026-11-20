@@ -6,6 +6,7 @@ services:
       target: migrator
     environment:
       - DATABASE_URL=file:/app/data/dev.db
+      - UPLOADS_DIR=/app/data/attachments
     volumes:
       - opm_data:/app/data
     restart: "no"

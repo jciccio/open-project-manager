@@ -2,6 +2,9 @@
   "name": "open-project-manager",
   "version": "0.5.0",
   "private": true,
+  "engines": {
+    "node": "^22.22.2 || ^24.15 || >=26"
+  },
   "scripts": {
     "postinstall": "prisma generate",
     "dev": "prisma generate && next dev",

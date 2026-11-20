@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { X, Webhook, Plus, Trash2, Copy, Check, CheckCircle2 } from "lucide-react";
+import { Webhook, Plus, Trash2, Copy, Check, CheckCircle2 } from "lucide-react";
 import { listWebhooks, createWebhook, updateWebhook, deleteWebhook } from "@/actions/webhooks";
 import { WEBHOOK_EVENT_TYPES } from "@/lib/webhookEvents";
 import ErrorBanner from "./ErrorBanner";
+import { Modal, ModalHeader, ModalBody, ModalFooter, ModalCloseButton, ModalDismissButton } from "./Modal";
 
 interface Props {
   project: {
@@ -36,14 +37,6 @@ export default function WebhookManagerModal({ project, onClose }: Props) {
   const [error, setError] = useState("");
   const [newSecret, setNewSecret] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
 
   const refreshWebhooks = useCallback(async () => {
     try {
@@ -168,15 +161,8 @@ export default function WebhookManagerModal({ project, onClose }: Props) {
   }
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="webhook-modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs"
-    >
-      <div className="relative w-full max-w-2xl max-h-[90vh] flex flex-col rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 px-6 py-4">
+    <Modal labelledBy="webhook-modal-title" size="2xl" onEscape={onClose}>
+        <ModalHeader>
           <div className="flex items-center gap-2 text-slate-900 dark:text-white">
             <Webhook className="h-5 w-5 text-indigo-500" />
             <h2 id="webhook-modal-title" className="text-lg font-semibold">
@@ -186,18 +172,10 @@ export default function WebhookManagerModal({ project, onClose }: Props) {
               ({project.name})
             </span>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
-            aria-label="Close"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
+          <ModalCloseButton onClick={onClose} label="Close" />
+        </ModalHeader>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        <ModalBody className="space-y-6">
           {error && <ErrorBanner message={error} />}
 
           {newSecret && (
@@ -392,8 +370,11 @@ export default function WebhookManagerModal({ project, onClose }: Props) {
               </div>
             )}
           </div>
-        </div>
-      </div>
-    </div>
+        </ModalBody>
+
+        <ModalFooter>
+          <ModalDismissButton onClick={onClose}>Close</ModalDismissButton>
+        </ModalFooter>
+    </Modal>
   );
 }

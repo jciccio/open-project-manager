@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { X, Pencil } from "lucide-react";
+import { Pencil } from "lucide-react";
 import { updateProject } from "@/actions/projects";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "./LanguageProvider";
 import ColorPicker from "./ColorPicker";
 import { DEFAULT_PROJECT_COLOR } from "@/lib/colors";
 import ErrorBanner from "./ErrorBanner";
+import { Modal, ModalHeader, ModalBody, ModalFooter, ModalCloseButton, ModalDismissButton } from "./Modal";
 
 interface Props {
   project: {
@@ -68,9 +69,8 @@ export default function EditProjectModal({ project, onClose, onUpdateSuccess }: 
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl">
-        <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
+    <Modal labelledBy="edit-project-title">
+        <ModalHeader>
           <div className="flex items-center gap-2.5">
             <div
               className="flex h-9 w-9 items-center justify-center rounded-lg border"
@@ -82,21 +82,17 @@ export default function EditProjectModal({ project, onClose, onUpdateSuccess }: 
             >
               <Pencil className="h-5 w-5" />
             </div>
-            <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+            <h3 id="edit-project-title" className="text-lg font-bold text-slate-900 dark:text-white">
               {t("editProjectModal.title")}
             </h3>
           </div>
-          <button
-            onClick={onClose}
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-colors"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
+          <ModalCloseButton onClick={onClose} label={t("cardModal.close")} />
+        </ModalHeader>
 
-        {error && <div className="mt-4"><ErrorBanner message={error} /></div>}
+        <ModalBody className="space-y-4">
+        {error && <ErrorBanner message={error} />}
 
-        <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+        <form id="edit-project-form" onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
               {t("editProjectModal.nameLabel")} <span className="text-red-500">*</span>
@@ -130,24 +126,20 @@ export default function EditProjectModal({ project, onClose, onUpdateSuccess }: 
             label={t("editProjectModal.colorLabel")}
           />
 
-          <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg px-4 py-2 text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-colors"
-            >
-              {t("kanban.cancel")}
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="rounded-lg bg-indigo-600 px-5 py-2 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 transition-all shadow-md shadow-indigo-600/20"
-            >
-              {loading ? t("editProjectModal.saving") : t("editProjectModal.save")}
-            </button>
-          </div>
         </form>
-      </div>
-    </div>
+        </ModalBody>
+
+        <ModalFooter>
+          <ModalDismissButton onClick={onClose}>{t("kanban.cancel")}</ModalDismissButton>
+          <button
+            type="submit"
+            form="edit-project-form"
+            disabled={loading}
+            className="rounded-lg bg-indigo-600 px-5 py-2 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 transition-all shadow-md shadow-indigo-600/20"
+          >
+            {loading ? t("editProjectModal.saving") : t("editProjectModal.save")}
+          </button>
+        </ModalFooter>
+    </Modal>
   );
 }

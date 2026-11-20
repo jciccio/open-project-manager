@@ -22,7 +22,7 @@ import { cardPage, cardPageQuery, decodeCardCursor, fetchCardsByPriority } from 
 import { generateProjectKey } from "@/lib/projectKey";
 import { createScopedLabel } from "@/lib/scopedLabels";
 import { verifyProjectAccess } from "@/lib/permissions";
-import { DEFAULT_PROJECT_COLUMNS, isClosedColumn, parseColumnGroupFilter } from "@/lib/columnGroups";
+import { DEFAULT_PROJECT_COLUMNS, parseColumnGroupFilter } from "@/lib/columnGroups";
 import { parseColumnCreate, parseColumnUpdate } from "@/lib/validation/columns";
 import { CardCreateSchema, CardReorderSchema, CardUpdateSchema } from "@/lib/validation/cards";
 import { CardTypeCreateSchema, CardTypeUpdateSchema } from "@/lib/validation/cardTypes";
@@ -33,6 +33,7 @@ import { SavedViewCreateSchema, SavedViewUpdateSchema } from "@/lib/validation/v
 import * as cardsService from "@/lib/services/cards";
 import * as commentsService from "@/lib/services/comments";
 import * as projectsService from "@/lib/services/projects";
+import * as relationsService from "@/lib/services/relations";
 import type { z } from "zod";
 import {
   buildCardWhere,
@@ -72,6 +73,7 @@ function parseProjectName(value: unknown): string {
 const SERVICE_NO_ACCESS_ERRORS = new Set([
   "Unauthorized",
   "Unauthorized or card not found",
+  "Unauthorized or relation not found",
   "Card not found or access denied",
   "Card not found",
   "Access denied",
@@ -122,7 +124,7 @@ export const MCP_TOOLS = [
   },
   {
     name: "get_project",
-    description: "Retrieve full details for a specific project, including columns, task cards, labels, and comments.",
+    description: "Retrieve a project's overview: its fields, columns with per-column counts of non-archived cards, labels, card types, and total and archived card counts. Cards are not embedded; page through them with list_cards (limit and cursor).",
     inputSchema: {
       type: "object",
       properties: {
@@ -388,7 +390,7 @@ export const MCP_TOOLS = [
   },
   {
     name: "get_card",
-    description: "Retrieve complete details for a specific task card including comments, labels, assignees, parent, and child cards.",
+    description: "Retrieve complete details for a specific task card including comments, labels, assignees, links, parent, and child cards.",
     inputSchema: {
       type: "object",
       properties: {
@@ -581,7 +583,11 @@ export const MCP_TOOLS = [
       properties: {
         sourceCardId: { type: "string", description: "Source card ID" },
         targetCardId: { type: "string", description: "Target card ID" },
-        type: { type: "string", description: "Relation type: BLOCKS, BLOCKED_BY, or RELATES_TO" },
+        type: {
+          type: "string",
+          enum: ["BLOCKS", "BLOCKED_BY", "RELATES_TO"],
+          description: "Relation type (default BLOCKS). BLOCKED_BY is stored as the reverse BLOCKS.",
+        },
       },
       required: ["sourceCardId", "targetCardId"],
     },
@@ -932,6 +938,59 @@ function accessibleProjectsFilter(userId: string) {
   return [{ userId }, { members: { some: { userId } } }];
 }
 
+async function loadProjectOverview(projectId: string, userId: string) {
+  if (!(await verifyProjectAccess(projectId, userId, "VIEWER"))) return null;
+  const project = await db.project.findUnique({
+    where: { id: projectId },
+    include: {
+      columns: {
+        orderBy: { order: "asc" },
+        include: { _count: { select: { cards: { where: { isArchived: false } } } } },
+      },
+      labels: { orderBy: { name: "asc" } },
+      cardTypes: { orderBy: { name: "asc" } },
+    },
+  });
+  if (!project) return null;
+
+  const archivedCardCount = await db.card.count({ where: { projectId: project.id, isArchived: true } });
+  const columns = project.columns.map(({ _count, ...column }) => ({ ...column, cardCount: _count.cards }));
+  return {
+    ...project,
+    columns,
+    cardCount: columns.reduce((total, column) => total + column.cardCount, 0),
+    archivedCardCount,
+  };
+}
+
+async function projectStatusSummary(projectId: string, userId: string) {
+  const overview = await loadProjectOverview(projectId, userId);
+  if (!overview) return null;
+
+  const where = { projectId: overview.id, isArchived: false };
+  const [byColumn, byPriority] = await Promise.all([
+    db.card.groupBy({ by: ["columnId"], where, _sum: { points: true } }),
+    db.card.groupBy({ by: ["priority"], where, _count: { _all: true } }),
+  ]);
+  const pointsByColumn = new Map(byColumn.map((row) => [row.columnId, row._sum.points ?? 0]));
+  const columns = overview.columns.map((column) => ({
+    name: column.name,
+    group: column.group,
+    isDone: column.isDone,
+    cardCount: column.cardCount,
+    points: pointsByColumn.get(column.id) ?? 0,
+  }));
+
+  return {
+    project: { id: overview.id, key: overview.key, name: overview.name, description: overview.description },
+    cardCount: overview.cardCount,
+    archivedCardCount: overview.archivedCardCount,
+    totalPoints: columns.reduce((total, column) => total + column.points, 0),
+    columns,
+    cardsByPriority: Object.fromEntries(byPriority.map((row) => [row.priority, row._count._all])),
+  };
+}
+
 export function isKnownMcpTool(name: unknown): name is string {
   return typeof name === "string" && MCP_TOOLS.some((tool) => tool.name === name);
 }
@@ -956,26 +1015,8 @@ export async function executeMcpTool(
     }
 
     case "get_project": {
-      const project = await db.project.findUnique({
-        where: { id: args.id },
-        include: {
-          columns: {
-            orderBy: { order: "asc" },
-            include: {
-              cards: {
-                orderBy: { order: "asc" },
-                include: {
-                  labels: { include: { label: true } },
-                  comments: { orderBy: { createdAt: "desc" } },
-                },
-              },
-            },
-          },
-        },
-      });
-      if (!project || !(await verifyProjectAccess(project.id, userId, "VIEWER"))) {
-        throw new Error(`Project with ID ${args.id} not found.`);
-      }
+      const project = await loadProjectOverview(args.id, userId);
+      if (!project) throw new Error(`Project with ID ${args.id} not found.`);
       return { success: true, project };
     }
 
@@ -1211,6 +1252,7 @@ export async function executeMcpTool(
           assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
           parent: { select: { id: true, number: true, title: true } },
           children: { select: { id: true, number: true, title: true, completedAt: true } },
+          links: true,
         },
       });
       if (!card || !(await verifyProjectAccess(card.projectId, userId, "VIEWER"))) {
@@ -1251,6 +1293,7 @@ export async function executeMcpTool(
           assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
           parent: { select: { id: true, number: true, title: true } },
           children: { select: { id: true, number: true, title: true, completedAt: true } },
+          links: true,
         },
       });
 
@@ -1359,65 +1402,25 @@ export async function executeMcpTool(
       const targetCard = await db.card.findUnique({ where: { id: args.targetCardId } });
       if (!targetCard || !(await verifyProjectAccess(targetCard.projectId, userId, "VIEWER"))) throw new Error(`Card with ID ${args.targetCardId} not found.`);
 
-      const type = args.type ? args.type.toUpperCase().trim() : "BLOCKS";
-      const relation = await db.cardRelation.create({
-        data: {
-          sourceCardId: args.sourceCardId,
-          targetCardId: args.targetCardId,
-          type,
-        },
-      });
-      return { success: true, relation };
+      const res = await relationsService.addCardRelation(args.sourceCardId, args.targetCardId, args.type || "BLOCKS", userId);
+      if (!res.success) throw new Error(res.error);
+      const { id, sourceCardId, targetCardId, type, createdAt } = res.data!;
+      return { success: true, relation: { id, sourceCardId, targetCardId, type, createdAt } };
     }
 
     case "remove_card_relation": {
-      const existingRelation = await db.cardRelation.findUnique({
-        where: { id: args.relationId },
-        include: { sourceCard: { select: { projectId: true } } },
-      });
-      if (!existingRelation || !(await verifyProjectAccess(existingRelation.sourceCard.projectId, userId, "MEMBER"))) throw new Error(`Card relation with ID ${args.relationId} not found.`);
-      await db.cardRelation.delete({ where: { id: args.relationId } });
+      unwrapService(
+        await relationsService.removeCardRelation(args.relationId, userId),
+        `Card relation with ID ${args.relationId} not found.`
+      );
       return { success: true, deletedId: args.relationId };
     }
 
     case "get_card_relations": {
-      const relCard = await db.card.findUnique({ where: { id: args.cardId } });
-      if (!relCard || !(await verifyProjectAccess(relCard.projectId, userId, "VIEWER"))) throw new Error(`Card with ID ${args.cardId} not found.`);
-
-      const outgoing = await db.cardRelation.findMany({
-        where: { sourceCardId: args.cardId },
-        include: { targetCard: { include: { project: true, column: true } } },
-      });
-      const incoming = await db.cardRelation.findMany({
-        where: { targetCardId: args.cardId },
-        include: { sourceCard: { include: { project: true, column: true } } },
-      });
-
-      const relations = [
-        ...outgoing.map((r) => ({
-          id: r.id,
-          relationType: r.type,
-          cardId: r.targetCardId,
-          cardTitle: r.targetCard.title,
-          identifier: `${r.targetCard.project.key}-${r.targetCard.number}`,
-          columnName: r.targetCard.column.name,
-          isDone: r.targetCard.column.isDone,
-          isClosed: isClosedColumn(r.targetCard.column),
-          direction: "outgoing",
-        })),
-        ...incoming.map((r) => ({
-          id: r.id,
-          relationType: r.type === "BLOCKS" ? "BLOCKED_BY" : r.type === "BLOCKED_BY" ? "BLOCKS" : r.type,
-          cardId: r.sourceCardId,
-          cardTitle: r.sourceCard.title,
-          identifier: `${r.sourceCard.project.key}-${r.sourceCard.number}`,
-          columnName: r.sourceCard.column.name,
-          isDone: r.sourceCard.column.isDone,
-          isClosed: isClosedColumn(r.sourceCard.column),
-          direction: "incoming",
-        })),
-      ];
-
+      const relations = unwrapService(
+        await relationsService.getCardRelations(args.cardId, userId),
+        `Card with ID ${args.cardId} not found.`
+      );
       return { success: true, relations };
     }
 
@@ -1666,18 +1669,8 @@ export async function readMcpResource(uri: string, userId: string) {
 
   if (uri.startsWith("opm://projects/")) {
     const id = uri.replace("opm://projects/", "");
-    const project = await db.project.findUnique({
-      where: { id },
-      include: {
-        columns: {
-          orderBy: { order: "asc" },
-          include: { cards: true },
-        },
-      },
-    });
-    if (!project || !(await verifyProjectAccess(project.id, userId, "VIEWER"))) {
-      throw new Error(`Project resource '${id}' not found`);
-    }
+    const project = await loadProjectOverview(id, userId);
+    if (!project) throw new Error(`Project resource '${id}' not found`);
     return { uri, mimeType: "application/json", data: project };
   }
 
@@ -1688,6 +1681,7 @@ export async function readMcpResource(uri: string, userId: string) {
       include: {
         column: true,
         comments: true,
+        links: true,
       },
     });
     if (!card || !(await verifyProjectAccess(card.projectId, userId, "VIEWER"))) {
@@ -1818,31 +1812,22 @@ export function createMcpServer(options: { userId?: string } = {}): Server {
     if (name === "summarize_project") {
       const userId = actingUserId(args?.userId);
       const projectId = args?.projectId;
-      const project = projectId
-        ? await db.project.findUnique({
-            where: { id: projectId },
-            include: {
-              columns: {
-                include: { cards: true },
-              },
-            },
-          })
-        : null;
-      if (!project || !(await verifyProjectAccess(project.id, userId, "VIEWER"))) {
+      const summary = projectId ? await projectStatusSummary(projectId, userId) : null;
+      if (!summary) {
         throw new Error(`Project with ID ${projectId} not found.`);
       }
       return {
-        description: `Project Summary Prompt for ${project?.name || projectId}`,
+        description: `Project Summary Prompt for ${summary.project.name}`,
         messages: [
           {
             role: "user",
             content: {
               type: "text",
-              text: `Please analyze the current status of project '${project?.name}':\n${JSON.stringify(
-                project,
+              text: `Please analyze the current status of project '${summary.project.name}'. Card and point counts cover non-archived cards:\n${JSON.stringify(
+                summary,
                 null,
                 2
-              )}\nProvide a bulleted sprint status report, total story points, and high priority risks.`,
+              )}\nTo name specific high priority cards, call list_cards with projectId "${summary.project.id}" and priority HIGH or URGENT.\nProvide a bulleted sprint status report, total story points, and high priority risks.`,
             },
           },
         ],
