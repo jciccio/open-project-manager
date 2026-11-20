@@ -161,7 +161,7 @@ describe("revokeUserAccess", () => {
 
     const result = await revokeUserAccess(user.email.toUpperCase());
 
-    expect(result).toEqual({ email: user.email, tokenVersion: 1, deletedApiTokens: 1 });
+    expect(result).toEqual({ email: user.email, tokenVersion: 1, deletedApiTokens: 1, deletedIntegrationLinks: 0 });
     expect(await db.apiToken.count({ where: { userId: user.id } })).toBe(0);
     expect(await getApiSession(bearer(apiToken))).toBeNull();
     expect(await getSession()).toBeNull();
