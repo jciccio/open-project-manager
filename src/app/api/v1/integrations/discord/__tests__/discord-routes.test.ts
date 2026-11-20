@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { NextRequest } from "next/server";
 import { POST } from "../interactions/route";
 import { POST as linkCodePOST } from "../link-code/route";
+import { GET as linksGET, DELETE as linksDELETE } from "../links/route";
 import { createTestUser, cleanupTestUser } from "@/test/helpers";
 import { db } from "@/lib/db";
 import { signApiToken, signToken } from "@/lib/auth";
@@ -201,6 +202,62 @@ describe("POST /api/v1/integrations/discord/interactions", () => {
       user: { id: "DISCORD_ROUTE_CODE_USER", username: "routecoder" },
     });
     expect(linked.data?.content).toContain("Successfully linked");
+
+    // API-token JWT sent as Cookie: opm_session=... must be rejected with 401
+    const apiJwtCookieReq = new NextRequest("http://localhost/api/v1/integrations/discord/link-code", {
+      method: "POST",
+      headers: { Cookie: `opm_session=${secret}` },
+    });
+    expect((await linkCodePOST(apiJwtCookieReq)).status).toBe(401);
+
+    // Stale tokenVersion cookie must be rejected with 401
+    const staleSessionToken = await signToken({
+      userId: user.id,
+      email: user.email,
+      name: user.name,
+      tokenVersion: user.tokenVersion + 1,
+    });
+    const staleCookieReq = new NextRequest("http://localhost/api/v1/integrations/discord/link-code", {
+      method: "POST",
+      headers: { Cookie: `opm_session=${staleSessionToken}` },
+    });
+    expect((await linkCodePOST(staleCookieReq)).status).toBe(401);
+
+    // GET /api/v1/integrations/discord/links lists linked account for cookie session and rejects Bearer
+    const bearerListReq = new NextRequest("http://localhost/api/v1/integrations/discord/links", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${secret}` },
+    });
+    expect((await linksGET(bearerListReq)).status).toBe(403);
+
+    const listReq = new NextRequest("http://localhost/api/v1/integrations/discord/links", {
+      method: "GET",
+      headers: { Cookie: `opm_session=${sessionToken}` },
+    });
+    const listRes = await linksGET(listReq);
+    expect(listRes.status).toBe(200);
+    const listBody = await listRes.json();
+    expect(listBody.links).toHaveLength(1);
+    expect(listBody.links[0].discordUserId).toBe("DISCORD_ROUTE_CODE_USER");
+
+    // DELETE /api/v1/integrations/discord/links?id=... revokes the link
+    const delReq = new NextRequest(
+      `http://localhost/api/v1/integrations/discord/links?id=${encodeURIComponent(listBody.links[0].id)}`,
+      {
+        method: "DELETE",
+        headers: { Cookie: `opm_session=${sessionToken}` },
+      }
+    );
+    const delRes = await linksDELETE(delReq);
+    expect(delRes.status).toBe(200);
+
+    const whoAfter = await handleDiscordInteraction({
+      id: "i-route-whoami-after-revoke",
+      type: 2,
+      data: { name: "opm", options: [{ name: "whoami", type: 1 }] },
+      user: { id: "DISCORD_ROUTE_CODE_USER", username: "routecoder" },
+    });
+    expect(whoAfter.data?.content).toContain("not linked");
   });
 
   it("allows unauthenticated interaction webhook through proxy", async () => {

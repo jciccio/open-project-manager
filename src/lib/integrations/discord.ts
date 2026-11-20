@@ -242,6 +242,39 @@ export async function unlinkDiscordUser(discordUserId: string) {
   });
 }
 
+export async function listDiscordLinksForUser(opmUserId: string) {
+  const rows = await db.importRecord.findMany({
+    where: {
+      source: "discord",
+      entityType: "user",
+      localId: opmUserId,
+    },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      sourceId: true,
+      createdAt: true,
+    },
+  });
+  return rows.map((row) => ({
+    id: row.id,
+    discordUserId: row.sourceId,
+    linkedAt: row.createdAt.toISOString(),
+  }));
+}
+
+export async function revokeDiscordLinkForUser(opmUserId: string, linkId: string): Promise<boolean> {
+  const res = await db.importRecord.deleteMany({
+    where: {
+      id: linkId,
+      source: "discord",
+      entityType: "user",
+      localId: opmUserId,
+    },
+  });
+  return res.count > 0;
+}
+
 function truncateDiscordFieldValue(value: string, maxLen = DISCORD_MAX_EMBED_FIELD_VALUE): string {
   if (!value) return "None";
   if (value.length <= maxLen) return value;
@@ -845,7 +878,7 @@ export async function handleDiscordInteraction(
       data: {
         content:
           "**Open Project Manager Discord Bot**\n\n" +
-          "• `/opm link <code-or-token>`: Link your Discord account using a short-lived link code (`POST /api/v1/integrations/discord/link-code`, recommended) or an API token.\n" +
+          "• `/opm link <code>`: Link your Discord account using a short-lived link code generated from your OPM User Profile.\n" +
           "• `/opm whoami`: Check which OPM user is linked to your Discord account.\n" +
           "• `/opm unlink`: Unlink your Discord account.\n" +
           "• `/opm list <key>`: List open cards in a project grouped by column (supports `owner/key`).\n" +
@@ -866,7 +899,7 @@ export async function handleDiscordInteraction(
         type: 4,
         data: {
           content:
-            "Usage: `/opm link <code-or-token>` — generate a short-lived single-use code via `POST /api/v1/integrations/discord/link-code` (recommended) or pass an API token from your User Profile.",
+            "Usage: `/opm link <code>` — generate a short-lived single-use link code from your OPM User Profile.",
           flags: 64,
         },
       };
@@ -879,7 +912,7 @@ export async function handleDiscordInteraction(
           type: 4,
           data: {
             content:
-              "Invalid, expired, or already used Discord link code. Generate a new code via `POST /api/v1/integrations/discord/link-code`.",
+              "Invalid, expired, or already used Discord link code. Generate a new code from your OPM User Profile.",
             flags: 64,
           },
         };
@@ -889,7 +922,7 @@ export async function handleDiscordInteraction(
       return {
         type: 4,
         data: {
-          content: `Successfully linked your Discord account to Open Project Manager as **${linkedUser.name || linkedUser.email}** (${linkedUser.email}). This link is independent of your API tokens.`,
+          content: `Successfully linked your Discord account to Open Project Manager as **${linkedUser.name || linkedUser.email}** (${linkedUser.email}). You can view or revoke this link anytime from your OPM User Profile.`,
           flags: 64,
         },
       };
@@ -901,7 +934,7 @@ export async function handleDiscordInteraction(
         type: 4,
         data: {
           content:
-            "Invalid or expired API token. Use a short-lived link code (`POST /api/v1/integrations/discord/link-code`) or generate a new API token in your OPM User Profile.",
+            "Invalid or expired credential. Generate a short-lived Discord link code from your OPM User Profile.",
           flags: 64,
         },
       };
@@ -913,7 +946,7 @@ export async function handleDiscordInteraction(
       data: {
         content:
           `Successfully linked your Discord account to Open Project Manager as **${apiTokenAuth.session.name}** (${apiTokenAuth.session.email}). ` +
-          `Tip: deleting or expiring this API token will also unlink Discord; use a short-lived link code (\`POST /api/v1/integrations/discord/link-code\`) to avoid keeping an API token active.`,
+          `Tip: deleting or expiring this API token will also unlink Discord; generate a short-lived link code from your OPM User Profile instead.`,
         flags: 64,
       },
     };
@@ -925,7 +958,7 @@ export async function handleDiscordInteraction(
     return {
       type: 4,
       data: {
-        content: "Your Discord account is not linked to Open Project Manager. Please link first using `/opm link <token>`.",
+        content: "Your Discord account is not linked to Open Project Manager. Generate a link code in your OPM User Profile and run `/opm link <code>`.",
         flags: 64,
       },
     };
@@ -1135,9 +1168,7 @@ export async function handleDiscordInteraction(
     });
 
     const openColumns = columns.filter((c) => !isClosedColumn(c));
-    const targetColumns = openColumns.length > 0 ? openColumns : columns;
-
-    if (targetColumns.length === 0) {
+    if (openColumns.length === 0) {
       return {
         type: 4,
         data: {
@@ -1146,6 +1177,8 @@ export async function handleDiscordInteraction(
         },
       };
     }
+
+    const targetColumns = openColumns;
 
     const targetColIds = targetColumns.map((c) => c.id);
     const counts = await db.card.groupBy({

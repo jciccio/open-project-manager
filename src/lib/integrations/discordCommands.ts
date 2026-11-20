@@ -32,7 +32,7 @@ export const DISCORD_OPM_COMMAND: DiscordApplicationCommandDefinition = {
       options: [
         {
           name: "token",
-          description: "Short-lived link code (from POST /api/v1/integrations/discord/link-code) or API token",
+          description: "Short-lived link code generated from your OPM User Profile",
           type: 3,
           required: true,
         },

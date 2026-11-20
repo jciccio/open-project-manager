@@ -250,7 +250,7 @@ describe("Discord Integration", () => {
         },
         user: { id: "DISCORD_ATTACKER", username: "attacker" },
       });
-      expect(res.data?.content).toContain("Invalid or expired API token");
+      expect(res.data?.content).toContain("Invalid or expired credential");
     });
 
     it("ends Discord actions when revokeUserAccess is called", async () => {
@@ -1043,6 +1043,29 @@ describe("Discord Integration", () => {
         "https://discord.com/api/v10/applications/123456789012345678/guilds/987654321098765432/commands"
       );
       expect(capturedHeaders.Authorization).toBe("Bot bot-secret-token");
+    });
+
+    it("does not list closed column cards under Open Cards when every column is closed", async () => {
+      const closedProj = await createTestProject(userId, "Closed Only Project", "CLSD");
+      const doneCol = await db.column.create({
+        data: { projectId: closedProj.id, name: "Done", isDone: true, group: "COMPLETED", order: 1 },
+      });
+      await db.card.create({
+        data: { projectId: closedProj.id, columnId: doneCol.id, title: "Finished Task", number: 1, order: 1000 },
+      });
+
+      const res = await handleDiscordInteraction({
+        id: "i-closed-only-list",
+        type: 2,
+        data: {
+          name: "opm",
+          options: [{ name: "list", type: 1, options: [{ name: "key", type: 3, value: "CLSD" }] }],
+        },
+        user: { id: "DISCORD_TEST_USER_1", username: "testuser" },
+      });
+
+      expect(res.data?.content).toContain("No open cards found");
+      expect(res.data?.content).not.toContain("Finished Task");
     });
   });
 });
