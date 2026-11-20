@@ -448,8 +448,9 @@ them are written, so a large project writes nothing for a while. The adapter wai
 the rate limit window to reset and retries 429 and 5xx responses.
 
 **Re-running:** a re-run skips what's already imported and adds new comments and
-attachments. It reads
-everything from Plane again, so it takes about as long. Use `--project` to limit it.
+attachments. It reads every work item's comments and attachments from Plane again, but
+not the links and relations of cards it already finished, so it takes about half as long.
+Use `--project` to limit it.
 The first re-run after upgrading from a version that didn't track finished parent and
 relation steps goes over the cards imported before once, setting any parent that's
 missing (never replacing one) and adding missing relations. That can bring back a parent

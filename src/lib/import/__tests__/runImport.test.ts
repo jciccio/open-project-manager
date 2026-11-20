@@ -881,6 +881,82 @@ describe("runImport resuming an interrupted import", () => {
     expect(await relationCount()).toBe(1);
   });
 
+  describe("with links and relations read on demand", () => {
+    function lazyFixture(failRelationsOnce = false) {
+      const fixture = linkedFixture();
+      const reads = { links: [] as string[], relations: [] as string[] };
+      let failing = failRelationsOnce;
+      const lazy = (card: ImportCard): ImportCard => {
+        const { links, relations, ...rest } = card;
+        return {
+          ...rest,
+          loadLinks: async () => {
+            reads.links.push(card.sourceId);
+            return links ?? [];
+          },
+          loadRelations: async () => {
+            reads.relations.push(card.sourceId);
+            if (failing && card.sourceId === "blocker") {
+              failing = false;
+              throw new Error("connection reset");
+            }
+            return relations ?? [];
+          },
+        };
+      };
+      fixture.cards["proj-1"] = fixture.cards["proj-1"].map(lazy);
+      const addCard = (card: ImportCard) => fixture.cards["proj-1"].push(lazy(card));
+      const takeReads = () => ({ links: reads.links.splice(0).sort(), relations: reads.relations.splice(0).sort() });
+      return { fixture, addCard, takeReads };
+    }
+
+    it("reads them only for cards it creates or whose relation step hasn't finished", async () => {
+      const { fixture, addCard, takeReads } = lazyFixture();
+
+      await runImport(makeFakeImporter(fixture), userId);
+      expect(takeReads()).toEqual({ links: ["blocker", "child", "parent"], relations: ["blocker", "child", "parent"] });
+      expect(await relationCount()).toBe(1);
+
+      await runImport(makeFakeImporter(fixture), userId);
+      expect(takeReads()).toEqual({ links: [], relations: [] });
+
+      await db.importRecord.deleteMany({ where: { userId, entityType: "cardLinks", sourceId: "blocker" } });
+      await db.cardRelation.deleteMany({ where: { sourceCard: { project: { userId } } } });
+      addCard({
+        sourceId: "late",
+        columnSourceId: "col-todo",
+        title: "Late",
+        links: [{ url: "https://example.com/late" }],
+        relations: [{ targetCardSourceId: "parent", type: "RELATES_TO" }],
+      });
+      const rerun = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
+
+      expect(rerun.totals.failed).toBe(0);
+      expect(takeReads()).toEqual({ links: ["late"], relations: ["blocker", "late"] });
+      expect(await relationCount()).toBe(2);
+      const late = await db.card.findFirstOrThrow({ where: { project: { userId }, title: "Late" }, include: { links: true } });
+      expect(late.links.map((link) => link.url)).toEqual(["https://example.com/late"]);
+    });
+
+    it("keeps no marker for a card whose relations couldn't be read, and adds them on the next run", async () => {
+      const { fixture } = lazyFixture(true);
+
+      const first = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
+
+      expect(first.records.filter((record) => record.status === "failed")).toEqual([
+        { entityType: "card", sourceId: "blocker:relations", status: "failed", error: "connection reset" },
+      ]);
+      expect(first.totals.created).toBe(first.records.length - 1);
+      expect(await relationCount()).toBe(0);
+      expect(await db.importRecord.count({ where: { userId, entityType: "cardLinks", sourceId: "blocker" } })).toBe(0);
+
+      const rerun = (await runImport(makeFakeImporter(fixture), userId)) as ImportSummary;
+
+      expect(rerun.totals.failed).toBe(0);
+      expect(await relationCount()).toBe(1);
+    });
+  });
+
   it("restores parents and relations on the re-run when the run stopped inside the card loop", async () => {
     const fixture = linkedFixture();
     const stopper = {
