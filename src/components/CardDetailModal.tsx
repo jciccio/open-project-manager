@@ -731,14 +731,35 @@ export default function CardDetailModal({
     const cardParam = card.project?.key && card.number ? `${card.project.key}-${card.number}` : card.id;
     const origin = typeof window !== "undefined" ? window.location.origin : "";
     const url = `${origin}/projects/${card.projectId}?card=${cardParam}`;
+    let copied = false;
     try {
       if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(url);
+        copied = true;
+      } else if (typeof document !== "undefined" && typeof document.execCommand === "function") {
+        const textarea = document.createElement("textarea");
+        textarea.value = url;
+        textarea.setAttribute("readonly", "");
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        try {
+          copied = document.execCommand("copy");
+        } finally {
+          document.body.removeChild(textarea);
+        }
       }
-      setCopiedLink(true);
-      setTimeout(() => setCopiedLink(false), 2000);
     } catch (err) {
       console.error("Failed to copy link:", err);
+      copied = false;
+    }
+
+    if (copied) {
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2000);
+    } else {
+      setActionError(t("cardModal.copyLinkFailed", { url }));
     }
   }
 

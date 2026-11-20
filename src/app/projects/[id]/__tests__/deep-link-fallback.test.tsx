@@ -2,14 +2,14 @@ import { render } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import ProjectBoardPage from "../page";
 
-const { getProjectById, getCardByProjectAndParam, getSession, kanbanPropsSpy } = vi.hoisted(() => ({
-  getProjectById: vi.fn(),
+const { getProjectBoard, getCardByProjectAndParam, getSession, kanbanPropsSpy } = vi.hoisted(() => ({
+  getProjectBoard: vi.fn(),
   getCardByProjectAndParam: vi.fn(),
   getSession: vi.fn(),
   kanbanPropsSpy: vi.fn(),
 }));
 
-vi.mock("@/actions/projects", () => ({ getProjectById }));
+vi.mock("@/actions/projects", () => ({ getProjectBoard }));
 vi.mock("@/actions/cards", () => ({ getCardByProjectAndParam }));
 vi.mock("@/lib/auth", () => ({ getSession }));
 vi.mock("@/components/KanbanBoard", () => ({
@@ -39,7 +39,7 @@ describe("project board page deep-link fallback", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getSession.mockResolvedValue({ userId: "u1", email: "a@example.com", name: "A" });
-    getProjectById.mockResolvedValue({ success: true, data: projectData });
+    getProjectBoard.mockResolvedValue({ success: true, data: projectData });
   });
 
   it("falls back to getCardByProjectAndParam when the card is not on the active board", async () => {
@@ -72,6 +72,40 @@ describe("project board page deep-link fallback", () => {
       expect.objectContaining({
         initialCardParam: "OPM-1",
         initialCard: activeCard,
+      })
+    );
+  });
+
+  it("supports legacy ?cardId= query parameter", async () => {
+    const tree = await ProjectBoardPage({
+      params: Promise.resolve({ id: "p1" }),
+      searchParams: Promise.resolve({ cardId: "card-1" }),
+    });
+    render(tree);
+
+    expect(getCardByProjectAndParam).not.toHaveBeenCalled();
+    expect(kanbanPropsSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialCardParam: "card-1",
+        initialCard: activeCard,
+      })
+    );
+  });
+
+  it("passes initialCard: null with initialCardParam when fallback returns not_found", async () => {
+    getCardByProjectAndParam.mockResolvedValue({ success: false, kind: "not_found", error: "Card not found" });
+
+    const tree = await ProjectBoardPage({
+      params: Promise.resolve({ id: "p1" }),
+      searchParams: Promise.resolve({ card: "OPM-9999" }),
+    });
+    render(tree);
+
+    expect(getCardByProjectAndParam).toHaveBeenCalledWith("p1", "OPM-9999");
+    expect(kanbanPropsSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialCardParam: "OPM-9999",
+        initialCard: null,
       })
     );
   });

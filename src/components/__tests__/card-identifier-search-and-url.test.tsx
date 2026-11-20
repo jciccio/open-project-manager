@@ -390,4 +390,50 @@ describe("Deep linking and Copy link in modal (#270)", () => {
       window.history.replaceState({}, "", previousUrl);
     }
   });
+
+  it("falls back to execCommand('copy') when navigator.clipboard is unavailable and does not falsely report success on failure", async () => {
+    const originalClipboard = navigator.clipboard;
+    const originalExecCommand = document.execCommand;
+    try {
+      Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
+
+      // 1. execCommand fails -> must NOT report "Link copied!", must surface URL in alert
+      document.execCommand = vi.fn().mockReturnValue(false);
+      const { unmount } = renderWithProviders(<KanbanBoard project={mockProject} initialCardParam="OPM-42" />);
+      fireEvent.click(screen.getByRole("button", { name: /copy card link/i }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("http://localhost:3000/projects/p1?card=OPM-42");
+      expect(screen.queryByRole("button", { name: /link copied/i })).not.toBeInTheDocument();
+      unmount();
+
+      // 2. execCommand succeeds -> reports "Link copied!"
+      document.execCommand = vi.fn().mockReturnValue(true);
+      renderWithProviders(<KanbanBoard project={mockProject} initialCardParam="OPM-42" />);
+      fireEvent.click(screen.getByRole("button", { name: /copy card link/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /link copied/i })).toBeInTheDocument();
+      });
+    } finally {
+      Object.defineProperty(navigator, "clipboard", { value: originalClipboard, configurable: true });
+      document.execCommand = originalExecCommand;
+    }
+  });
+
+  it("shows a dismissible not-found notice when initialCardParam does not match any card", () => {
+    const previousUrl = window.location.pathname + window.location.search;
+    window.history.replaceState({}, "", "/projects/p1?card=OPM-9999");
+    try {
+      renderWithProviders(<KanbanBoard project={mockProject} initialCardParam="OPM-9999" initialCard={null} />);
+
+      const notice = screen.getByRole("status");
+      expect(notice).toHaveTextContent('Card "OPM-9999" was not found in this project.');
+
+      fireEvent.click(screen.getByRole("button", { name: /close/i }));
+      expect(screen.queryByText(/OPM-9999/)).not.toBeInTheDocument();
+      expect(window.location.search).toBe("");
+    } finally {
+      window.history.replaceState({}, "", previousUrl);
+    }
+  });
 });

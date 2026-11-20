@@ -22,6 +22,7 @@ import {
   Lock,
   Globe,
   Webhook,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import KanbanColumn from "./KanbanColumn";
@@ -68,6 +69,12 @@ export default function KanbanBoard({ project, initialCardParam, initialCard }: 
     return found ? found.id : null;
   });
 
+  const [missingCardParam, setMissingCardParam] = useState<string | null>(() => {
+    if (!initialCardParam || initialCard) return null;
+    const allCards = project.columns.flatMap((col: any) => col.cards || []);
+    return findCardByParam(allCards, initialCardParam, project.key) ? null : initialCardParam;
+  });
+
   const deepLinkKey = initialCardParam
     ? `param:${initialCardParam}`
     : initialCard
@@ -91,6 +98,7 @@ export default function KanbanBoard({ project, initialCardParam, initialCard }: 
     }
     handledDeepLinkRef.current = deepLinkKey;
     if (initialCard) {
+      setMissingCardParam(null);
       setStandaloneCard(initialCard);
       setActiveCardId(initialCard.id);
       return;
@@ -99,7 +107,10 @@ export default function KanbanBoard({ project, initialCardParam, initialCard }: 
       const allCards = project.columns.flatMap((col: any) => col.cards || []);
       const found = findCardByParam(allCards, initialCardParam, project.key);
       if (found) {
+        setMissingCardParam(null);
         setActiveCardId(found.id);
+      } else {
+        setMissingCardParam(initialCardParam);
       }
     }
   }, [deepLinkKey, initialCard, initialCardParam, project.columns, project.key]);
@@ -465,6 +476,31 @@ export default function KanbanBoard({ project, initialCardParam, initialCard }: 
           >
             <ArchiveRestore className="h-3.5 w-3.5" />
             <span>{restoring ? t("kanban.restoring") : t("kanban.restoreButton")}</span>
+          </button>
+        </div>
+      )}
+
+      {missingCardParam && (
+        <div
+          role="status"
+          className="mx-6 mt-3 flex items-center justify-between gap-3 rounded-lg border border-amber-300 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 px-4 py-2.5 text-xs text-amber-800 dark:text-amber-300 shrink-0"
+        >
+          <span>{t("kanban.cardNotFound", { card: missingCardParam })}</span>
+          <button
+            type="button"
+            onClick={() => {
+              setMissingCardParam(null);
+              if (typeof window !== "undefined") {
+                const url = new URL(window.location.href);
+                url.searchParams.delete("card");
+                url.searchParams.delete("cardId");
+                window.history.replaceState({}, "", url.pathname + (url.search ? url.search : ""));
+              }
+            }}
+            aria-label={t("cardModal.close")}
+            className="rounded p-1 hover:bg-amber-200/60 dark:hover:bg-amber-500/20 transition-colors"
+          >
+            <X className="h-3.5 w-3.5" />
           </button>
         </div>
       )}
