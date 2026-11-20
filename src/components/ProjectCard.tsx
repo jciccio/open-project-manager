@@ -59,10 +59,10 @@ export default function ProjectCard({ project, stats, currentUserId, onDeleteSuc
           router.refresh();
         }
       } else {
-        setError(res.error || "Failed to update project.");
+        setError(res.error || t("projectCard.failedToUpdate"));
       }
     } catch {
-      setError("Failed to update project.");
+      setError(t("projectCard.failedToUpdate"));
     } finally {
       setLoading(false);
     }
@@ -86,10 +86,10 @@ export default function ProjectCard({ project, stats, currentUserId, onDeleteSuc
           router.refresh();
         }
       } else {
-        setError(res.error || "Failed to delete project.");
+        setError(res.error || t("projectCard.failedToDelete"));
       }
     } catch {
-      setError("Failed to delete project.");
+      setError(t("projectCard.failedToDelete"));
     } finally {
       setLoading(false);
     }
@@ -197,7 +197,7 @@ export default function ProjectCard({ project, stats, currentUserId, onDeleteSuc
         </div>
 
         <p className="mt-4 text-xs text-slate-600 dark:text-slate-300 line-clamp-2 leading-relaxed">
-          {project.description || "No description provided."}
+          {project.description || t("projectCard.noDescription")}
         </p>
 
         {stats && (

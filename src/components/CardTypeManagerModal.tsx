@@ -58,7 +58,7 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
         setCardTypes(res.data);
       }
     } catch {
-      setError("Failed to load card types.");
+      setError(t("cardTypeModal.failedToLoad"));
     }
   }, [projectId]);
 
@@ -79,10 +79,10 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
         await fetchCardTypes();
         onChange?.();
       } else {
-        setError(res.error || "Failed to create card type.");
+        setError(res.error || t("cardTypeModal.failedToCreate"));
       }
     } catch {
-      setError("Failed to create card type.");
+      setError(t("cardTypeModal.failedToCreate"));
     } finally {
       setLoading(false);
     }
@@ -97,10 +97,10 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
         await fetchCardTypes();
         onChange?.();
       } else {
-        setError(res.error || "Failed to delete card type.");
+        setError(res.error || t("cardTypeModal.failedToDelete"));
       }
     } catch {
-      setError("Failed to delete card type.");
+      setError(t("cardTypeModal.failedToDelete"));
     } finally {
       setDeletingId(null);
     }
@@ -124,10 +124,10 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
         await fetchCardTypes();
         onChange?.();
       } else {
-        setError(res.error || "Failed to update card type.");
+        setError(res.error || t("cardTypeModal.failedToUpdate"));
       }
     } catch {
-      setError("Failed to update card type.");
+      setError(t("cardTypeModal.failedToUpdate"));
     } finally {
       setSavingId(null);
     }
@@ -228,7 +228,7 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
                               onClick={() => handleSaveEdit(ct.id)}
                               disabled={savingId === ct.id}
                               className="p-1 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 rounded-md disabled:opacity-50"
-                              title="Save"
+                              title={t("cardTypeModal.save")}
                             >
                               <Check className="h-3.5 w-3.5" />
                             </button>
@@ -237,7 +237,7 @@ export default function CardTypeManagerModal({ projectId, onClose, onChange }: P
                               onClick={() => setEditingId(null)}
                               disabled={savingId === ct.id}
                               className="p-1 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-md disabled:opacity-50"
-                              title="Cancel"
+                              title={t("cardTypeModal.cancel")}
                             >
                               <X className="h-3.5 w-3.5" />
                             </button>
