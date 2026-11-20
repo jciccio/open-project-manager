@@ -93,6 +93,12 @@ export async function POST(request: NextRequest) {
   try {
     const result = await processInboundEmail(payloadData, sessionUser);
     if (!result.success) {
+      if (result.internalError) {
+        return NextResponse.json(
+          { error: result.error || "Failed to process inbound email" },
+          { status: 500 }
+        );
+      }
       return NextResponse.json({ success: false, error: result.error, accepted: false }, { status: 200 });
     }
 

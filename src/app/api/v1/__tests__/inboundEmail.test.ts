@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { POST } from "../inbound-email/route";
 import { proxy } from "@/proxy";
 import { db } from "@/lib/db";
+import * as cardsService from "@/lib/services/cards";
 import { createTestUser, createTestProject, cleanupTestUser } from "@/test/helpers";
 
 describe("POST /api/v1/inbound-email", () => {
@@ -432,5 +433,38 @@ describe("POST /api/v1/inbound-email", () => {
     const webhookData = await webhookRes.json();
     expect(webhookData.duplicate).toBeUndefined();
     expect(webhookData.data.id).not.toBe(sessionData.data.id);
+  });
+
+  it("returns 500 (not 200) when createCard fails with an internal error so relays retry", async () => {
+    process.env.INBOUND_EMAIL_TOKEN = "secret-webhook-key-123";
+    const user = await db.user.findUnique({ where: { id: userId } });
+    const spy = vi.spyOn(cardsService, "createCard").mockResolvedValueOnce({
+      success: false,
+      error: "Database temporarily unavailable",
+      kind: "internal",
+    } as never);
+
+    try {
+      const req = new NextRequest("http://localhost/api/v1/inbound-email", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Inbound-Token": "secret-webhook-key-123",
+        },
+        body: JSON.stringify({
+          to: `opm+${projectKey}@opm.local`,
+          from: user!.email,
+          subject: "Transient failure email",
+          text: "Body text",
+          dmarc: "pass",
+        }),
+      });
+      const res = await POST(req);
+      expect(res.status).toBe(500);
+      const body = await res.json();
+      expect(body.error).toContain("Database temporarily unavailable");
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

@@ -7,6 +7,7 @@ import {
   extractProjectKeyFromRecipient,
   extractSenderEmail,
   processInboundEmail,
+  validateWebhookAuthVerdicts,
 } from "../inboundEmail";
 
 describe("Inbound Email", () => {
@@ -600,7 +601,7 @@ describe("Inbound Email", () => {
         to: `opm+${projectKey}@opm.local`,
         from: owner!.email,
         subject: "Plain text with markdown image",
-        text: "See ![pixel](https://tracker.evil.com/px.png) and ![](//cdn.evil.com/a.gif) and ![ref-image][1] details.\n\n[1]: https://tracker.evil.com/ref.gif",
+        text: "See ![pixel](https://tracker.evil.com/px.png) and ![](//cdn.evil.com/a.gif) and ![a [b] c](https://tracker.evil.com/nested.gif) and ![ref-image][1] details.\n\n[TODO]: call Bob\n\nSee [the doc][2]\n\n[2]: https://docs.example.com/spec",
       });
 
       expect(textRes.success).toBe(true);
@@ -608,7 +609,35 @@ describe("Inbound Email", () => {
       expect(textCard?.description).not.toContain("tracker.evil.com");
       expect(textCard?.description).not.toContain("![");
       expect(textCard?.description).toContain("[Image: pixel]");
+      expect(textCard?.description).toContain("[Image: a [b] c]");
       expect(textCard?.description).toContain("[Image: ref-image]");
+      expect(textCard?.description).toContain("[TODO]: call Bob");
+      expect(textCard?.description).toContain("[2]: https://docs.example.com/spec");
+    });
+
+    it("handles large bracket-heavy text bodies in linear time without stalling", async () => {
+      const owner = await db.user.findUnique({ where: { id: ownerId } });
+      const started = Date.now();
+      const res = await processInboundEmail({
+        to: `opm+${projectKey}@opm.local`,
+        from: owner!.email,
+        subject: "Bracket heavy body",
+        text: "[\n".repeat(40_000),
+      });
+      const elapsedMs = Date.now() - started;
+
+      expect(res.success).toBe(true);
+      expect(elapsedMs).toBeLessThan(2000);
+    });
+
+    it("short-circuits validateWebhookAuthVerdicts on exact DMARC pass even with SPF softfail", () => {
+      const verdict = validateWebhookAuthVerdicts({
+        to: `opm+${projectKey}@opm.local`,
+        from: "alice@example.com",
+        dmarc: "pass",
+        spf: "softfail",
+      });
+      expect(verdict).toEqual({ valid: true });
     });
 
     it("rejects user-supplied messageId in public CardCreateSchema", () => {

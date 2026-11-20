@@ -28,6 +28,7 @@ export interface InboundEmailResult {
   success: boolean;
   accepted?: boolean;
   duplicate?: boolean;
+  internalError?: boolean;
   error?: string;
   card?: {
     id: string;
@@ -367,7 +368,6 @@ function stripMarkdownImages(markdown: string): string {
     const cleanAlt = alt.trim();
     return cleanAlt ? `[Image: ${cleanAlt}]` : "";
   });
-  text = text.replace(/^\[[^\]]+\]:\s*\S+/gm, "");
   return text;
 }
 
@@ -612,9 +612,29 @@ export async function processInboundEmail(
   );
 
   if (!createResult.success || !createResult.data) {
+    const kind = "kind" in createResult ? createResult.kind : undefined;
+    // Handle concurrent explicit Message-ID race cleanly as a duplicate rather than a failure
+    if (kind === "internal" && explicitMessageId) {
+      const concurrentCard = await db.card.findFirst({
+        where: { projectId: project.id, messageId: explicitMessageId },
+        select: { id: true, projectId: true, number: true, title: true, columnId: true },
+      });
+      if (concurrentCard) {
+        return {
+          success: true,
+          accepted: true,
+          duplicate: true,
+          card: {
+            ...concurrentCard,
+            identifier: `${project.key}-${concurrentCard.number}`,
+          },
+        };
+      }
+    }
     return {
       success: false,
       accepted: false,
+      internalError: kind === "internal",
       error: ("error" in createResult ? createResult.error : undefined) || "Failed to create card",
     };
   }
