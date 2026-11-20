@@ -246,12 +246,12 @@ export default function ProjectMembersModal({ project, onClose, onMembersChange 
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="collaborator@example.com"
-                  className="flex-1 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-indigo-500 focus:outline-none"
+                  className="min-w-0 flex-1 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-indigo-500 focus:outline-none"
                 />
                 <select
                   value={roleToAssign}
                   onChange={(e) => setRoleToAssign(e.target.value as ProjectRole)}
-                  className="rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-2 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
+                  className="min-w-0 max-w-[45%] rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-2 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
                 >
                   <option value="MEMBER">{t("membersModal.roleMemberEdit")}</option>
                   <option value="VIEWER">{t("membersModal.roleViewerReadOnly")}</option>
