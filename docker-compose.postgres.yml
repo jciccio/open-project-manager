@@ -25,6 +25,9 @@ services:
     environment:
       - DATABASE_PROVIDER=postgresql
       - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/opm?schema=public
+      - UPLOADS_DIR=/app/data/attachments
+    volumes:
+      - opm_attachments:/app/data
     depends_on:
       postgres:
         condition: service_healthy

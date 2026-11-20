@@ -141,8 +141,16 @@ export interface ImportDryRunSummary {
   dropped: ImportDroppedField[];
 }
 
+export type ImportProgressEvent =
+  | { kind: "project"; project: string }
+  | { kind: "cardsRead"; project: string; count: number }
+  | { kind: "cardsProcessed"; project: string; count: number; total: number }
+  | { kind: "failed"; record: ImportRecordResult };
+
 export interface RunImportOptions {
   dryRun?: boolean;
   /** Stamped on every ImportRecord this run writes; a background job passes its own id. */
   importRunId?: string;
+  /** Called as the run advances. An error it throws is ignored, so it can't stop the import. */
+  onProgress?: (event: ImportProgressEvent) => void;
 }

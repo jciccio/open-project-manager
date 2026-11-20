@@ -16,6 +16,7 @@ import { VikunjaImporter } from "../src/lib/import/vikunja";
 import type { ImportSummary, ImportDryRunSummary } from "../src/lib/import/types";
 import { parseImportVikunjaArgs, type ImportVikunjaArgs } from "./import-vikunja-args";
 import { resolveImportUserId } from "./resolve-import-user";
+import { importInProgressMessage } from "./import-progress";
 
 function parseArgs(argv: string[]): ImportVikunjaArgs {
   try {
@@ -48,7 +49,7 @@ async function main() {
     ({ summary } = await runImportJob(importer, userId, { dryRun: args.dryRun }));
   } catch (err) {
     if (err instanceof ImportInProgressError) {
-      console.error(`${err.message} Wait for it to finish (GET /api/v1/import/<jobId>), then run this again.`);
+      console.error(importInProgressMessage(err));
       process.exit(1);
     }
     throw err;

@@ -23,6 +23,10 @@ vi.mock("@/actions/comments", () => ({
   addComment: vi.fn(async () => ({ success: true, data: {} })),
   updateComment: vi.fn(async () => ({ success: true, data: {} })),
   deleteComment: vi.fn(async () => ({ success: true })),
+  listComments: vi.fn(async () => ({
+    success: true,
+    data: [{ id: "cm1", author: "Ada", content: "First comment", createdAt: new Date().toISOString() }],
+  })),
 }));
 vi.mock("@/actions/activity", () => ({ getCardActivity: vi.fn(async () => ({ success: true, data: [] })) }));
 vi.mock("@/actions/attachments", () => ({
@@ -111,7 +115,7 @@ describe("card modal mutation feedback", () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     renderModal();
 
-    fireEvent.click(screen.getByTitle(en.cardModal.deleteCommentTooltip));
+    fireEvent.click(await screen.findByTitle(en.cardModal.deleteCommentTooltip));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Unauthorized");
     expect(screen.getByText("First comment")).toBeInTheDocument();
