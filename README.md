@@ -433,9 +433,8 @@ nohup docker compose run --rm -T -e PLANE_API_KEY -e PLANE_URL migrate \
 tail -f plane-import.log
 ```
 
-On `docker-compose.postgres.yml` (add `-f docker-compose.postgres.yml` to each command),
-the `migrate` service doesn't mount the attachments volume, so attachment files from a
-live import there are lost when the container exits. The database backup there is
+On `docker-compose.postgres.yml`, add `-f docker-compose.postgres.yml` to each command.
+The `tar` step there only covers attachments, so also back up the database with
 `pg_dump`, as described in the installation guide.
 
 | Plane | OPM |
