@@ -96,10 +96,10 @@ export default function KanbanColumn({
         setIsAdding(false);
         onRefresh();
       } else {
-        setError(res.error || "Failed to add card.");
+        setError(res.error || t("kanban.failedToAddCard"));
       }
     } catch {
-      setError("Failed to add card.");
+      setError(t("kanban.failedToAddCard"));
     } finally {
       setLoading(false);
     }

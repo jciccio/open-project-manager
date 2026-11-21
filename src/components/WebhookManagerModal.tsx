@@ -5,6 +5,7 @@ import { Webhook, Plus, Trash2, Copy, Check, CheckCircle2 } from "lucide-react";
 import { listWebhooks, createWebhook, updateWebhook, deleteWebhook } from "@/actions/webhooks";
 import { WEBHOOK_EVENT_TYPES } from "@/lib/webhookEvents";
 import ErrorBanner from "./ErrorBanner";
+import { useTranslation } from "./LanguageProvider";
 import { Modal, ModalHeader, ModalBody, ModalFooter, ModalCloseButton, ModalDismissButton } from "./Modal";
 
 interface Props {
@@ -37,6 +38,7 @@ export default function WebhookManagerModal({ project, onClose }: Props) {
   const [error, setError] = useState("");
   const [newSecret, setNewSecret] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const { t } = useTranslation();
 
   const refreshWebhooks = useCallback(async () => {
     try {
@@ -45,9 +47,9 @@ export default function WebhookManagerModal({ project, onClose }: Props) {
         setWebhooks(res.data as WebhookItem[]);
       }
     } catch {
-      setError("Failed to load webhooks.");
+      setError(t("webhookModal.failedToLoad"));
     }
-  }, [project.id]);
+  }, [project.id, t]);
 
   useEffect(() => {
     let ignore = false;
@@ -57,20 +59,20 @@ export default function WebhookManagerModal({ project, onClose }: Props) {
         if (res.success && res.data) {
           setWebhooks(res.data as WebhookItem[]);
         } else {
-          setError(res.error || "Failed to load webhooks.");
+          setError(res.error || t("webhookModal.failedToLoad"));
         }
         setLoading(false);
       })
       .catch(() => {
         if (!ignore) {
-          setError("Failed to load webhooks.");
+          setError(t("webhookModal.failedToLoad"));
           setLoading(false);
         }
       });
     return () => {
       ignore = true;
     };
-  }, [project.id]);
+  }, [project.id, t]);
 
   function toggleEvent(ev: string) {
     setSelectedEvents((prev) =>
@@ -90,7 +92,7 @@ export default function WebhookManagerModal({ project, onClose }: Props) {
     e.preventDefault();
     if (!url.trim()) return;
     if (selectedEvents.length === 0) {
-      setError("Please select at least one event type.");
+      setError(t("webhookModal.selectEvent"));
       return;
     }
 
@@ -112,10 +114,10 @@ export default function WebhookManagerModal({ project, onClose }: Props) {
         }
         await refreshWebhooks();
       } else {
-        setError(res.error || "Failed to create webhook.");
+        setError(res.error || t("webhookModal.failedToCreate"));
       }
     } catch {
-      setError("Failed to create webhook.");
+      setError(t("webhookModal.failedToCreate"));
     } finally {
       setSubmitting(false);
     }
@@ -129,10 +131,10 @@ export default function WebhookManagerModal({ project, onClose }: Props) {
           prev.map((w) => (w.id === item.id ? { ...w, isActive: !item.isActive } : w))
         );
       } else {
-        setError(res.error || "Failed to update webhook.");
+        setError(res.error || t("webhookModal.failedToUpdate"));
       }
     } catch {
-      setError("Failed to update webhook.");
+      setError(t("webhookModal.failedToUpdate"));
     }
   }
 
@@ -144,10 +146,10 @@ export default function WebhookManagerModal({ project, onClose }: Props) {
       if (res.success) {
         setWebhooks((prev) => prev.filter((w) => w.id !== id));
       } else {
-        setError(res.error || "Failed to delete webhook.");
+        setError(res.error || t("webhookModal.failedToDelete"));
       }
     } catch {
-      setError("Failed to delete webhook.");
+      setError(t("webhookModal.failedToDelete"));
     } finally {
       setDeletingId(null);
     }
@@ -166,13 +168,13 @@ export default function WebhookManagerModal({ project, onClose }: Props) {
           <div className="flex items-center gap-2 text-slate-900 dark:text-white">
             <Webhook className="h-5 w-5 text-indigo-500" />
             <h2 id="webhook-modal-title" className="text-lg font-semibold">
-              Project Webhooks
+              {t("webhookModal.title")}
             </h2>
             <span className="text-xs text-slate-500 dark:text-slate-400 font-normal">
               ({project.name})
             </span>
           </div>
-          <ModalCloseButton onClick={onClose} label="Close" />
+          <ModalCloseButton onClick={onClose} label={t("common.close")} />
         </ModalHeader>
 
         <ModalBody className="space-y-6">
@@ -182,10 +184,10 @@ export default function WebhookManagerModal({ project, onClose }: Props) {
             <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 p-4 space-y-2">
               <div className="flex items-center gap-2 text-emerald-800 dark:text-emerald-300 font-semibold text-sm">
                 <CheckCircle2 className="h-4 w-4" />
-                <span>Webhook created successfully!</span>
+                <span>{t("webhookModal.created")}</span>
               </div>
               <p className="text-xs text-emerald-700 dark:text-emerald-400">
-                Copy this signing secret now. It will not be shown again:
+                {t("webhookModal.copySecretNotice")}
               </p>
               <div className="flex items-center gap-2">
                 <code className="flex-1 px-3 py-1.5 rounded bg-emerald-100 dark:bg-emerald-900/60 text-emerald-900 dark:text-emerald-200 text-xs font-mono break-all select-all">
@@ -197,7 +199,7 @@ export default function WebhookManagerModal({ project, onClose }: Props) {
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium transition-colors"
                 >
                   {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                  <span>{copied ? "Copied" : "Copy"}</span>
+                  <span>{copied ? t("webhookModal.copied") : t("webhookModal.copy")}</span>
                 </button>
               </div>
             </div>
@@ -207,12 +209,12 @@ export default function WebhookManagerModal({ project, onClose }: Props) {
           <form onSubmit={handleCreate} className="space-y-4 rounded-lg bg-slate-50 dark:bg-slate-800/50 p-4 border border-slate-200 dark:border-slate-800">
             <h3 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-1.5">
               <Plus className="h-4 w-4 text-indigo-500" />
-              Add Outbound Webhook
+              {t("webhookModal.addHeading")}
             </h3>
 
             <div>
               <label htmlFor="webhook-url" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                Payload URL
+                {t("webhookModal.payloadUrl")}
               </label>
               <input
                 id="webhook-url"
@@ -228,7 +230,7 @@ export default function WebhookManagerModal({ project, onClose }: Props) {
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                  Subscribed Events ({selectedEvents.length}/{WEBHOOK_EVENT_TYPES.length})
+                  {t("webhookModal.subscribedEvents", { selected: selectedEvents.length, total: WEBHOOK_EVENT_TYPES.length })}
                 </label>
                 <div className="flex gap-2">
                   <button
@@ -236,7 +238,7 @@ export default function WebhookManagerModal({ project, onClose }: Props) {
                     onClick={handleSelectAll}
                     className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
                   >
-                    Select all
+                    {t("webhookModal.selectAll")}
                   </button>
                   <span className="text-xs text-slate-400">·</span>
                   <button
@@ -244,7 +246,7 @@ export default function WebhookManagerModal({ project, onClose }: Props) {
                     onClick={handleDeselectAll}
                     className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
                   >
-                    Clear
+                    {t("webhookModal.clear")}
                   </button>
                 </div>
               </div>
@@ -281,7 +283,7 @@ export default function WebhookManagerModal({ project, onClose }: Props) {
                 className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors"
               >
                 <Plus className="h-4 w-4" />
-                <span>{submitting ? "Creating..." : "Create Webhook"}</span>
+                <span>{submitting ? t("webhookModal.creating") : t("webhookModal.create")}</span>
               </button>
             </div>
           </form>
@@ -289,14 +291,14 @@ export default function WebhookManagerModal({ project, onClose }: Props) {
           {/* Configured Webhooks List */}
           <div className="space-y-3">
             <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
-              Configured Webhooks ({webhooks.length})
+              {t("webhookModal.configuredHeading", { count: webhooks.length })}
             </h3>
 
             {loading ? (
-              <div className="text-center py-6 text-sm text-slate-500">Loading webhooks...</div>
+              <div className="text-center py-6 text-sm text-slate-500">{t("webhookModal.loading")}</div>
             ) : webhooks.length === 0 ? (
               <div className="text-center py-6 text-sm text-slate-500 border border-dashed border-slate-200 dark:border-slate-800 rounded-lg">
-                No webhooks configured for this project yet.
+                {t("webhookModal.empty")}
               </div>
             ) : (
               <div className="divide-y divide-slate-200 dark:divide-slate-800 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
@@ -325,7 +327,7 @@ export default function WebhookManagerModal({ project, onClose }: Props) {
                           </p>
                         </div>
                         <div className="flex flex-wrap gap-1 items-center pt-1">
-                          <span className="text-[10px] text-slate-500 font-medium">Events:</span>
+                          <span className="text-[10px] text-slate-500 font-medium">{t("webhookModal.events")}</span>
                           {events.slice(0, 5).map((ev) => (
                             <span
                               key={ev}
@@ -336,7 +338,7 @@ export default function WebhookManagerModal({ project, onClose }: Props) {
                           ))}
                           {events.length > 5 && (
                             <span className="text-[10px] text-slate-500 font-medium">
-                              +{events.length - 5} more
+                              {t("webhookModal.moreEvents", { count: events.length - 5 })}
                             </span>
                           )}
                         </div>
@@ -352,14 +354,14 @@ export default function WebhookManagerModal({ project, onClose }: Props) {
                               : "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100"
                           }`}
                         >
-                          {hook.isActive ? "Pause" : "Activate"}
+                          {hook.isActive ? t("webhookModal.pause") : t("webhookModal.activate")}
                         </button>
                         <button
                           type="button"
                           onClick={() => handleDelete(hook.id)}
                           disabled={deletingId === hook.id}
                           className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded transition-colors"
-                          aria-label="Delete webhook"
+                          aria-label={t("webhookModal.deleteWebhook")}
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
@@ -373,7 +375,7 @@ export default function WebhookManagerModal({ project, onClose }: Props) {
         </ModalBody>
 
         <ModalFooter>
-          <ModalDismissButton onClick={onClose}>Close</ModalDismissButton>
+          <ModalDismissButton onClick={onClose}>{t("common.close")}</ModalDismissButton>
         </ModalFooter>
     </Modal>
   );

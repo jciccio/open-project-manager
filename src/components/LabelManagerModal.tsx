@@ -51,7 +51,7 @@ export default function LabelManagerModal({ onClose }: Props) {
         setLabels(res.data);
       }
     } catch {
-      setError("Failed to load labels.");
+      setError(t("labelModal.failedToLoad"));
     }
   }
 
@@ -70,10 +70,10 @@ export default function LabelManagerModal({ onClose }: Props) {
         setDescription("");
         await fetchLabels();
       } else {
-        setError(res.error || "Failed to create label.");
+        setError(res.error || t("labelModal.failedToCreate"));
       }
     } catch {
-      setError("Failed to create label.");
+      setError(t("labelModal.failedToCreate"));
     } finally {
       setLoading(false);
     }
@@ -103,10 +103,10 @@ export default function LabelManagerModal({ onClose }: Props) {
         setEditingId(null);
         await fetchLabels();
       } else {
-        setError(res.error || "Failed to update label.");
+        setError(res.error || t("labelModal.failedToUpdate"));
       }
     } catch {
-      setError("Failed to update label.");
+      setError(t("labelModal.failedToUpdate"));
     } finally {
       setSavingEdit(false);
     }
@@ -121,10 +121,10 @@ export default function LabelManagerModal({ onClose }: Props) {
       if (res.success) {
         await fetchLabels();
       } else {
-        setError(res.error || "Failed to delete label.");
+        setError(res.error || t("labelModal.failedToDelete"));
       }
     } catch {
-      setError("Failed to delete label.");
+      setError(t("labelModal.failedToDelete"));
     } finally {
       setDeletingId(null);
     }
