@@ -1,9 +1,21 @@
 "use client";
 
-import { FolderKanban, CreditCard, Sparkles, CircleDashed, CheckCircle2, AlarmClock } from "lucide-react";
+import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { FolderKanban, CreditCard, Sparkles, CircleDashed, CheckCircle2, AlarmClock, SearchX } from "lucide-react";
 import ProjectCard from "@/components/ProjectCard";
+import ProjectListToolbar from "./ProjectListToolbar";
 import { useTranslation } from "./LanguageProvider";
 import type { ProjectStats } from "@/lib/services/projectStats";
+import {
+  DEFAULT_PROJECT_LIST_QUERY,
+  filterProjects,
+  isProjectListFiltered,
+  parseProjectListQuery,
+  projectListQueryString,
+  sortProjects,
+  type ProjectListQuery,
+} from "@/lib/projectListFilter";
 
 interface Props {
   user: any;
@@ -11,8 +23,48 @@ interface Props {
   stats?: Record<string, ProjectStats>;
 }
 
+const parseUrl = (search: string) => parseProjectListQuery(Object.fromEntries(new URLSearchParams(search)));
+
+// replaceState reaches useSearchParams a render late, so driving the search box from it drops
+// keystrokes. Render from local state, and adopt a URL only when it isn't one of this
+// component's pending writes (a link to "/", router.replace, history traversal).
+function useUrlBackedProjectListQuery() {
+  const url = useSearchParams().toString();
+  const [query, setQuery] = useState(() => parseUrl(url));
+  const [seenUrl, setSeenUrl] = useState(url);
+  const [pendingUrls, setPendingUrls] = useState<string[]>([]);
+
+  if (url !== seenUrl) {
+    setSeenUrl(url);
+    const pendingIndex = pendingUrls.indexOf(url);
+    if (pendingIndex >= 0) {
+      setPendingUrls(pendingUrls.slice(pendingIndex + 1));
+    } else {
+      setPendingUrls([]);
+      setQuery(parseUrl(url));
+    }
+  }
+
+  function changeQuery(next: ProjectListQuery) {
+    const search = projectListQueryString(next, window.location.search);
+    setQuery(next);
+    setPendingUrls((urls) => [...urls, search.replace(/^\?/, "")]);
+    window.history.replaceState(null, "", `${window.location.pathname}${search}${window.location.hash}`);
+  }
+
+  return [query, changeQuery] as const;
+}
+
 export default function DashboardClient({ user, projects, stats }: Props) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
+  const currentUserId = user?.userId || user?.id;
+  const [query, changeQuery] = useUrlBackedProjectListQuery();
+  const filtered = isProjectListFiltered(query);
+  const visibleProjects = useMemo(
+    () => sortProjects(filterProjects(projects, query, currentUserId), query.sort, stats, locale),
+    [projects, query, currentUserId, stats, locale]
+  );
+
   const totalCards = projects.reduce((acc, p) => acc + (stats?.[p.id]?.total ?? p._count?.cards ?? 0), 0);
   const workspaceTotals = stats
     ? projects.reduce(
@@ -123,23 +175,48 @@ export default function DashboardClient({ user, projects, stats }: Props) {
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
           <span>{t("dashboard.activeProjects")}</span>
-          <span className="rounded-full bg-slate-200 dark:bg-slate-800 px-2.5 py-0.5 text-xs text-slate-700 dark:text-slate-400">
-            {projects.length}
+          <span
+            className="rounded-full bg-slate-200 dark:bg-slate-800 px-2.5 py-0.5 text-xs text-slate-700 dark:text-slate-400"
+            aria-live="polite"
+            data-testid="project-count"
+          >
+            {filtered
+              ? t("dashboard.filteredCount", { shown: visibleProjects.length, total: projects.length })
+              : projects.length}
           </span>
         </h2>
       </div>
 
+      {projects.length > 0 && <ProjectListToolbar query={query} onChange={changeQuery} />}
+
       {/* Projects Grid */}
-      {projects.length > 0 ? (
+      {visibleProjects.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {projects.map((project) => (
+          {visibleProjects.map((project) => (
             <ProjectCard
               key={project.id}
               project={project as any}
               stats={stats?.[project.id]}
-              currentUserId={user?.userId || user?.id}
+              currentUserId={currentUserId}
             />
           ))}
+        </div>
+      ) : projects.length > 0 ? (
+        <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-300 dark:border-slate-800 bg-white/50 dark:bg-slate-900/30 py-16 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 mb-4">
+            <SearchX className="h-6 w-6" />
+          </div>
+          <h3 className="text-lg font-bold text-slate-900 dark:text-white">{t("dashboard.noMatchingProjects")}</h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm">
+            {t("dashboard.noMatchingProjectsSub")}
+          </p>
+          <button
+            type="button"
+            onClick={() => changeQuery({ ...DEFAULT_PROJECT_LIST_QUERY, sort: query.sort })}
+            className="mt-4 rounded-lg bg-indigo-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-indigo-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-950"
+          >
+            {t("dashboard.clearFilters")}
+          </button>
         </div>
       ) : (
         <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-300 dark:border-slate-800 bg-white/50 dark:bg-slate-900/30 py-16 text-center">
