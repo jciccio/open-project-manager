@@ -1319,7 +1319,9 @@ export async function executeMcpTool(
         include,
       });
       if (!card) {
-        const movedId = await cardTransferService.findMovedCardId(key, num);
+        const movedId = await cardTransferService.findMovedCardId(key, num, {
+          OR: accessibleProjectsFilter(userId),
+        });
         if (movedId) {
           card = await db.card.findFirst({
             where: { id: movedId, project: { OR: accessibleProjectsFilter(userId) } },

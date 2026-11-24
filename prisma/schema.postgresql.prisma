@@ -224,7 +224,7 @@ model Activity {
   cardId      String
   card        Card     @relation(fields: [cardId], references: [id], onDelete: Cascade)
   actorUserId String
-  type        String   // card_created | moved | priority_changed | title_changed | description_changed | assigned | unassigned | label_added | label_removed | comment_added | archived | unarchived | type_changed | due_date_changed | points_changed
+  type        String   // card_created | moved | project_changed | priority_changed | title_changed | description_changed | assigned | unassigned | label_added | label_removed | comment_added | archived | unarchived | type_changed | due_date_changed | points_changed
   fromValue   String?
   toValue     String?
   createdAt   DateTime @default(now())

@@ -210,6 +210,23 @@ describe("moveCardToProject", () => {
     }
   });
 
+  it("resolves an old identifier only through projects the caller can see", async () => {
+    const other = (await createTestUser(`transfer-other-${Date.now()}`)).user;
+    const otherSource = await createTestProject(other.id, "Other Source", source.key);
+    const otherTarget = await createTestProject(other.id, "Other Target", uniqueKey("O"));
+    const otherColumn = (await createGroupedColumn(otherSource.id, "Todo", 0, "UNSTARTED")).id;
+    await createGroupedColumn(otherTarget.id, "Todo", 0, "UNSTARTED");
+    const mine = await createTestCard(source.id, sourceTodo, "Mine");
+    const theirs = await createTestCard(otherSource.id, otherColumn, "Theirs");
+
+    await moveCardToProject(mine.id, target.id, userId);
+    await moveCardToProject(theirs.id, otherTarget.id, other.id);
+
+    expect((await getCardByIdentifier(`${source.key}-1`, userId)).data?.id).toBe(mine.id);
+    expect((await getCardByIdentifier(`${source.key}-1`, other.id)).data?.id).toBe(theirs.id);
+    await cleanupTestUser(other.id);
+  });
+
   it("prefers a live card over a moved one with the same old identifier", async () => {
     const card = await createTestCard(source.id, sourceTodo, "Moved away");
     await moveCardToProject(card.id, target.id, userId);

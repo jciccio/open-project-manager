@@ -56,6 +56,7 @@ describe("i18n dictionary parity", () => {
       "comment_added",
       "archived",
       "unarchived",
+      "project_changed",
     ];
 
     for (const evt of events) {

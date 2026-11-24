@@ -5,7 +5,7 @@ import { validateParentCard } from "@/lib/cardParent";
 import { safeRevalidatePath } from "@/lib/revalidate";
 import { createActivities, notifyActivity, type ActivityEntry } from "@/lib/services/activity";
 import { nextCardNumber, withCardNumberRetry } from "@/lib/cardNumbering";
-import { verifyProjectAccess, accessDenial } from "@/lib/permissions";
+import { verifyProjectAccess, accessDenial, viewableProjectWhere } from "@/lib/permissions";
 import { deriveCompletedAt } from "@/lib/cardCompletion";
 import { findMovedCardId } from "@/lib/services/cardTransfer";
 import { INVALID_LINK_URL_ERROR, SafeUrlSchema } from "@/lib/validation/safeUrl";
@@ -585,7 +585,7 @@ export async function getCardByIdentifier(identifier: string, userId: string) {
 
     let card = await db.card.findFirst({ where: { number: num, project: { key } }, include });
     if (!card) {
-      const movedId = await findMovedCardId(key, num);
+      const movedId = await findMovedCardId(key, num, viewableProjectWhere(userId));
       if (movedId) card = await db.card.findUnique({ where: { id: movedId }, include });
     }
 

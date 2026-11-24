@@ -217,9 +217,13 @@ export async function moveCardToProject(
   }
 }
 
-export async function findMovedCardId(key: string, number: number): Promise<string | null> {
+export async function findMovedCardId(
+  key: string,
+  number: number,
+  visibleProjects: Prisma.ProjectWhereInput
+): Promise<string | null> {
   const record = await db.activity.findFirst({
-    where: { type: PROJECT_CHANGED, fromValue: `${key}-${number}` },
+    where: { type: PROJECT_CHANGED, fromValue: `${key}-${number}`, card: { project: visibleProjects } },
     orderBy: { createdAt: "desc" },
     select: { cardId: true },
   });
