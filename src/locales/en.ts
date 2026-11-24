@@ -347,6 +347,7 @@ export const en = {
       card_created: "Card created",
       moved: "Moved from \"{from}\" to \"{to}\"",
       movedTo: "Moved to \"{to}\"",
+      project_changed: "Moved to another project: {from} is now {to}",
       priority_changed: "Priority changed from {from} to {to}",
       title_changed: "Title changed to \"{title}\"",
       description_changed: "Updated description",

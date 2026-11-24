@@ -349,6 +349,7 @@ export const es: TranslationKeys = {
       card_created: "Tarjeta creada",
       moved: "Movida de \"{from}\" a \"{to}\"",
       movedTo: "Movida a \"{to}\"",
+      project_changed: "Movida a otro proyecto: {from} ahora es {to}",
       priority_changed: "Prioridad cambiada de {from} a {to}",
       title_changed: "Título cambiado a \"{title}\"",
       description_changed: "Descripción actualizada",
