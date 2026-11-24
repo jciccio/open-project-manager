@@ -1,6 +1,7 @@
 export const WEBHOOK_EVENT_TYPES = [
   "card_created",
   "moved",
+  "project_changed",
   "priority_changed",
   "title_changed",
   "description_changed",

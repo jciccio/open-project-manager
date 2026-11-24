@@ -31,6 +31,7 @@ import { ProjectNameSchema } from "@/lib/validation/projects";
 import { INVALID_LINK_URL_ERROR, SafeUrlSchema } from "@/lib/validation/safeUrl";
 import { SavedViewCreateSchema, SavedViewUpdateSchema } from "@/lib/validation/views";
 import * as cardsService from "@/lib/services/cards";
+import * as cardTransferService from "@/lib/services/cardTransfer";
 import * as commentsService from "@/lib/services/comments";
 import * as projectsService from "@/lib/services/projects";
 import * as relationsService from "@/lib/services/relations";
@@ -482,6 +483,28 @@ export const MCP_TOOLS = [
         newOrder: { type: "number", description: "New order position index (default: 0)" },
       },
       required: ["id", "targetColumnId"],
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
+  },
+  {
+    name: "move_card_to_project",
+    description:
+      "Move a task card, with its subtasks, to another project. Each moved card gets the next free number there; its old identifier keeps resolving through get_card_by_identifier. Labels and the card type are matched by name in the target project and created if missing. Assignees without access to the target project are removed. A subtask can't be moved on its own: move its parent.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Card ID to move" },
+        targetProjectId: { type: "string", description: "Project ID to move the card into" },
+        targetColumnId: {
+          type: "string",
+          description:
+            "Optional column in the target project. Default: the column with the same name, else the first column in the same state group, else the first column",
+        },
+      },
+      required: ["id", "targetProjectId"],
     },
     annotations: {
       readOnlyHint: false,
@@ -1279,23 +1302,33 @@ export async function executeMcpTool(
         throw new Error(`Invalid sequence number in identifier '${clean}'.`);
       }
 
-      const card = await db.card.findFirst({
-        where: {
-          number: num,
-          project: { key, OR: accessibleProjectsFilter(userId) },
-        },
-        include: {
-          column: true,
-          project: true,
-          type: true,
-          labels: { include: { label: true } },
-          comments: { orderBy: { createdAt: "desc" } },
-          assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
-          parent: { select: { id: true, number: true, title: true } },
-          children: { select: { id: true, number: true, title: true, completedAt: true } },
-          links: true,
-        },
+      const include = {
+        column: true,
+        project: true,
+        type: true,
+        labels: { include: { label: true } },
+        comments: { orderBy: { createdAt: "desc" } },
+        assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
+        parent: { select: { id: true, number: true, title: true } },
+        children: { select: { id: true, number: true, title: true, completedAt: true } },
+        links: true,
+      } satisfies Prisma.CardInclude;
+
+      let card = await db.card.findFirst({
+        where: { number: num, project: { key, OR: accessibleProjectsFilter(userId) } },
+        include,
       });
+      if (!card) {
+        const movedId = await cardTransferService.findMovedCardId(key, num, {
+          OR: accessibleProjectsFilter(userId),
+        });
+        if (movedId) {
+          card = await db.card.findFirst({
+            where: { id: movedId, project: { OR: accessibleProjectsFilter(userId) } },
+            include,
+          });
+        }
+      }
 
       if (!card) throw new Error(`Card with identifier '${clean}' not found.`);
       return {
@@ -1332,6 +1365,16 @@ export async function executeMcpTool(
         `Card with ID ${args.id} not found.`
       );
       return { success: true, card };
+    }
+
+    case "move_card_to_project": {
+      const result = unwrapService(
+        await cardTransferService.moveCardToProject(args.id, args.targetProjectId, userId, {
+          columnId: typeof args.targetColumnId === "string" ? args.targetColumnId : undefined,
+        }),
+        `Card with ID ${args.id} not found.`
+      );
+      return { success: true, card: result.card, moved: result.moved };
     }
 
     case "reorder_cards": {

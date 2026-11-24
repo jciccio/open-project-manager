@@ -1734,7 +1734,7 @@ export default function CardDetailModal({
                         <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-200/70 dark:bg-slate-700/70">
                           {act.type === "card_created" ? (
                             <Plus className="h-3 w-3 text-emerald-500" />
-                          ) : act.type === "moved" ? (
+                          ) : act.type === "moved" || act.type === "project_changed" ? (
                             <ArrowRight className="h-3 w-3 text-blue-500" />
                           ) : act.type === "priority_changed" ? (
                             <Zap className="h-3 w-3 text-amber-500" />
@@ -1765,6 +1765,8 @@ export default function CardDetailModal({
                               (act.fromValue && act.toValue
                                 ? t("cardModal.events.moved", { from: act.fromValue, to: act.toValue })
                                 : t("cardModal.events.movedTo", { to: act.toValue || "" }))}
+                            {act.type === "project_changed" &&
+                              t("cardModal.events.project_changed", { from: act.fromValue || "", to: act.toValue || "" })}
                             {act.type === "priority_changed" &&
                               t("cardModal.events.priority_changed", {
                                 from: priorityLabel(t, act.fromValue),
@@ -1805,6 +1807,7 @@ export default function CardDetailModal({
                             {![
                               "card_created",
                               "moved",
+                              "project_changed",
                               "priority_changed",
                               "title_changed",
                               "description_changed",

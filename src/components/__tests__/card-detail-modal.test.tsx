@@ -5,6 +5,7 @@ import { LanguageProvider } from "../LanguageProvider";
 import { ThemeProvider } from "../ThemeProvider";
 import { updateCard, addCardLink } from "@/actions/cards";
 import { addComment, listComments } from "@/actions/comments";
+import { getCardActivity } from "@/actions/activity";
 
 vi.mock("@/actions/cards", () => ({
   updateCard: vi.fn(async () => ({ success: true, data: {} })),
@@ -105,6 +106,20 @@ describe("CardDetailModal", () => {
 
     fireEvent.change(urlInput, { target: { value: "https://example.com" } });
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("describes a move to another project in the activity feed", async () => {
+    vi.mocked(getCardActivity).mockResolvedValueOnce({
+      success: true,
+      data: [
+        { id: "a1", type: "project_changed", fromValue: "OLD-7", toValue: "NEW-42", createdAt: new Date().toISOString() },
+      ],
+    } as never);
+    renderWithProviders(<CardDetailModal card={buildCard()} columns={columns} onClose={vi.fn()} onRefresh={vi.fn()} />);
+
+    fireEvent.click(screen.getByText("Activity"));
+
+    expect(await screen.findByText("Moved to another project: OLD-7 is now NEW-42")).toBeInTheDocument();
   });
 
   it("renders a stored javascript: link without an href", () => {

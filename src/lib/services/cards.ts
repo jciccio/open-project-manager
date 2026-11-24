@@ -5,8 +5,9 @@ import { validateParentCard } from "@/lib/cardParent";
 import { safeRevalidatePath } from "@/lib/revalidate";
 import { createActivities, notifyActivity, type ActivityEntry } from "@/lib/services/activity";
 import { nextCardNumber, withCardNumberRetry } from "@/lib/cardNumbering";
-import { verifyProjectAccess, accessDenial } from "@/lib/permissions";
+import { verifyProjectAccess, accessDenial, viewableProjectWhere } from "@/lib/permissions";
 import { deriveCompletedAt } from "@/lib/cardCompletion";
+import { findMovedCardId } from "@/lib/services/cardTransfer";
 import { INVALID_LINK_URL_ERROR, SafeUrlSchema } from "@/lib/validation/safeUrl";
 import { CardCreateSchema, CardReorderSchema, CardUpdateSchema } from "@/lib/validation/cards";
 import { parseInput } from "@/lib/validation/errors";
@@ -556,39 +557,37 @@ export async function getCardByIdentifier(identifier: string, userId: string) {
       return { success: false, error: "Invalid card number in identifier", kind: "invalid" as ServiceErrorKind };
     }
 
-    const card = await db.card.findFirst({
-      where: {
-        number: num,
-        project: {
-          key,
-        },
+    const include = {
+      project: true,
+      column: true,
+      type: true,
+      labels: {
+        include: { label: true },
       },
-      include: {
-        project: true,
-        column: true,
-        type: true,
-        labels: {
-          include: { label: true },
-        },
-        comments: {
-          orderBy: { createdAt: "desc" },
-          include: {
-            authorUser: {
-              select: { id: true, name: true, email: true },
-            },
+      comments: {
+        orderBy: { createdAt: "desc" },
+        include: {
+          authorUser: {
+            select: { id: true, name: true, email: true },
           },
         },
-        activities: {
-          orderBy: { createdAt: "desc" },
-        },
-        assignees: {
-          include: { user: { select: { id: true, name: true, email: true } } },
-        },
-        parent: { select: { id: true, number: true, title: true } },
-        children: { select: { id: true, number: true, title: true, completedAt: true } },
-        links: true,
       },
-    });
+      activities: {
+        orderBy: { createdAt: "desc" },
+      },
+      assignees: {
+        include: { user: { select: { id: true, name: true, email: true } } },
+      },
+      parent: { select: { id: true, number: true, title: true } },
+      children: { select: { id: true, number: true, title: true, completedAt: true } },
+      links: true,
+    } satisfies Prisma.CardInclude;
+
+    let card = await db.card.findFirst({ where: { number: num, project: { key } }, include });
+    if (!card) {
+      const movedId = await findMovedCardId(key, num, viewableProjectWhere(userId));
+      if (movedId) card = await db.card.findUnique({ where: { id: movedId }, include });
+    }
 
     if (!card || !(await verifyProjectAccess(card.projectId, userId, "VIEWER"))) {
       return { success: false, error: `Card '${identifier}' not found`, kind: "not_found" as ServiceErrorKind };
