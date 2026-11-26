@@ -38,11 +38,11 @@ export function RegisterForm() {
         window.location.href = "/";
       } else {
         setLoading(false);
-        setError(res.error || "Registration failed");
+        setError(res.error || t("auth.registrationFailed"));
       }
     } catch (err: any) {
       setLoading(false);
-      setError(err?.message || "An unexpected registration error occurred. Please try again.");
+      setError(err?.message || t("auth.unexpectedRegistrationError"));
     }
   }
 

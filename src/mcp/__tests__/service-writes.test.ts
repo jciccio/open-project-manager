@@ -40,6 +40,22 @@ describe("MCP writes go through the service layer", () => {
   }
 
   describe("activity and webhooks", () => {
+    it("create_card records card_created", async () => {
+      const res = await executeMcpTool("create_card", { projectId, columnId, title: "From MCP" }, { userId });
+
+      expect(await activityTypes(res.card!.id)).toEqual(["card_created"]);
+      expect(webhookEvents()).toEqual(["card_created"]);
+    });
+
+    it("update_card records each changed field", async () => {
+      const card = await createTestCard(projectId, columnId);
+
+      await executeMcpTool("update_card", { id: card.id, title: "Renamed", priority: "HIGH" }, { userId });
+
+      expect((await activityTypes(card.id)).sort()).toEqual(["priority_changed", "title_changed"]);
+      expect(webhookEvents().sort()).toEqual(["priority_changed", "title_changed"]);
+    });
+
     it("move_card records moved", async () => {
       const card = await createTestCard(projectId, columnId);
 

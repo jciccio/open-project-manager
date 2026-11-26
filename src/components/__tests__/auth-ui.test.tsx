@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import Header from "../Header";
 import { LoginForm } from "@/app/login/LoginForm";
@@ -6,13 +6,14 @@ import { LanguageProvider } from "../LanguageProvider";
 import { ThemeProvider } from "../ThemeProvider";
 
 import UserProfileModal from "../UserProfileModal";
-import { loginUser } from "@/actions/auth";
+import { listApiTokens, loginUser } from "@/actions/auth";
 
 vi.mock("@/actions/auth", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/actions/auth")>();
   return {
     ...actual,
     loginUser: vi.fn(),
+    listApiTokens: vi.fn(async () => ({ success: true, tokens: [] })),
   };
 });
 
@@ -69,7 +70,7 @@ describe("Authentication & Header UI Components", () => {
     expect(screen.getByText("Generate API Token")).toBeInTheDocument();
   });
 
-  it("renders UserProfileModal with API token section", () => {
+  it("renders UserProfileModal with API token section", async () => {
     renderWithProviders(
       <UserProfileModal
         user={{
@@ -83,6 +84,7 @@ describe("Authentication & Header UI Components", () => {
 
     expect(screen.getByText("Developer API Token")).toBeInTheDocument();
     expect(screen.getByText("Generate API Token")).toBeInTheDocument();
+    await waitFor(() => expect(listApiTokens).toHaveBeenCalled());
   });
 
   it("toggles locale when language button is clicked", () => {

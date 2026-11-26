@@ -179,6 +179,27 @@ describe("Auth Server Actions", () => {
     expect(await getApiSession(bearer())).toBeNull();
   });
 
+  it("rejects a Bearer API token once its stored expiry has passed, even if the JWT hasn't expired", async () => {
+    const regRes = await registerUser({
+      name: "Expiring Token User",
+      email: testEmail,
+      password: testPass,
+    });
+    if (regRes.data) createdUserId = regRes.data.userId;
+
+    const createRes = await createApiToken("Expiring Client");
+    const bearer = () =>
+      new NextRequest("http://localhost/api/v1/cards", {
+        headers: { Authorization: `Bearer ${createRes.token!.secret}` },
+      });
+    await logoutUser();
+    expect(await getApiSession(bearer())).toMatchObject({ userId: createdUserId });
+
+    await db.apiToken.update({ where: { id: createRes.token!.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
+
+    expect(await getApiSession(bearer())).toBeNull();
+  });
+
   it("never accepts an API token JWT as a session, valid or revoked", async () => {
     const regRes = await registerUser({
       name: "Cookie Confusion User",

@@ -1,6 +1,7 @@
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import ProjectMembersModal from "../ProjectMembersModal";
+import { LanguageProvider } from "../LanguageProvider";
 
 const { getProjectMembers, addProjectMember, updateMemberRole, removeProjectMember, updateProject, refresh } =
   vi.hoisted(() => ({
@@ -34,7 +35,7 @@ async function renderModal(currentUserRole: string | null | undefined, responseR
     data: [creator, coOwner, member],
     currentUserRole: responseRole ?? currentUserRole,
   });
-  render(<ProjectMembersModal project={project(currentUserRole)} onClose={vi.fn()} onMembersChange={onMembersChange} />);
+  render(<ProjectMembersModal project={project(currentUserRole)} onClose={vi.fn()} onMembersChange={onMembersChange} />, { wrapper: LanguageProvider });
   await screen.findByText("mia@example.com");
   return onMembersChange;
 }
@@ -159,7 +160,7 @@ describe("ProjectMembersModal as viewer", () => {
 describe("ProjectMembersModal load failure", () => {
   it("shows the load error", async () => {
     getProjectMembers.mockResolvedValue({ success: false, error: "Project not found" });
-    render(<ProjectMembersModal project={project("OWNER")} onClose={vi.fn()} />);
+    render(<ProjectMembersModal project={project("OWNER")} onClose={vi.fn()} />, { wrapper: LanguageProvider });
 
     expect(await screen.findByText("Project not found")).toBeDefined();
     expect(screen.getByText("Project Members (0)")).toBeDefined();

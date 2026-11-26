@@ -93,7 +93,7 @@ export default function CumulativeFlowChart({
                 tickLine={false}
                 allowDecimals={false}
                 label={{
-                  value: metricMode === "points" ? "Points" : "Cards",
+                  value: metricMode === "points" ? t("analytics.axisPoints") : t("analytics.axisCards"),
                   angle: -90,
                   position: "insideLeft",
                   offset: 25,
