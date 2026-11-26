@@ -129,6 +129,7 @@ describe("Plane import through runImportJob", () => {
   let storageServer: Server;
   let planeUrl: string;
   const unrouted: string[] = [];
+  const requested: string[] = [];
   const storageRequests: IncomingHttpHeaders[] = [];
 
   beforeAll(async () => {
@@ -148,6 +149,7 @@ describe("Plane import through runImportJob", () => {
     let routes: ReturnType<typeof planeWorkspace> = {};
     planeServer = createServer((req, res) => {
       const path = new URL(req.url ?? "/", "http://plane").pathname;
+      requested.push(path);
       const route = routes[path];
       if (!route) {
         unrouted.push(path);
@@ -195,6 +197,14 @@ describe("Plane import through runImportJob", () => {
     return summary as ImportSummary;
   }
 
+  function takeDetailRequests() {
+    const detail = requested.splice(0).filter((path) => /\/(links|relations)\/$/.test(path));
+    return {
+      links: detail.filter((path) => path.endsWith("/links/")).length,
+      relations: detail.filter((path) => path.endsWith("/relations/")).length,
+    };
+  }
+
   function countByType(records: Array<{ entityType: string }>) {
     return Object.fromEntries(
       ["project", "column", "cardType", "label", "card", "comment", "attachment"].map((type) => [
@@ -221,8 +231,10 @@ describe("Plane import through runImportJob", () => {
     expect(first.importer.crossProjectRelationsSkipped).toBe(2);
     expect(await db.project.count({ where: { userId } })).toBe(0);
     expect(storageRequests).toHaveLength(0);
+    expect(takeDetailRequests()).toEqual({ links: 6, relations: 6 });
 
     const live = await liveRun();
+    expect(takeDetailRequests()).toEqual({ links: 6, relations: 6 });
     expect(live.records.filter((record) => record.status !== "created")).toEqual([]);
     expect(live.totals).toEqual({ created: 30, skipped: 0, failed: 0 });
     expect(countByType(live.records)).toEqual(EVERY_RECORD);
@@ -276,6 +288,7 @@ describe("Plane import through runImportJob", () => {
     ]);
 
     const rerun = await liveRun();
+    expect(takeDetailRequests()).toEqual({ links: 0, relations: 0 });
     expect(rerun.totals).toEqual({ created: 0, skipped: 30, failed: 0 });
     expect(rerun.dropped).toEqual([]);
     expect(await db.card.count({ where: { project: { userId } } })).toBe(6);
@@ -284,6 +297,7 @@ describe("Plane import through runImportJob", () => {
     expect(storageRequests).toHaveLength(1);
 
     const after = await dryRun();
+    expect(takeDetailRequests()).toEqual({ links: 0, relations: 0 });
     expect(after.summary.totals).toEqual({ wouldCreate: 0, wouldSkip: 30, wouldFail: 0 });
     expect(after.summary.dropped).toEqual([]);
 

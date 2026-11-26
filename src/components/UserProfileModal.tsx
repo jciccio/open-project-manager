@@ -251,10 +251,10 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
           onClose();
         }, 1000);
       } else {
-        setError(res.error || "Failed to update profile.");
+        setError(res.error || t("profileModal.failedToUpdateProfile"));
       }
     } catch {
-      setError("Failed to update profile.");
+      setError(t("profileModal.failedToUpdateProfile"));
     } finally {
       setLoading(false);
     }
@@ -613,7 +613,7 @@ export default function UserProfileModal({ user, onClose, ssoLinkResult }: Props
                   <button
                     type="button"
                     onClick={handleCopyInstanceId}
-                    title="Click to copy instance UUID"
+                    title={t("profileModal.copyInstanceUuid")}
                     className="flex items-center gap-1 font-mono text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
                   >
                     <span>{telemetryInfo.instanceId.slice(0, 8)}...</span>

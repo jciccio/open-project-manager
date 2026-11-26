@@ -1,6 +1,7 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import WebhookManagerModal from "../WebhookManagerModal";
+import { LanguageProvider } from "../LanguageProvider";
 import * as webhookActions from "@/actions/webhooks";
 
 vi.mock("@/actions/webhooks", () => ({
@@ -51,7 +52,7 @@ describe("WebhookManagerModal", () => {
       },
     });
 
-    render(<WebhookManagerModal project={mockProject} onClose={mockOnClose} />);
+    render(<WebhookManagerModal project={mockProject} onClose={mockOnClose} />, { wrapper: LanguageProvider });
 
     expect(screen.getByText("Project Webhooks")).toBeInTheDocument();
     await waitFor(() => {
@@ -88,7 +89,7 @@ describe("WebhookManagerModal", () => {
       },
     });
 
-    render(<WebhookManagerModal project={mockProject} onClose={mockOnClose} />);
+    render(<WebhookManagerModal project={mockProject} onClose={mockOnClose} />, { wrapper: LanguageProvider });
 
     await waitFor(() => {
       expect(screen.getByPlaceholderText("https://example.com/api/webhook")).toBeInTheDocument();

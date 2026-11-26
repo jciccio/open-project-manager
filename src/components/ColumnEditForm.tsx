@@ -54,10 +54,10 @@ export default function ColumnEditForm({ column, onSaved, onCancel }: Props) {
       if (res.success) {
         onSaved();
       } else {
-        setError(res.error || "Failed to update column.");
+        setError(res.error || t("kanban.failedToUpdateColumn"));
       }
     } catch {
-      setError("Failed to update column.");
+      setError(t("kanban.failedToUpdateColumn"));
     } finally {
       setSaving(false);
     }

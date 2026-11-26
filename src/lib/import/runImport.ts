@@ -155,6 +155,18 @@ function splitAssignees(assignees: ImportAssignee[] | undefined, assignable: Map
   return { userIds: [...userIds], unmatched };
 }
 
+function once<T>(load: () => Promise<T>): () => Promise<T> {
+  let pending: Promise<T> | undefined;
+  return () => (pending ??= load());
+}
+
+function cardDetailLoaders(card: ImportCard) {
+  return {
+    links: once(async () => card.links ?? (await card.loadLinks?.()) ?? []),
+    relations: once(async () => card.relations ?? (await card.loadRelations?.()) ?? []),
+  };
+}
+
 function attachmentTooLargeError(filename: string): string {
   return `Attachment "${filename}" is over the ${Math.floor(MAX_ATTACHMENT_BYTES / (1024 * 1024))}MB attachment size limit`;
 }
@@ -710,6 +722,7 @@ async function traverseImport(ctx: TraversalCtx) {
         const linkQueue: Array<{ cardLocalId: string; cardSourceId: string }> = [];
         const skippedCardIds = new Set<string>();
         const unresolvedCards = new Set<string>();
+        const unreadRelationCards = new Set<string>();
         const assignable = await assignableUsersByEmail(projectLocalId, ctx.userId);
 
         try {
@@ -729,8 +742,9 @@ async function traverseImport(ctx: TraversalCtx) {
               continue;
             }
 
+            const details = cardDetailLoaders(card);
             const validateCard = async (): Promise<string | undefined> => {
-              for (const link of card.links ?? []) {
+              for (const link of await details.links()) {
                 if (!SafeUrlSchema.safeParse(link.url).success) {
                   return `Invalid link URL "${link.url}": must be a valid http, https or mailto URL`;
                 }
@@ -755,6 +769,7 @@ async function traverseImport(ctx: TraversalCtx) {
               }
               const order = columnMaxOrder.get(columnLocalId)! + ORDER_GAP;
               columnMaxOrder.set(columnLocalId, order);
+              const links = await details.links();
 
               let finalNumber: number;
               let description = card.description ?? null;
@@ -787,9 +802,9 @@ async function traverseImport(ctx: TraversalCtx) {
                 isArchived: !!card.isArchived,
                 typeId: card.typeSourceId ? cardTypeMap.get(card.typeSourceId) ?? null : null,
                 links:
-                  card.links && card.links.length > 0
+                  links.length > 0
                     ? {
-                        create: card.links.map((link) => ({
+                        create: links.map((link) => ({
                           url: link.url,
                           title: link.title || null,
                         })),
@@ -835,8 +850,19 @@ async function traverseImport(ctx: TraversalCtx) {
               if (card.parentSourceId) {
                 pendingParents.push({ cardLocalId, cardSourceId: card.sourceId, parentSourceId: card.parentSourceId });
               }
-              if (card.relations && card.relations.length > 0) {
-                pendingRelations.push({ cardLocalId, cardSourceId: card.sourceId, relations: card.relations });
+              try {
+                const relations = await details.relations();
+                if (relations.length > 0) {
+                  pendingRelations.push({ cardLocalId, cardSourceId: card.sourceId, relations });
+                }
+              } catch (err) {
+                unreadRelationCards.add(card.sourceId);
+                records.push({
+                  entityType: "card",
+                  sourceId: `${card.sourceId}:relations`,
+                  status: "failed",
+                  error: err instanceof Error ? err.message : String(err),
+                });
               }
             }
 
@@ -978,6 +1004,7 @@ async function traverseImport(ctx: TraversalCtx) {
           // A target missing from a cut-short card list may arrive on the next run.
           for (const { cardLocalId, cardSourceId } of linkQueue) {
             if (!cardListComplete && unresolvedCards.has(cardSourceId)) continue;
+            if (unreadRelationCards.has(cardSourceId)) continue;
             await ctx.plan.markLinksDone(cardSourceId, cardLocalId);
           }
         } catch (err) {
