@@ -189,7 +189,7 @@ describe("Discord Integration", () => {
       expect(res.data?.content).toContain("Your Discord account is not linked");
     });
 
-    it("links Discord user with a valid API token", async () => {
+    it("links Discord user with a short-lived link code and rejects raw API tokens", async () => {
       const user = await db.user.findUnique({ where: { id: userId } });
       const apiTokenRow = await db.apiToken.create({
         data: { userId, name: "Discord API Token" },
@@ -199,6 +199,26 @@ describe("Discord Integration", () => {
         apiTokenRow.id
       );
 
+      // Raw API tokens are rejected by /opm link
+      const rawTokenRes = await handleDiscordInteraction({
+        id: "i-link-raw-rejected",
+        type: 2,
+        data: {
+          name: "opm",
+          options: [
+            {
+              name: "link",
+              type: 1,
+              options: [{ name: "token", type: 3, value: realApiToken }],
+            },
+          ],
+        },
+        user: { id: "NEW_DISCORD_USER", username: "newbie" },
+      });
+      expect(rawTokenRes.data?.content).toContain("Generate a short-lived Discord link code");
+
+      // Short-lived opm_dl_ link code succeeds
+      const { code } = await issueDiscordLinkCode(userId);
       const linkInteraction: DiscordInteraction = {
         id: "i-link",
         type: 2,
@@ -208,7 +228,7 @@ describe("Discord Integration", () => {
             {
               name: "link",
               type: 1,
-              options: [{ name: "token", type: 3, value: realApiToken }],
+              options: [{ name: "code", type: 3, value: code }],
             },
           ],
         },
@@ -250,7 +270,7 @@ describe("Discord Integration", () => {
         },
         user: { id: "DISCORD_ATTACKER", username: "attacker" },
       });
-      expect(res.data?.content).toContain("Invalid or expired credential");
+      expect(res.data?.content).toContain("Invalid credential");
     });
 
     it("ends Discord actions when revokeUserAccess is called", async () => {
@@ -430,6 +450,79 @@ describe("Discord Integration", () => {
       await cleanupTestUser(viewerRes.user.id);
     });
 
+    it("rejects /opm move when user only has VIEWER role", async () => {
+      const viewerRes = await createTestUser(`discord-move-viewer-${Date.now()}`);
+      try {
+        await db.projectMember.create({
+          data: { projectId, userId: viewerRes.user.id, role: "VIEWER" },
+        });
+        await linkDiscordUser("DISCORD_MOVE_VIEWER", viewerRes.user.id);
+
+        const col = await db.column.findFirst({ where: { projectId } });
+        const card = await db.card.create({
+          data: { projectId, columnId: col!.id, title: "Viewer Move Target", number: 77, order: 1000 },
+        });
+
+        const res = await handleDiscordInteraction({
+          id: "i-viewer-move",
+          type: 2,
+          data: {
+            name: "opm",
+            options: [
+              {
+                name: "move",
+                type: 1,
+                options: [
+                  { name: "identifier", type: 3, value: `${projectKey}-${card.number}` },
+                  { name: "column", type: 3, value: "In Progress" },
+                ],
+              },
+            ],
+          },
+          user: { id: "DISCORD_MOVE_VIEWER", username: "viewer" },
+        });
+
+        expect(res.data?.content).toContain("do not have permission");
+      } finally {
+        await cleanupTestUser(viewerRes.user.id);
+      }
+    });
+
+    it("falls back to email in /opm whoami when user.name is null and rejects expired link codes", async () => {
+      const nameless = await createTestUser(`discord-nameless-${Date.now()}`);
+      try {
+        await db.user.update({ where: { id: nameless.user.id }, data: { name: "" } });
+        await linkDiscordUser("DISCORD_NAMELESS", nameless.user.id);
+
+        const whoRes = await handleDiscordInteraction({
+          id: "i-whoami-nameless",
+          type: 2,
+          data: { name: "opm", options: [{ name: "whoami", type: 1 }] },
+          user: { id: "DISCORD_NAMELESS", username: "nameless" },
+        });
+        expect(whoRes.data?.content).toContain(`**${nameless.user.email}**`);
+        expect(whoRes.data?.content).not.toContain("**null**");
+
+        const issued = await issueDiscordLinkCode(nameless.user.id);
+        await db.importRecord.updateMany({
+          where: { userId: nameless.user.id, source: "discord", entityType: "link_code" },
+          data: { importRunId: String(Date.now() - 60_000) },
+        });
+        const expiredRes = await handleDiscordInteraction({
+          id: "i-expired-code",
+          type: 2,
+          data: {
+            name: "opm",
+            options: [{ name: "link", type: 1, options: [{ name: "code", type: 3, value: issued.code }] }],
+          },
+          user: { id: "DISCORD_EXPIRED_CALLER", username: "expired" },
+        });
+        expect(expiredRes.data?.content).toContain("Invalid, expired, or already used Discord link code");
+      } finally {
+        await cleanupTestUser(nameless.user.id);
+      }
+    });
+
     it("lists project columns via /opm columns", async () => {
       const col2 = await db.column.create({
         data: {
@@ -565,30 +658,10 @@ describe("Discord Integration", () => {
     });
 
     it("automatically unlinks user when underlying API token is deleted", async () => {
-      const user = await db.user.findUnique({ where: { id: userId } });
       const apiTokenRow = await db.apiToken.create({
         data: { userId, name: "Discord Ephemeral Token" },
       });
-      const realApiToken = await signApiToken(
-        { userId, email: user!.email, name: user!.name, tokenVersion: user!.tokenVersion },
-        apiTokenRow.id
-      );
-
-      await handleDiscordInteraction({
-        id: "i-link-del",
-        type: 2,
-        data: {
-          name: "opm",
-          options: [
-            {
-              name: "link",
-              type: 1,
-              options: [{ name: "token", type: 3, value: realApiToken }],
-            },
-          ],
-        },
-        user: { id: "DISCORD_REVOKE_TOKEN_USER", username: "revokee" },
-      });
+      await linkDiscordUser("DISCORD_REVOKE_TOKEN_USER", userId, apiTokenRow.id);
 
       const who1 = await handleDiscordInteraction({
         id: "i-who-del-1",

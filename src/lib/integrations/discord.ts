@@ -1,6 +1,5 @@
 import crypto from "crypto";
 import { db } from "@/lib/db";
-import { verifyApiTokenOnly } from "@/lib/auth";
 import { createCard, moveCard } from "@/lib/services/cards";
 import { verifyProjectAccess } from "@/lib/permissions";
 import { isClosedColumn } from "@/lib/columnGroups";
@@ -905,48 +904,34 @@ export async function handleDiscordInteraction(
       };
     }
 
-    if (credential.startsWith(DISCORD_LINK_CODE_PREFIX)) {
-      const linkedUser = await consumeDiscordLinkCode(credential);
-      if (!linkedUser) {
-        return {
-          type: 4,
-          data: {
-            content:
-              "Invalid, expired, or already used Discord link code. Generate a new code from your OPM User Profile.",
-            flags: 64,
-          },
-        };
-      }
-
-      await linkDiscordUser(discordUser.id, linkedUser.id, "discord-link");
-      return {
-        type: 4,
-        data: {
-          content: `Successfully linked your Discord account to Open Project Manager as **${linkedUser.name || linkedUser.email}** (${linkedUser.email}). You can view or revoke this link anytime from your OPM User Profile.`,
-          flags: 64,
-        },
-      };
-    }
-
-    const apiTokenAuth = await verifyApiTokenOnly(credential);
-    if (!apiTokenAuth) {
+    if (!credential.startsWith(DISCORD_LINK_CODE_PREFIX)) {
       return {
         type: 4,
         data: {
           content:
-            "Invalid or expired credential. Generate a short-lived Discord link code from your OPM User Profile.",
+            "Invalid credential. Generate a short-lived Discord link code from your OPM User Profile and run `/opm link <code>`.",
           flags: 64,
         },
       };
     }
 
-    await linkDiscordUser(discordUser.id, apiTokenAuth.session.userId, apiTokenAuth.apiTokenId);
+    const linkedUser = await consumeDiscordLinkCode(credential);
+    if (!linkedUser) {
+      return {
+        type: 4,
+        data: {
+          content:
+            "Invalid, expired, or already used Discord link code. Generate a new code from your OPM User Profile.",
+          flags: 64,
+        },
+      };
+    }
+
+    await linkDiscordUser(discordUser.id, linkedUser.id, "discord-link");
     return {
       type: 4,
       data: {
-        content:
-          `Successfully linked your Discord account to Open Project Manager as **${apiTokenAuth.session.name}** (${apiTokenAuth.session.email}). ` +
-          `Tip: deleting or expiring this API token will also unlink Discord; generate a short-lived link code from your OPM User Profile instead.`,
+        content: `Successfully linked your Discord account to Open Project Manager as **${linkedUser.name || linkedUser.email}** (${linkedUser.email}). You can view or revoke this link anytime from your OPM User Profile.`,
         flags: 64,
       },
     };
@@ -968,7 +953,7 @@ export async function handleDiscordInteraction(
     return {
       type: 4,
       data: {
-        content: `You are linked as **${opmUser.name}** (${opmUser.email}) in Open Project Manager.`,
+        content: `You are linked as **${opmUser.name || opmUser.email}** (${opmUser.email}) in Open Project Manager.`,
         flags: 64,
       },
     };

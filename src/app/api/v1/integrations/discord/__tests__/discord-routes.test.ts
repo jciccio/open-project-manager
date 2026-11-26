@@ -268,4 +268,45 @@ describe("POST /api/v1/integrations/discord/interactions", () => {
     const res = await proxy(req);
     expect(res.status).not.toBe(401);
   });
+
+  it("returns 401 when signed interaction body is altered after signing", async () => {
+    const originalBody = JSON.stringify({ type: 1 });
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const sig = Buffer.from(
+      crypto.sign(null, Buffer.from(`${timestamp}${originalBody}`), privKeyObj)
+    ).toString("hex");
+
+    const alteredBody = JSON.stringify({ type: 2, id: "tampered-1" });
+    const req = new NextRequest("http://localhost/api/v1/integrations/discord/interactions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Signature-Ed25519": sig,
+        "X-Signature-Timestamp": timestamp,
+      },
+      body: alteredBody,
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(401);
+  });
+
+  it("ignores replayed interaction IDs within the 5-minute replay window", async () => {
+    const payload = {
+      id: `replay-check-${Date.now()}`,
+      type: 2,
+      data: { name: "opm", options: [{ name: "help", type: 1 }] },
+      user: { id: "U_REPLAY", username: "replayer" },
+    };
+
+    const firstRes = await POST(makeSignedRequest(payload));
+    expect(firstRes.status).toBe(200);
+    const firstBody = await firstRes.json();
+    expect(firstBody.data?.content).toContain("/opm link");
+
+    const replayRes = await POST(makeSignedRequest(payload));
+    expect(replayRes.status).toBe(200);
+    const replayBody = await replayRes.json();
+    expect(replayBody.data?.content).toContain("Duplicate interaction ignored");
+  });
 });

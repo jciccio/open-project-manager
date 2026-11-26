@@ -8,6 +8,26 @@ import {
 
 const DISCORD_SNOWFLAKE_RE = /^\d{1,30}$/;
 const DISCORD_INTERACTION_TOKEN_RE = /^[A-Za-z0-9._-]{1,500}$/;
+const INTERACTION_REPLAY_TTL_MS = 5 * 60 * 1000;
+const seenInteractionIds = new Map<string, number>();
+
+function isReplayedInteraction(interactionId: unknown): boolean {
+  if (typeof interactionId !== "string" || !interactionId) return false;
+  const now = Date.now();
+  if (seenInteractionIds.size > 1000) {
+    for (const [id, expiresAt] of seenInteractionIds) {
+      if (expiresAt <= now) {
+        seenInteractionIds.delete(id);
+      }
+    }
+  }
+  const existingExpiry = seenInteractionIds.get(interactionId);
+  if (existingExpiry && existingExpiry > now) {
+    return true;
+  }
+  seenInteractionIds.set(interactionId, now + INTERACTION_REPLAY_TTL_MS);
+  return false;
+}
 
 function buildDiscordErrorResponse(message: string): DiscordInteractionResponse {
   return {
@@ -50,6 +70,12 @@ export async function POST(request: NextRequest) {
   // PING must always return PONG synchronously
   if (interaction.type === 1) {
     return NextResponse.json({ type: 1 });
+  }
+
+  if (isReplayedInteraction(interaction.id)) {
+    return NextResponse.json(
+      buildDiscordErrorResponse("Duplicate interaction ignored.")
+    );
   }
 
   const applicationId = typeof interaction.application_id === "string" ? interaction.application_id : "";
