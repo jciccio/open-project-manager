@@ -505,8 +505,6 @@ export class PlaneImporter implements Importer {
 
     for await (const item of this.paginate<PlaneWorkItem>(`${this.projectPath(projectId)}/work-items/`)) {
       const assignees = (item.assignees ?? []).flatMap((id) => members.get(id) ?? []);
-      const links = await this.fetchLinks(projectId, item.id);
-      const relations = await this.fetchRelations(projectId, item.id);
       if (item.start_date) this.droppedCounts.startDates++;
       if (item.estimate_point && !points.has(item.estimate_point)) this.droppedCounts.nonIntegerEstimates++;
       yield {
@@ -523,8 +521,8 @@ export class PlaneImporter implements Importer {
         createdAt: item.created_at,
         parentSourceId: item.parent ? workItemSourceId(projectId, item.parent) : undefined,
         labelSourceIds: (item.labels ?? []).map(labelSourceId),
-        links: links.length > 0 ? links : undefined,
-        relations: relations.length > 0 ? relations : undefined,
+        loadLinks: () => this.fetchLinks(projectId, item.id),
+        loadRelations: () => this.fetchRelations(projectId, item.id),
       };
     }
   }

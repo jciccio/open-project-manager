@@ -55,10 +55,10 @@ export default function ListView({
       if (res.success) {
         onRefresh();
       } else {
-        setError(res.error || "Failed to move card.");
+        setError(res.error || t("kanban.failedToMoveCard"));
       }
     } catch {
-      setError("Failed to move card.");
+      setError(t("kanban.failedToMoveCard"));
     } finally {
       setMovingCardId(null);
     }

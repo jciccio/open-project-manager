@@ -33,7 +33,7 @@ export default function AnalyticsTimeFilter({
       <div className="flex items-center gap-1.5 flex-wrap">
         <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400 px-2 mr-1">
           <Calendar className="h-4 w-4 text-indigo-500" />
-          <span className="hidden md:inline">Time Range:</span>
+          <span className="hidden md:inline">{t("analytics.timeRangeLabel")}</span>
         </div>
         {timeRanges.map((range) => {
           const isActive = timeRange === range.id;

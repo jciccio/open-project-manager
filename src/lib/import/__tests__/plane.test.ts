@@ -181,8 +181,8 @@ describe("PlaneImporter", () => {
     ]);
   });
 
-  it("maps a work item onto a card", async () => {
-    stubRoutes({
+  it("maps a work item onto a card without reading its links or relations", async () => {
+    const stub = stubRoutes({
       [`${WORKSPACE}/members/`]: MEMBERS,
       [`${PROJECT_PATH}/estimates/`]: () => respond({ id: "e1" }),
       [`${PROJECT_PATH}/estimates/e1/estimate-points/`]: () =>
@@ -217,7 +217,10 @@ describe("PlaneImporter", () => {
 
     const [full, nonNumeric, fractional] = await collect(importer().instance.fetchCards(PROJECT_SID));
 
+    expect(stub.mock.calls.map(([url]) => String(url)).filter((url) => /\/(links|relations)\//.test(url))).toEqual([]);
     expect(full).toEqual({
+      loadLinks: expect.any(Function),
+      loadRelations: expect.any(Function),
       sourceId: workItemSourceId(PROJECT, "w1"),
       columnSourceId: stateSourceId("s1"),
       title: "Fix it",
@@ -233,8 +236,6 @@ describe("PlaneImporter", () => {
       labelSourceIds: [labelSourceId("l1")],
     });
     expect(nonNumeric.parentSourceId).toBeUndefined();
-    expect(nonNumeric.links).toBeUndefined();
-    expect(nonNumeric.relations).toBeUndefined();
     expect(nonNumeric.points).toBeUndefined();
     expect(nonNumeric.assignees).toBeUndefined();
     expect(fractional.points).toBeUndefined();
@@ -306,7 +307,8 @@ describe("PlaneImporter", () => {
       const { instance } = importer();
 
       await collect(instance.fetchLabels(PROJECT_SID));
-      await collect(instance.fetchCards(PROJECT_SID));
+      const [card] = await collect(instance.fetchCards(PROJECT_SID));
+      await card.loadRelations!();
 
       expect(instance.droppedFields()).toEqual([
         { field: "Start dates", count: 1 },
@@ -494,7 +496,7 @@ describe("PlaneImporter", () => {
 
       const [card] = await collect(importer().instance.fetchCards(PROJECT_SID));
 
-      expect(card.links).toEqual([{ url: "https://a.example", title: "Docs" }, { url: "https://b.example" }]);
+      expect(await card.loadLinks!()).toEqual([{ url: "https://a.example", title: "Docs" }, { url: "https://b.example" }]);
     });
 
     it("maps Plane's relation types and leaves out the start and finish ones", async () => {
@@ -514,7 +516,7 @@ describe("PlaneImporter", () => {
 
       const [card] = await collect(importer().instance.fetchCards(PROJECT_SID));
 
-      expect(card.relations).toEqual([
+      expect(await card.loadRelations!()).toEqual([
         { targetCardSourceId: workItemSourceId(PROJECT, "a"), type: "BLOCKS" },
         { targetCardSourceId: workItemSourceId(PROJECT, "b"), type: "BLOCKED_BY" },
         { targetCardSourceId: workItemSourceId(PROJECT, "c"), type: "RELATES_TO" },
@@ -527,7 +529,7 @@ describe("PlaneImporter", () => {
 
       const [card] = await collect(importer().instance.fetchCards(PROJECT_SID));
 
-      expect(card.relations).toBeUndefined();
+      expect(await card.loadRelations!()).toEqual([]);
     });
 
     it("keeps a relation into a project that already ran", async () => {
@@ -541,7 +543,7 @@ describe("PlaneImporter", () => {
       await collect(instance.fetchCards(projectSourceId(OTHER)));
       const [card] = await collect(instance.fetchCards(PROJECT_SID));
 
-      expect(card.relations).toEqual([{ targetCardSourceId: workItemSourceId(OTHER, "x1"), type: "BLOCKS" }]);
+      expect(await card.loadRelations!()).toEqual([{ targetCardSourceId: workItemSourceId(OTHER, "x1"), type: "BLOCKS" }]);
     });
 
     it("keeps a relation into a project an earlier run imported", async () => {
@@ -551,7 +553,7 @@ describe("PlaneImporter", () => {
 
       const [card] = await collect(instance.fetchCards(PROJECT_SID));
 
-      expect(card.relations).toEqual([{ targetCardSourceId: workItemSourceId(OTHER, "x1"), type: "BLOCKS" }]);
+      expect(await card.loadRelations!()).toEqual([{ targetCardSourceId: workItemSourceId(OTHER, "x1"), type: "BLOCKS" }]);
       expect(isCardImported).toHaveBeenCalledWith(workItemSourceId(OTHER, "x1"));
       expect(instance.droppedFields()).toEqual([]);
     });
@@ -562,7 +564,7 @@ describe("PlaneImporter", () => {
 
       const [card] = await collect(instance.fetchCards(PROJECT_SID));
 
-      expect(card.relations).toBeUndefined();
+      expect(await card.loadRelations!()).toEqual([]);
       expect(instance.droppedFields()).toEqual([
         { field: "Relation sides into a project not imported yet (imported with that project)", count: 1 },
       ]);
@@ -586,8 +588,8 @@ describe("PlaneImporter", () => {
       const cards = await collect(instance.fetchCards(PROJECT_SID));
 
       expect(cards.map((c) => c.title)).toEqual(["A", "B"]);
-      expect(cards[0].links).toBeUndefined();
-      expect(cards[0].relations).toEqual([{ targetCardSourceId: workItemSourceId(PROJECT, "w2"), type: "BLOCKS" }]);
+      expect(await cards[0].loadLinks!()).toEqual([]);
+      expect(await cards[0].loadRelations!()).toEqual([{ targetCardSourceId: workItemSourceId(PROJECT, "w2"), type: "BLOCKS" }]);
       expect(instance.droppedFields()).toEqual([
         { field: "Work items whose links could not be read (not added on re-run)", count: 1 },
       ]);
@@ -600,8 +602,8 @@ describe("PlaneImporter", () => {
       const cards = await collect(instance.fetchCards(PROJECT_SID));
 
       expect(cards.map((c) => c.title)).toEqual(["A", "B"]);
-      expect(cards[0].relations).toBeUndefined();
-      expect(cards[0].links).toEqual([{ url: "https://a.example", title: "Docs" }]);
+      expect(await cards[0].loadRelations!()).toEqual([]);
+      expect(await cards[0].loadLinks!()).toEqual([{ url: "https://a.example", title: "Docs" }]);
       expect(instance.droppedFields()).toEqual([{ field: "Work items whose relations could not be read", count: 1 }]);
     });
 
@@ -613,7 +615,9 @@ describe("PlaneImporter", () => {
         },
       });
 
-      await expect(collect(importer().instance.fetchCards(PROJECT_SID))).rejects.toThrow("fetch failed");
+      const [card] = await collect(importer().instance.fetchCards(PROJECT_SID));
+
+      await expect(card.loadLinks!()).rejects.toThrow("fetch failed");
     });
 
     it("skips and counts every cross-project relation when asked to", async () => {
@@ -627,7 +631,7 @@ describe("PlaneImporter", () => {
       await collect(instance.fetchCards(projectSourceId(OTHER)));
       const [card] = await collect(instance.fetchCards(PROJECT_SID));
 
-      expect(card.relations).toBeUndefined();
+      expect(await card.loadRelations!()).toEqual([]);
       expect(instance.crossProjectRelationsSkipped).toBe(1);
     });
   });
