@@ -295,6 +295,47 @@ curl -X GET http://localhost:3000/api/v1/cards/CARD_ID/attachments \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
 ```
 
+### 9. Discord Bot Integration
+Open Project Manager supports Discord Interactions for `/opm` slash commands (Part 1 of `#171`). For app creation and portal setup details, see the official [Discord Developer Documentation](https://docs.discord.com/developers/quick-start/getting-started).
+
+1. **Environment Configuration**:
+   Set `DISCORD_PUBLIC_KEY` and `APP_URL` on the server (plus `DISCORD_APPLICATION_ID` and `DISCORD_BOT_TOKEN` to register slash commands with Discord):
+   ```bash
+   DISCORD_PUBLIC_KEY=your_discord_application_public_key_hex
+   APP_URL=https://your-domain.com
+
+   # Used by `npm run discord:register` to register the `/opm` slash command:
+   DISCORD_APPLICATION_ID=your_discord_application_id
+   DISCORD_BOT_TOKEN=your_discord_bot_token
+   # Optional: register instantaneously to one guild during testing
+   # DISCORD_GUILD_ID=your_test_server_id
+   ```
+2. **Discord Interactions Endpoint & Slash Command Registration**:
+   - Point your Discord Application's **Interactions Endpoint URL** to:
+     ```text
+     https://your-domain.com/api/v1/integrations/discord/interactions
+     ```
+     When Discord provides `application_id` and `token`, the endpoint responds immediately within Discord's 3-second limit using an ephemeral Deferred Response (`type: 5`) and patches the final reply via Next.js `after()`.
+   - Register the `/opm` command and exact option schema (`help`, `link [token]`, `whoami`, `unlink`, `list [key]`, `columns [key]`, `get [identifier]`, `move [identifier] [column]`, `create [key] [title]`, `new [title]`) using:
+     ```bash
+     npm run discord:register
+     ```
+     *(Accepted option name aliases in the handler also include `code` for `link`, `project` for `key`, `card` for `identifier`, and `destination`/`to` for `column`.)*
+3. **Account Linking (Short-Lived Single-Use Code)**:
+   - Open your **User Profile** modal in Open Project Manager, scroll to **Discord Bot**, and click **New Link Code** (calls `POST /api/v1/integrations/discord/link-code` with your interactive browser session; Bearer API tokens are rejected with `403`).
+   - Run the generated `/opm link <code_here>` command in Discord within 10 minutes.
+   - You can view and revoke linked Discord accounts at any time from the same **Discord Bot** section in your User Profile (`GET`/`DELETE /api/v1/integrations/discord/links`), or run `/opm unlink` in Discord.
+4. **Commands & Scope Notes**:
+   - `/opm whoami`: Check which OPM user is linked to your Discord account.
+   - `/opm unlink`: Unlink your Discord account.
+   - `/opm list <key>` or `/opm list <owner/key>`: List open cards in a project grouped by column (ephemeral, bounded to Discord's 2000-character limit).
+   - `/opm columns <key>` or `/opm columns <owner/key>`: List available columns in a project (ephemeral).
+   - `/opm get <KEY-123>` or `/opm get <owner/KEY-123>`: Inspect a card's status, priority, points, and assignees in an ephemeral embed.
+   - `/opm move <KEY-123> <column>`: Move a card to a designated column (ephemeral response).
+   - `/opm create <key> <title>` or `/opm create <owner/key> <title>`: Create a card in the specified project (ephemeral response).
+   - `/opm new <title>`: Quick-create a card in your default active writable project (ephemeral response).
+   - **Current Scope vs `#171`**: Card embeds link to `/projects/<projectId>` (the board page, since OPM opens cards in a modal rather than a standalone `/cards/<id>` URL). Automatic Discord gateway message-link unfurling and channel event notifications are follow-up work.
+
 ---
 
 ## 📥 Importing an Existing Board (Vikunja)

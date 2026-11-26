@@ -193,6 +193,46 @@ export async function getSession(): Promise<UserSession | null> {
   }
 }
 
+export async function authenticateBearerToken(token: string): Promise<UserSession | null> {
+  const session = await verifyBearerToken(token);
+  if (!session) return null;
+  return await currentUserFor(session);
+}
+
+export async function verifyApiTokenOnly(
+  token: string
+): Promise<{ session: UserSession; apiTokenId: string } | null> {
+  let payload;
+  try {
+    ({ payload } = await jwtVerify(token, JWT_SECRET, { algorithms: ["HS256"] }));
+  } catch {
+    return null;
+  }
+  if (!hasAllowedClaims(payload, [API_TOKEN_AUDIENCE])) return null;
+  const jti = payload.jti as string | undefined;
+  if (!jti) return null;
+
+  const apiToken = await db.apiToken.findUnique({ where: { id: jti } });
+  if (!apiToken || (apiToken.expiresAt && apiToken.expiresAt < new Date())) {
+    return null;
+  }
+
+  const session = sessionFromPayload(payload);
+  const current = await currentUserFor(session);
+  if (!current) return null;
+
+  return { session: current, apiTokenId: jti };
+}
+
+export async function getCookieOnlySession(request: NextRequest): Promise<UserSession | null> {
+  const cookieToken = request.cookies.get(SESSION_COOKIE_NAME)?.value;
+  if (cookieToken) {
+    const session = await verifyToken(cookieToken);
+    if (session) return await currentUserFor(session);
+  }
+  return await getSession();
+}
+
 export async function getApiSession(request: NextRequest): Promise<UserSession | null> {
   // 1. Check Authorization Bearer header
   const authHeader = request.headers.get("authorization");
