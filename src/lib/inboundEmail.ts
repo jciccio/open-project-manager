@@ -80,17 +80,18 @@ export function validateWebhookAuthVerdicts(
     return { valid: true };
   }
 
-  if (isFailingAuthVerdict(payload.spf)) {
+  // Explicit DMARC failure (fail, reject, quarantine, etc.) always rejects;
+  // absent or "none"/"neutral" DMARC falls through to aligned DKIM verification.
+  if (dmarcNorm && dmarcNorm !== "none" && dmarcNorm !== "neutral") {
+    return { valid: false, error: "Inbound email rejected: DMARC validation failed" };
+  }
+
+  if (/\b(fail|softfail|permerror|temperror|policy|nxdomain)\b/i.test(payload.spf || "")) {
     return { valid: false, error: "Inbound email rejected: SPF validation failed" };
   }
+
   if (isFailingAuthVerdict(payload.dkim)) {
     return { valid: false, error: "Inbound email rejected: DKIM validation failed" };
-  }
-  if (isFailingAuthVerdict(payload.dmarc)) {
-    return { valid: false, error: "Inbound email rejected: DMARC validation failed" };
-  }
-  if (dmarcNorm) {
-    return { valid: false, error: "Inbound email rejected: DMARC validation failed" };
   }
 
   const senderEmail = extractSenderEmail(payload.from);
@@ -300,13 +301,13 @@ function isAllowedDefaultDomain(domain: string): boolean {
  * When unset, restricts matching to reserved local domains (`opm.local`, `localhost`) to avoid
  * unintended routing from third-party addresses such as `task+X@gmail.com`.
  */
-export function extractProjectKeyFromRecipient(recipient: string): string | null {
-  if (!recipient || typeof recipient !== "string") return null;
+export function extractProjectKeysFromRecipient(recipient: string): string[] {
+  if (!recipient || typeof recipient !== "string") return [];
 
   // Split raw mailboxes first so one malformed mailbox with bad comments or syntax
   // does not drop the entire recipient list.
   const rawMailboxes = splitMailboxes(recipient);
-  if (!rawMailboxes || rawMailboxes.length === 0) return null;
+  if (!rawMailboxes || rawMailboxes.length === 0) return [];
 
   const parsedAddresses: { localPart: string; domain: string }[] = [];
   for (const mb of rawMailboxes) {
@@ -323,9 +324,11 @@ export function extractProjectKeyFromRecipient(recipient: string): string | null
     }
   }
 
-  if (parsedAddresses.length === 0) return null;
+  if (parsedAddresses.length === 0) return [];
 
   const configuredDomain = (process.env.INBOUND_EMAIL_DOMAIN || "").toLowerCase().trim();
+  const keys: string[] = [];
+  const seen = new Set<string>();
 
   for (const addr of parsedAddresses) {
     const matchesDomain = configuredDomain
@@ -334,10 +337,17 @@ export function extractProjectKeyFromRecipient(recipient: string): string | null
     if (!matchesDomain) continue;
 
     const key = extractKeyFromLocalPart(addr.localPart);
-    if (key) return key;
+    if (key && !seen.has(key)) {
+      seen.add(key);
+      keys.push(key);
+    }
   }
 
-  return null;
+  return keys;
+}
+
+export function extractProjectKeyFromRecipient(recipient: string): string | null {
+  return extractProjectKeysFromRecipient(recipient)[0] ?? null;
 }
 
 /**
@@ -375,10 +385,10 @@ export async function processInboundEmail(
   payload: InboundEmailPayload,
   sessionUser?: { id: string; email: string } | null
 ): Promise<InboundEmailResult> {
-  // Reject oversized payloads early to protect event loop and return 200 rejected rather than 400 retries
+  // Reject oversized payloads early (measuring UTF-8 bytes) to protect event loop and return 200 rejected rather than 400 retries
   if (
-    (payload.text && payload.text.length > MAX_EMAIL_BODY_BYTES) ||
-    (payload.html && payload.html.length > MAX_EMAIL_BODY_BYTES)
+    (payload.text && Buffer.byteLength(payload.text, "utf8") > MAX_EMAIL_BODY_BYTES) ||
+    (payload.html && Buffer.byteLength(payload.html, "utf8") > MAX_EMAIL_BODY_BYTES)
   ) {
     return {
       success: false,
@@ -400,8 +410,8 @@ export async function processInboundEmail(
   }
 
   const combinedRecipient = [payload.to, payload.cc].filter(Boolean).join(", ");
-  const projectKey = extractProjectKeyFromRecipient(combinedRecipient);
-  if (!projectKey) {
+  const candidateKeys = extractProjectKeysFromRecipient(combinedRecipient);
+  if (candidateKeys.length === 0) {
     return {
       success: false,
       accepted: false,
@@ -439,10 +449,10 @@ export async function processInboundEmail(
     };
   }
 
-  // Look up candidate projects matching key where sender is owner, admin or active member
-  const candidateProjects = await db.project.findMany({
+  // Look up candidate projects matching any extracted recipient key where sender is owner, admin or active member
+  const allCandidateProjects = await db.project.findMany({
     where: {
-      key: projectKey,
+      key: { in: candidateKeys },
       isArchived: false,
       OR: [
         { userId: senderUser.id },
@@ -456,8 +466,20 @@ export async function processInboundEmail(
     },
   });
 
+  // Try candidate keys in recipient order; pick the first key that has accessible projects
+  let candidateProjects: typeof allCandidateProjects = [];
+  let matchedKey = candidateKeys[0];
+  for (const k of candidateKeys) {
+    const forKey = allCandidateProjects.filter((p) => p.key === k);
+    if (forKey.length > 0) {
+      candidateProjects = forKey;
+      matchedKey = k;
+      break;
+    }
+  }
+
   if (candidateProjects.length === 0) {
-    console.warn(`[inbound-email] No project with key "${projectKey}" found accessible by sender "${senderUser.email}"`);
+    console.warn(`[inbound-email] No project with keys [${candidateKeys.join(", ")}] found accessible by sender "${senderUser.email}"`);
     return {
       success: false,
       accepted: false,
@@ -466,11 +488,11 @@ export async function processInboundEmail(
   }
 
   if (candidateProjects.length > 1) {
-    console.warn(`[inbound-email] Ambiguous routing: multiple active projects match key "${projectKey}" for sender "${senderUser.email}"`);
+    console.warn(`[inbound-email] Ambiguous routing: multiple active projects match key "${matchedKey}" for sender "${senderUser.email}"`);
     return {
       success: false,
       accepted: false,
-      error: `Inbound email rejected: multiple candidate projects found with key "${projectKey}"`,
+      error: `Inbound email rejected: multiple candidate projects found with key "${matchedKey}"`,
     };
   }
 
@@ -549,7 +571,8 @@ export async function processInboundEmail(
         columnId: true,
       },
     });
-    messageIdToStore = `${hashPrefix}${crypto.randomUUID()}`;
+    const bucket = Math.floor(Date.now() / FALLBACK_DEDUPE_WINDOW_MS);
+    messageIdToStore = `${hashPrefix}${bucket}`;
   }
 
   if (existingCard) {
@@ -613,10 +636,10 @@ export async function processInboundEmail(
 
   if (!createResult.success || !createResult.data) {
     const kind = "kind" in createResult ? createResult.kind : undefined;
-    // Handle concurrent explicit Message-ID race cleanly as a duplicate rather than a failure
-    if (kind === "internal" && explicitMessageId) {
+    // Handle concurrent Message-ID / fallback-bucket race cleanly as a duplicate rather than a failure
+    if (kind === "internal" && messageIdToStore) {
       const concurrentCard = await db.card.findFirst({
-        where: { projectId: project.id, messageId: explicitMessageId },
+        where: { projectId: project.id, messageId: messageIdToStore },
         select: { id: true, projectId: true, number: true, title: true, columnId: true },
       });
       if (concurrentCard) {

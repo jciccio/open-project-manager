@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { z } from "zod";
-import { processInboundEmail, validateWebhookAuthVerdicts } from "@/lib/inboundEmail";
+import { processInboundEmail, validateWebhookAuthVerdicts, MAX_EMAIL_BODY_BYTES } from "@/lib/inboundEmail";
 import { getApiSession } from "@/lib/auth";
 
 const inboundSchema = z.object({
@@ -53,9 +53,24 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const contentLength = Number(request.headers.get("content-length") || 0);
+  if (contentLength > MAX_EMAIL_BODY_BYTES * 2) {
+    return NextResponse.json(
+      { success: false, accepted: false, error: "Inbound email rejected: email body exceeds maximum size limit" },
+      { status: 200 }
+    );
+  }
+
   let body: unknown;
   try {
-    body = await request.json();
+    const rawBody = await request.text();
+    if (Buffer.byteLength(rawBody, "utf8") > MAX_EMAIL_BODY_BYTES * 2) {
+      return NextResponse.json(
+        { success: false, accepted: false, error: "Inbound email rejected: email body exceeds maximum size limit" },
+        { status: 200 }
+      );
+    }
+    body = JSON.parse(rawBody);
   } catch {
     return NextResponse.json({ error: "Invalid JSON payload" }, { status: 400 });
   }

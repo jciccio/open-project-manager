@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { db } from "@/lib/db";
 import { createTestUser, createTestProject, cleanupTestUser } from "@/test/helpers";
 import { CardCreateSchema } from "@/lib/validation/cards";
@@ -568,16 +568,16 @@ describe("Inbound Email", () => {
       expect(immediateRetry.duplicate).toBe(true);
       expect(immediateRetry.card?.id).toBe(firstRes.card?.id);
 
-      // Backdate the stored card outside the fallback dedupe window
-      await db.card.update({
-        where: { id: firstRes.card!.id },
-        data: { createdAt: new Date(Date.now() - FALLBACK_DEDUPE_WINDOW_MS - 60_000) },
-      });
-
-      const nextWeekRes = await processInboundEmail(recurringPayload);
-      expect(nextWeekRes.success).toBe(true);
-      expect(nextWeekRes.duplicate).toBeUndefined();
-      expect(nextWeekRes.card?.id).not.toBe(firstRes.card?.id);
+      // Advance clock outside the fallback dedupe bucket
+      const dateSpy = vi.spyOn(Date, "now").mockReturnValue(Date.now() + FALLBACK_DEDUPE_WINDOW_MS);
+      try {
+        const nextWeekRes = await processInboundEmail(recurringPayload);
+        expect(nextWeekRes.success).toBe(true);
+        expect(nextWeekRes.duplicate).toBeUndefined();
+        expect(nextWeekRes.card?.id).not.toBe(firstRes.card?.id);
+      } finally {
+        dateSpy.mockRestore();
+      }
     });
 
     it("strips remote images from HTML and markdown emails to block tracking pixels", async () => {
@@ -638,6 +638,59 @@ describe("Inbound Email", () => {
         spf: "softfail",
       });
       expect(verdict).toEqual({ valid: true });
+    });
+
+    it("allows aligned DKIM pass when dmarc and spf are none/neutral, but rejects explicit dmarc fail", () => {
+      expect(
+        validateWebhookAuthVerdicts({
+          to: `opm+${projectKey}@opm.local`,
+          from: "alice@example.com",
+          dmarc: "none",
+          spf: "none",
+          dkim: "{@mail.example.com : pass}",
+        }),
+      ).toEqual({ valid: true });
+
+      const failed = validateWebhookAuthVerdicts({
+        to: `opm+${projectKey}@opm.local`,
+        from: "alice@example.com",
+        dmarc: "fail",
+        spf: "none",
+        dkim: "{@mail.example.com : pass}",
+      });
+      expect(failed.valid).toBe(false);
+    });
+
+    it("routes multi-address recipients on the inbound domain to the matching project", async () => {
+      const owner = await db.user.findUnique({ where: { id: ownerId } });
+      const res = await processInboundEmail({
+        to: `support@opm.local, opm+${projectKey}@opm.local`,
+        from: owner!.email,
+        subject: "Multi-recipient routing",
+        text: "Routed via second recipient",
+      });
+      expect(res.success).toBe(true);
+      expect(res.card?.projectId).toBe(projectId);
+    });
+
+    it("uses deterministic hourly fallback hash bucket for deduplication when messageId is omitted", async () => {
+      const owner = await db.user.findUnique({ where: { id: ownerId } });
+      const payload = {
+        to: `opm+${projectKey}@opm.local`,
+        from: owner!.email,
+        subject: "No messageId retry",
+        text: "Same body within same hour",
+      };
+
+      const first = await processInboundEmail(payload);
+      expect(first.success).toBe(true);
+      const firstCard = await db.card.findUnique({ where: { id: first.card!.id } });
+      expect(firstCard?.messageId).toMatch(/^hash:[a-f0-9]+:\d+$/);
+
+      const second = await processInboundEmail(payload);
+      expect(second.success).toBe(true);
+      expect(second.duplicate).toBe(true);
+      expect(second.card?.id).toBe(first.card?.id);
     });
 
     it("rejects user-supplied messageId in public CardCreateSchema", () => {

@@ -467,4 +467,31 @@ describe("POST /api/v1/inbound-email", () => {
       spy.mockRestore();
     }
   });
+
+  it("rejects oversized raw JSON payloads with 200 accepted: false before parsing", async () => {
+    process.env.INBOUND_EMAIL_TOKEN = "secret-webhook-key-123";
+    const user = await db.user.findUnique({ where: { id: userId } });
+    const hugeText = "a".repeat(2 * 1024 * 1024 + 100);
+
+    const req = new NextRequest("http://localhost/api/v1/inbound-email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Inbound-Token": "secret-webhook-key-123",
+      },
+      body: JSON.stringify({
+        to: `opm+${projectKey}@opm.local`,
+        from: user!.email,
+        subject: "Oversized raw body",
+        text: hugeText,
+        dmarc: "pass",
+      }),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.accepted).toBe(false);
+    expect(body.error).toContain("exceeds maximum size limit");
+  });
 });
