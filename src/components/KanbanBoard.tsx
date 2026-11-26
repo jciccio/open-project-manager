@@ -38,7 +38,7 @@ import ErrorBanner from "./ErrorBanner";
 import { priorityLabel } from "@/lib/priority";
 
 import { createColumn, reorderColumns } from "@/actions/columns";
-import { moveCard, reorderCards } from "@/actions/cards";
+import { getCardByProjectAndParam, moveCard, reorderCards } from "@/actions/cards";
 import { unarchiveProject } from "@/actions/projects";
 import { createSavedView, deleteSavedView } from "@/actions/views";
 import { useRouter } from "next/navigation";
@@ -76,11 +76,7 @@ export default function KanbanBoard({ project, initialCardParam, initialCard }: 
     return findCardByParam(allCards, initialCardParam, project.key) ? null : initialCardParam;
   });
 
-  const deepLinkKey = initialCardParam
-    ? `param:${initialCardParam}`
-    : initialCard
-    ? `card:${initialCard.id}`
-    : null;
+  const deepLinkKey = initialCardParam ? `param:${initialCardParam}` : null;
   const prevDeepLinkKeyRef = useRef<string | null>(deepLinkKey);
   const handledDeepLinkRef = useRef<string | null>(deepLinkKey);
 
@@ -116,16 +112,33 @@ export default function KanbanBoard({ project, initialCardParam, initialCard }: 
     }
   }, [deepLinkKey, initialCard, initialCardParam, project.columns, project.key]);
 
-  function handleOpenCard(cardId: string) {
+  function openCardWithUrl(cardId: string, cardNumber?: number | null) {
+    setMissingCardParam(null);
     setActiveCardId(cardId);
     if (typeof window !== "undefined") {
-      const allCards = project.columns.flatMap((col: any) => col.cards || []);
-      const card = allCards.find((c: any) => c.id === cardId) || (standaloneCard?.id === cardId ? standaloneCard : null);
-      const param = card && project.key && card.number ? `${project.key}-${card.number}` : cardId;
+      const param = project.key && cardNumber ? `${project.key}-${cardNumber}` : cardId;
       handledDeepLinkRef.current = `param:${param}`;
       const url = new URL(window.location.href);
       url.searchParams.set("card", param);
       window.history.replaceState({}, "", url.pathname + url.search);
+    }
+  }
+
+  async function handleOpenCard(cardId: string) {
+    const allCards = project.columns.flatMap((col: any) => col.cards || []);
+    const localCard =
+      allCards.find((c: any) => c.id === cardId) || (standaloneCard?.id === cardId ? standaloneCard : null);
+    if (localCard) {
+      openCardWithUrl(localCard.id, localCard.number);
+      return;
+    }
+
+    const res = await getCardByProjectAndParam(project.id, cardId);
+    if (res.success && res.data) {
+      setStandaloneCard(res.data);
+      openCardWithUrl(res.data.id, res.data.number);
+    } else {
+      setMissingCardParam(cardId);
     }
   }
 

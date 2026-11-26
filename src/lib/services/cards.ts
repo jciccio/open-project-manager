@@ -541,6 +541,45 @@ export async function unarchiveCard(id: string, userId: string) {
   }
 }
 
+const cardDetailInclude = {
+  project: true,
+  column: true,
+  type: true,
+  labels: { include: { label: true } },
+  comments: {
+    orderBy: { createdAt: "desc" as const },
+    include: { authorUser: { select: { id: true, name: true, email: true } } },
+  },
+  activities: { orderBy: { createdAt: "desc" as const } },
+  assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
+  parent: { select: { id: true, number: true, title: true } },
+  children: {
+    where: { isArchived: false },
+    orderBy: { order: "asc" as const },
+    select: {
+      id: true,
+      number: true,
+      title: true,
+      dueDate: true,
+      completedAt: true,
+      columnId: true,
+      column: {
+        select: {
+          id: true,
+          name: true,
+          isDone: true,
+        },
+      },
+      assignees: {
+        include: {
+          user: { select: { id: true, name: true, email: true } },
+        },
+      },
+    },
+  },
+  links: true,
+} satisfies Prisma.CardInclude;
+
 export async function getCardByIdentifier(identifier: string, userId: string) {
   try {
     const clean = identifier.trim();
@@ -563,31 +602,7 @@ export async function getCardByIdentifier(identifier: string, userId: string) {
           key,
         },
       },
-      include: {
-        project: true,
-        column: true,
-        type: true,
-        labels: {
-          include: { label: true },
-        },
-        comments: {
-          orderBy: { createdAt: "desc" },
-          include: {
-            authorUser: {
-              select: { id: true, name: true, email: true },
-            },
-          },
-        },
-        activities: {
-          orderBy: { createdAt: "desc" },
-        },
-        assignees: {
-          include: { user: { select: { id: true, name: true, email: true } } },
-        },
-        parent: { select: { id: true, number: true, title: true } },
-        children: { select: { id: true, number: true, title: true, completedAt: true } },
-        links: true,
-      },
+      include: cardDetailInclude,
     });
 
     if (!card || !(await verifyProjectAccess(card.projectId, userId, "VIEWER"))) {
@@ -617,49 +632,10 @@ export async function getCardByProjectAndParam(projectId: string, param: string,
       return { success: false, error: "Card identifier or ID is required", kind: "invalid" as ServiceErrorKind };
     }
 
-    const include = {
-      project: true,
-      column: true,
-      type: true,
-      labels: { include: { label: true } },
-      comments: {
-        orderBy: { createdAt: "desc" as const },
-        include: { authorUser: { select: { id: true, name: true, email: true } } },
-      },
-      activities: { orderBy: { createdAt: "desc" as const } },
-      assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
-      parent: { select: { id: true, number: true, title: true } },
-      children: {
-        where: { isArchived: false },
-        orderBy: { order: "asc" as const },
-        select: {
-          id: true,
-          number: true,
-          title: true,
-          dueDate: true,
-          completedAt: true,
-          columnId: true,
-          column: {
-            select: {
-              id: true,
-              name: true,
-              isDone: true,
-            },
-          },
-          assignees: {
-            include: {
-              user: { select: { id: true, name: true, email: true } },
-            },
-          },
-        },
-      },
-      links: true,
-    };
-
     // 1. Try exact ID
     let card = await db.card.findFirst({
       where: { id: clean, projectId },
-      include,
+      include: cardDetailInclude,
     });
 
     // 2. Try KEY-NNN
@@ -671,7 +647,7 @@ export async function getCardByProjectAndParam(projectId: string, param: string,
       if (!isNaN(num) && String(num) === numStr) {
         card = await db.card.findFirst({
           where: { number: num, project: { key }, projectId },
-          include,
+          include: cardDetailInclude,
         });
       }
     }
@@ -683,7 +659,7 @@ export async function getCardByProjectAndParam(projectId: string, param: string,
       if (!isNaN(num) && String(num) === bareNumber) {
         card = await db.card.findFirst({
           where: { number: num, projectId },
-          include,
+          include: cardDetailInclude,
         });
       }
     }

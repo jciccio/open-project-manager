@@ -13,9 +13,10 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/projects/p1",
 }));
 
-const { mockArchiveCard, mockUnarchiveCard } = vi.hoisted(() => ({
+const { mockArchiveCard, mockUnarchiveCard, mockGetCardByProjectAndParam } = vi.hoisted(() => ({
   mockArchiveCard: vi.fn(),
   mockUnarchiveCard: vi.fn(),
+  mockGetCardByProjectAndParam: vi.fn(),
 }));
 
 vi.mock("@/actions/cards", async (importOriginal) => {
@@ -24,6 +25,8 @@ vi.mock("@/actions/cards", async (importOriginal) => {
     ...actual,
     archiveCard: (...args: Parameters<typeof actual.archiveCard>) => mockArchiveCard(...args),
     unarchiveCard: (...args: Parameters<typeof actual.unarchiveCard>) => mockUnarchiveCard(...args),
+    getCardByProjectAndParam: (...args: Parameters<typeof actual.getCardByProjectAndParam>) =>
+      mockGetCardByProjectAndParam(...args),
   };
 });
 
@@ -432,6 +435,57 @@ describe("Deep linking and Copy link in modal (#270)", () => {
       fireEvent.click(screen.getByRole("button", { name: /close/i }));
       expect(screen.queryByText(/OPM-9999/)).not.toBeInTheDocument();
       expect(window.location.search).toBe("");
+    } finally {
+      window.history.replaceState({}, "", previousUrl);
+    }
+  });
+
+  it("loads an archived parent card via getCardByProjectAndParam when clicked from an active subtask", async () => {
+    const previousUrl = window.location.pathname + window.location.search;
+    window.history.replaceState({}, "", "/projects/p1");
+    const archivedParent = {
+      id: "card-parent-arch",
+      title: "Archived Parent Epic",
+      description: "Archived parent",
+      number: 88,
+      isArchived: true,
+      priority: "MEDIUM",
+      projectId: "p1",
+      columnId: "col-1",
+      project: { id: "p1", key: "OPM", name: "My Project" },
+      labels: [],
+      assignees: [],
+      comments: [],
+      activities: [],
+      links: [],
+      attachments: [],
+      outgoingRelations: [],
+      incomingRelations: [],
+      children: [],
+    };
+    mockGetCardByProjectAndParam.mockResolvedValueOnce({ success: true, data: archivedParent });
+
+    try {
+      const subtask = {
+        ...mockCards[0],
+        parentId: "card-parent-arch",
+        parent: { id: "card-parent-arch", number: 88, title: "Archived Parent Epic" },
+      };
+      const projectWithSubtask = {
+        ...mockProject,
+        columns: [{ ...mockProject.columns[0], cards: [subtask] }],
+      };
+
+      renderWithProviders(<KanbanBoard project={projectWithSubtask} initialCardParam="OPM-42" />);
+
+      const parentLink = await screen.findByRole("button", { name: /#88 Archived Parent Epic/i });
+      fireEvent.click(parentLink);
+
+      await waitFor(() => {
+        expect(mockGetCardByProjectAndParam).toHaveBeenCalledWith("p1", "card-parent-arch");
+        expect(screen.getByDisplayValue("Archived Parent Epic")).toBeInTheDocument();
+      });
+      expect(window.location.search).toBe("?card=OPM-88");
     } finally {
       window.history.replaceState({}, "", previousUrl);
     }
