@@ -541,6 +541,45 @@ export async function unarchiveCard(id: string, userId: string) {
   }
 }
 
+const cardDetailInclude = {
+  project: true,
+  column: true,
+  type: true,
+  labels: { include: { label: true } },
+  comments: {
+    orderBy: { createdAt: "desc" as const },
+    include: { authorUser: { select: { id: true, name: true, email: true } } },
+  },
+  activities: { orderBy: { createdAt: "desc" as const } },
+  assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
+  parent: { select: { id: true, number: true, title: true } },
+  children: {
+    where: { isArchived: false },
+    orderBy: { order: "asc" as const },
+    select: {
+      id: true,
+      number: true,
+      title: true,
+      dueDate: true,
+      completedAt: true,
+      columnId: true,
+      column: {
+        select: {
+          id: true,
+          name: true,
+          isDone: true,
+        },
+      },
+      assignees: {
+        include: {
+          user: { select: { id: true, name: true, email: true } },
+        },
+      },
+    },
+  },
+  links: true,
+} satisfies Prisma.CardInclude;
+
 export async function getCardByIdentifier(identifier: string, userId: string) {
   try {
     const clean = identifier.trim();
@@ -563,31 +602,7 @@ export async function getCardByIdentifier(identifier: string, userId: string) {
           key,
         },
       },
-      include: {
-        project: true,
-        column: true,
-        type: true,
-        labels: {
-          include: { label: true },
-        },
-        comments: {
-          orderBy: { createdAt: "desc" },
-          include: {
-            authorUser: {
-              select: { id: true, name: true, email: true },
-            },
-          },
-        },
-        activities: {
-          orderBy: { createdAt: "desc" },
-        },
-        assignees: {
-          include: { user: { select: { id: true, name: true, email: true } } },
-        },
-        parent: { select: { id: true, number: true, title: true } },
-        children: { select: { id: true, number: true, title: true, completedAt: true } },
-        links: true,
-      },
+      include: cardDetailInclude,
     });
 
     if (!card || !(await verifyProjectAccess(card.projectId, userId, "VIEWER"))) {
@@ -604,6 +619,65 @@ export async function getCardByIdentifier(identifier: string, userId: string) {
   } catch (error) {
     console.error(`Error looking up card by identifier '${identifier}':`, error);
     return { success: false, error: "Failed to fetch card by identifier", kind: "internal" as ServiceErrorKind };
+  }
+}
+
+export async function getCardByProjectAndParam(projectId: string, param: string, userId: string) {
+  try {
+    if (!(await verifyProjectAccess(projectId, userId, "VIEWER"))) {
+      return { success: false, error: "Access denied", kind: "forbidden" as ServiceErrorKind };
+    }
+    const clean = param.trim();
+    if (!clean) {
+      return { success: false, error: "Card identifier or ID is required", kind: "invalid" as ServiceErrorKind };
+    }
+
+    // 1. Try exact ID
+    let card = await db.card.findFirst({
+      where: { id: clean, projectId },
+      include: cardDetailInclude,
+    });
+
+    // 2. Try KEY-NNN
+    if (!card && clean.includes("-")) {
+      const lastDash = clean.lastIndexOf("-");
+      const key = clean.slice(0, lastDash).toUpperCase();
+      const numStr = clean.slice(lastDash + 1);
+      const num = parseInt(numStr, 10);
+      if (!isNaN(num) && String(num) === numStr) {
+        card = await db.card.findFirst({
+          where: { number: num, project: { key }, projectId },
+          include: cardDetailInclude,
+        });
+      }
+    }
+
+    // 3. Try bare number (e.g. "42" or "#42")
+    if (!card) {
+      const bareNumber = clean.replace(/^#/, "");
+      const num = parseInt(bareNumber, 10);
+      if (!isNaN(num) && String(num) === bareNumber) {
+        card = await db.card.findFirst({
+          where: { number: num, projectId },
+          include: cardDetailInclude,
+        });
+      }
+    }
+
+    if (!card) {
+      return { success: false, error: "Card not found", kind: "not_found" as ServiceErrorKind };
+    }
+
+    return {
+      success: true,
+      data: {
+        ...card,
+        identifier: `${card.project.key}-${card.number}`,
+      },
+    };
+  } catch (error) {
+    console.error(`Error looking up card by param '${param}' in project '${projectId}':`, error);
+    return { success: false, error: "Failed to fetch card", kind: "internal" as ServiceErrorKind };
   }
 }
 

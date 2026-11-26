@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useDeferredValue, useMemo } from "react";
+import { useState, useEffect, useCallback, useDeferredValue, useMemo, useRef } from "react";
 import {
   Plus,
   ArrowLeft,
@@ -22,6 +22,7 @@ import {
   Lock,
   Globe,
   Webhook,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import KanbanColumn from "./KanbanColumn";
@@ -37,23 +38,125 @@ import ErrorBanner from "./ErrorBanner";
 import { priorityLabel } from "@/lib/priority";
 
 import { createColumn, reorderColumns } from "@/actions/columns";
-import { moveCard, reorderCards } from "@/actions/cards";
+import { getCardByProjectAndParam, moveCard, reorderCards } from "@/actions/cards";
 import { unarchiveProject } from "@/actions/projects";
 import { createSavedView, deleteSavedView } from "@/actions/views";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "./LanguageProvider";
 import { COLUMN_GROUPS, DEFAULT_COLUMN_GROUP, isClosedColumn, type ColumnGroup } from "@/lib/columnGroups";
-import { filterCards } from "@/lib/cardFilter";
+import { filterCards, findCardByParam } from "@/lib/cardFilter";
 
 interface Props {
   project: any;
+  initialCardParam?: string;
+  initialCard?: any;
 }
 
 type ViewMode = "kanban" | "list" | "analytics" | "calendar";
 
-export default function KanbanBoard({ project }: Props) {
+export default function KanbanBoard({ project, initialCardParam, initialCard }: Props) {
   const [viewMode, setViewMode] = useState<ViewMode>("kanban");
-  const [activeCardId, setActiveCardId] = useState<string | null>(null);
+  const [standaloneCard, setStandaloneCard] = useState<any | null>(initialCard || null);
+  const [activeCardId, setActiveCardId] = useState<string | null>(() => {
+    if (initialCard) return initialCard.id;
+    const allCards = project.columns.flatMap((col: any) => col.cards || []);
+    const initialParam =
+      initialCardParam ||
+      (typeof window !== "undefined"
+        ? new URLSearchParams(window.location.search).get("card") ||
+          new URLSearchParams(window.location.search).get("cardId")
+        : null);
+    const found = findCardByParam(allCards, initialParam, project.key);
+    return found ? found.id : null;
+  });
+
+  const [missingCardParam, setMissingCardParam] = useState<string | null>(() => {
+    if (!initialCardParam || initialCard) return null;
+    const allCards = project.columns.flatMap((col: any) => col.cards || []);
+    return findCardByParam(allCards, initialCardParam, project.key) ? null : initialCardParam;
+  });
+
+  const deepLinkKey = initialCardParam ? `param:${initialCardParam}` : null;
+  const prevDeepLinkKeyRef = useRef<string | null>(deepLinkKey);
+  const handledDeepLinkRef = useRef<string | null>(deepLinkKey);
+
+  useEffect(() => {
+    const prevKey = prevDeepLinkKeyRef.current;
+    prevDeepLinkKeyRef.current = deepLinkKey;
+
+    if (!deepLinkKey) {
+      if (prevKey !== null) {
+        handledDeepLinkRef.current = null;
+      }
+      return;
+    }
+    if (deepLinkKey === handledDeepLinkRef.current) {
+      return;
+    }
+    handledDeepLinkRef.current = deepLinkKey;
+    if (initialCard) {
+      setMissingCardParam(null);
+      setStandaloneCard(initialCard);
+      setActiveCardId(initialCard.id);
+      return;
+    }
+    if (initialCardParam) {
+      const allCards = project.columns.flatMap((col: any) => col.cards || []);
+      const found = findCardByParam(allCards, initialCardParam, project.key);
+      if (found) {
+        setMissingCardParam(null);
+        setActiveCardId(found.id);
+      } else {
+        setMissingCardParam(initialCardParam);
+      }
+    }
+  }, [deepLinkKey, initialCard, initialCardParam, project.columns, project.key]);
+
+  function openCardWithUrl(cardId: string, cardNumber?: number | null) {
+    setMissingCardParam(null);
+    setActiveCardId(cardId);
+    if (typeof window !== "undefined") {
+      const param = project.key && cardNumber ? `${project.key}-${cardNumber}` : cardId;
+      handledDeepLinkRef.current = `param:${param}`;
+      const url = new URL(window.location.href);
+      url.searchParams.set("card", param);
+      window.history.replaceState({}, "", url.pathname + url.search);
+    }
+  }
+
+  async function handleOpenCard(cardId: string) {
+    const allCards = project.columns.flatMap((col: any) => col.cards || []);
+    const localCard =
+      allCards.find((c: any) => c.id === cardId) || (standaloneCard?.id === cardId ? standaloneCard : null);
+    if (localCard) {
+      openCardWithUrl(localCard.id, localCard.number);
+      return;
+    }
+
+    const res = await getCardByProjectAndParam(project.id, cardId);
+    if (res.success && res.data) {
+      setStandaloneCard(res.data);
+      openCardWithUrl(res.data.id, res.data.number);
+    } else {
+      setMissingCardParam(cardId);
+    }
+  }
+
+  function handleCloseCard() {
+    setActiveCardId(null);
+    setStandaloneCard(null);
+    if (typeof window !== "undefined" && (window.location.search.includes("card") || window.location.search.includes("cardId"))) {
+      const url = new URL(window.location.href);
+      const closingParam = url.searchParams.get("card") || url.searchParams.get("cardId");
+      if (closingParam) {
+        handledDeepLinkRef.current = `param:${closingParam}`;
+      }
+      url.searchParams.delete("card");
+      url.searchParams.delete("cardId");
+      window.history.replaceState({}, "", url.pathname + (url.search ? url.search : ""));
+    }
+  }
+
   const [newColumnName, setNewColumnName] = useState("");
   const [newColumnGroup, setNewColumnGroup] = useState<ColumnGroup>(DEFAULT_COLUMN_GROUP);
   const [isAddingColumn, setIsAddingColumn] = useState(false);
@@ -327,7 +430,9 @@ export default function KanbanBoard({ project }: Props) {
   const activeCard = activeCardId
     ? project.columns
         .flatMap((col: any) => col.cards || [])
-        .find((c: any) => c.id === activeCardId) || null
+        .find((c: any) => c.id === activeCardId) ||
+      (initialCard && initialCard.id === activeCardId ? initialCard : null) ||
+      (standaloneCard && standaloneCard.id === activeCardId ? standaloneCard : null)
     : null;
 
   // Filter cards by search, priority, type & subtask visibility for Kanban view
@@ -340,9 +445,10 @@ export default function KanbanBoard({ project }: Props) {
           priorityFilter,
           typeFilter,
           hideSubtasks,
+          projectKey: project.key,
         }),
       })),
-    [project.columns, deferredSearchQuery, priorityFilter, typeFilter, hideSubtasks]
+    [project.columns, deferredSearchQuery, priorityFilter, typeFilter, hideSubtasks, project.key]
   );
 
   const isFiltering = deferredSearchQuery.trim() !== "" || priorityFilter !== "ALL" || typeFilter !== "ALL";
@@ -356,8 +462,9 @@ export default function KanbanBoard({ project }: Props) {
       searchQuery: deferredSearchQuery,
       priorityFilter,
       typeFilter,
+      projectKey: project.key,
     }).length;
-  }, [viewMode, columnsWithFilteredCards, project.columns, deferredSearchQuery, priorityFilter, typeFilter]);
+  }, [viewMode, columnsWithFilteredCards, project.columns, deferredSearchQuery, priorityFilter, typeFilter, project.key]);
 
   function toggleClosedColumn(columnId: string) {
     setExpandedClosedColumnIds((current) => {
@@ -383,6 +490,31 @@ export default function KanbanBoard({ project }: Props) {
           >
             <ArchiveRestore className="h-3.5 w-3.5" />
             <span>{restoring ? t("kanban.restoring") : t("kanban.restoreButton")}</span>
+          </button>
+        </div>
+      )}
+
+      {missingCardParam && (
+        <div
+          role="status"
+          className="mx-6 mt-3 flex items-center justify-between gap-3 rounded-lg border border-amber-300 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 px-4 py-2.5 text-xs text-amber-800 dark:text-amber-300 shrink-0"
+        >
+          <span>{t("kanban.cardNotFound", { card: missingCardParam })}</span>
+          <button
+            type="button"
+            onClick={() => {
+              setMissingCardParam(null);
+              if (typeof window !== "undefined") {
+                const url = new URL(window.location.href);
+                url.searchParams.delete("card");
+                url.searchParams.delete("cardId");
+                window.history.replaceState({}, "", url.pathname + (url.search ? url.search : ""));
+              }
+            }}
+            aria-label={t("cardModal.close")}
+            className="rounded p-1 hover:bg-amber-200/60 dark:hover:bg-amber-500/20 transition-colors"
+          >
+            <X className="h-3.5 w-3.5" />
           </button>
         </div>
       )}
@@ -675,7 +807,7 @@ export default function KanbanBoard({ project }: Props) {
               <KanbanColumn
                 key={column.id}
                 column={column}
-                onCardClick={(card) => setActiveCardId(card.id)}
+                onCardClick={(card) => handleOpenCard(card.id)}
                 onRefresh={() => router.refresh()}
                 onDragStartCard={handleDragStartCard}
                 onDropCard={handleDropCard}
@@ -751,7 +883,7 @@ export default function KanbanBoard({ project }: Props) {
         {viewMode === "list" && (
           <ListView
             project={project}
-            onCardClick={(card) => setActiveCardId(card.id)}
+            onCardClick={(card) => handleOpenCard(card.id)}
             onRefresh={() => router.refresh()}
             searchQuery={deferredSearchQuery}
             priorityFilter={priorityFilter}
@@ -764,7 +896,7 @@ export default function KanbanBoard({ project }: Props) {
         {viewMode === "calendar" && (
           <CalendarView
             project={project}
-            onCardClick={(card) => setActiveCardId(card.id)}
+            onCardClick={(card) => handleOpenCard(card.id)}
             searchQuery={deferredSearchQuery}
             priorityFilter={priorityFilter}
             typeFilter={typeFilter}
@@ -847,14 +979,17 @@ export default function KanbanBoard({ project }: Props) {
       {activeCard && (
         <CardDetailModal
           key={activeCard.id}
-          card={activeCard}
+          card={{
+            ...activeCard,
+            project: activeCard.project || { key: project.key, id: project.id },
+          }}
           columns={project.columns}
           projectKey={project.key}
           cardTypes={project.cardTypes}
           members={project.members}
-          onClose={() => setActiveCardId(null)}
+          onClose={handleCloseCard}
           onRefresh={() => router.refresh()}
-          onOpenCard={(cardId) => setActiveCardId(cardId)}
+          onOpenCard={handleOpenCard}
         />
       )}
 

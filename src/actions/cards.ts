@@ -66,6 +66,12 @@ export async function getCardByIdentifier(identifier: string) {
   return cardsService.getCardByIdentifier(identifier, session.userId);
 }
 
+export async function getCardByProjectAndParam(projectId: string, param: string) {
+  const session = await getSession();
+  if (!session) return { success: false as const, error: "Unauthorized", kind: "unauthenticated" as ServiceErrorKind };
+  return cardsService.getCardByProjectAndParam(projectId, param, session.userId);
+}
+
 export async function archiveCard(id: string) {
   const session = await getSession();
   if (!session) return { success: false as const, error: "Unauthorized", kind: "unauthenticated" as ServiceErrorKind };
