@@ -34,6 +34,7 @@ import ListView from "./views/ListView";
 import AnalyticsView from "./views/AnalyticsView";
 import CalendarView from "./views/CalendarView";
 import ErrorBanner from "./ErrorBanner";
+import { priorityLabel } from "@/lib/priority";
 
 import { createColumn, reorderColumns } from "@/actions/columns";
 import { moveCard, reorderCards } from "@/actions/cards";
@@ -453,10 +454,10 @@ export default function KanbanBoard({ project }: Props) {
                   type="button"
                   onClick={() => setIsWebhooksModalOpen(true)}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-slate-200/80 dark:bg-slate-800/80 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors"
-                  title="Manage project outbound webhooks"
+                  title={t("kanban.manageWebhooks")}
                 >
                   <Webhook className="h-3.5 w-3.5 text-indigo-500" />
-                  <span>Webhooks</span>
+                  <span>{t("kanban.webhooks")}</span>
                 </button>
                 {project.members && project.members.length > 0 && (
                   <div
@@ -803,13 +804,13 @@ export default function KanbanBoard({ project }: Props) {
 
               {/* Filter summary preview */}
               <div className="rounded-xl bg-slate-50 dark:bg-slate-800/50 p-3 border border-slate-200 dark:border-slate-800 text-xs space-y-1 text-slate-600 dark:text-slate-400">
-                <p className="font-semibold text-slate-700 dark:text-slate-300 mb-1">Current Filter Criteria:</p>
-                <p>• Search Query: <span className="font-medium text-slate-900 dark:text-slate-200">{searchQuery || "(None)"}</span></p>
-                <p>• Priority: <span className="font-medium text-slate-900 dark:text-slate-200">{priorityFilter}</span></p>
-                <p>• Card Type: <span className="font-medium text-slate-900 dark:text-slate-200">
-                  {typeFilter === "ALL" ? "All" : typeFilter === "NONE" ? "None" : project.cardTypes?.find((ct: any) => ct.id === typeFilter)?.name || typeFilter}
+                <p className="font-semibold text-slate-700 dark:text-slate-300 mb-1">{t("savedViews.filterCriteria")}</p>
+                <p>• {t("savedViews.filterSearch")} <span className="font-medium text-slate-900 dark:text-slate-200">{searchQuery || t("savedViews.filterNone")}</span></p>
+                <p>• {t("savedViews.filterPriority")} <span className="font-medium text-slate-900 dark:text-slate-200">{priorityFilter === "ALL" ? t("kanban.allPriorities") : priorityLabel(t, priorityFilter)}</span></p>
+                <p>• {t("savedViews.filterCardType")} <span className="font-medium text-slate-900 dark:text-slate-200">
+                  {typeFilter === "ALL" ? t("savedViews.filterAll") : typeFilter === "NONE" ? t("savedViews.filterNoType") : project.cardTypes?.find((ct: any) => ct.id === typeFilter)?.name || typeFilter}
                 </span></p>
-                <p>• Layout View: <span className="font-medium text-slate-900 dark:text-slate-200 capitalize">{viewMode}</span></p>
+                <p>• {t("savedViews.filterLayout")} <span className="font-medium text-slate-900 dark:text-slate-200">{t(`views.${viewMode}`)}</span></p>
               </div>
 
               <div className="flex items-center gap-2">

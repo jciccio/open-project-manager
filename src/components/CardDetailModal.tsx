@@ -449,11 +449,11 @@ export default function CardDetailModal({
         setAttachments((prev) => [res.data, ...prev]);
         onRefresh();
       } else {
-        setAttachmentError(res.error || "Failed to upload attachment.");
+        setAttachmentError(res.error || t("cardModal.failedToUploadAttachment"));
       }
     } catch (err) {
       console.error("Failed to upload attachment:", err);
-      setAttachmentError("Failed to upload attachment.");
+      setAttachmentError(t("cardModal.failedToUploadAttachment"));
     } finally {
       setIsUploadingAttachment(false);
       e.target.value = "";
@@ -570,7 +570,7 @@ export default function CardDetailModal({
       setIsAddingSubtask(false);
       onRefresh();
     } else {
-      setSubtaskError(res.error || "Failed to create subtask");
+      setSubtaskError(res.error || t("cardModal.failedToCreateSubtask"));
     }
   }
 
@@ -787,7 +787,7 @@ export default function CardDetailModal({
 
     const res = await addCardRelation(card.id, targetCardId, relationTypeInput);
     if (!res.success) {
-      setRelationError(res.error || "Failed to add card relation");
+      setRelationError(res.error || t("cardModal.failedToAddRelation"));
       return;
     }
 
@@ -824,7 +824,7 @@ export default function CardDetailModal({
       setIsAddingLink(false);
       onRefresh();
     } else {
-      setLinkError(res.error || "Failed to add link");
+      setLinkError(res.error || t("cardModal.failedToAddLink"));
     }
   }
 
@@ -1722,7 +1722,7 @@ export default function CardDetailModal({
               <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
                 {isLoadingActivities ? (
                   <p className="text-xs text-slate-400 italic text-center py-4">
-                    Loading activity...
+                    {t("cardModal.loadingActivity")}
                   </p>
                 ) : activities && activities.length > 0 ? (
                   activities.map((act) => {

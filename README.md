@@ -428,6 +428,42 @@ Omit `--project` to include every project the key can see.
 Pass `--map-email plane@example.com=opm@example.com` (repeatable) when someone's email
 differs between the two, for example when OPM signs them in through SSO.
 
+#### Docker Compose
+
+The app container has no `scripts/` or `tsx`, so run the import through the `migrate`
+service, which has both and uses the same database. Run these from the directory that
+holds `docker-compose.yml` and its `.env`: Compose reads `JWT_SECRET` from there even
+for `migrate`.
+
+```bash
+# Back up the data volume (database and attachments) first.
+docker compose run --rm -T migrate tar -czf - -C /app data > opm-data-$(date +%Y%m%d).tar.gz
+
+export PLANE_API_KEY=…
+export PLANE_URL=https://plane.example.com  # leave out for Plane Cloud
+
+# See what would happen. Nothing is written.
+docker compose run --rm -e PLANE_API_KEY -e PLANE_URL migrate \
+  npx tsx scripts/import-plane.ts --workspace my-team --project ABC --user you@example.com --dry-run
+```
+
+Drop `--dry-run` for the live import. `PLANE_URL` must be reachable from inside the
+container, so `localhost` there means the container itself, not the Docker host.
+
+A large import takes hours, and closing the terminal stops it. Start it inside `tmux` or
+`screen`, or detach it with `nohup` and `-T` (no terminal), then follow the log:
+
+```bash
+nohup docker compose run --rm -T -e PLANE_API_KEY -e PLANE_URL migrate \
+  npx tsx scripts/import-plane.ts --workspace my-team --user you@example.com \
+  > plane-import.log 2>&1 &
+tail -f plane-import.log
+```
+
+On `docker-compose.postgres.yml`, add `-f docker-compose.postgres.yml` to each command.
+The `tar` step there only covers attachments, so also back up the database with
+`pg_dump`, as described in the installation guide.
+
 | Plane | OPM |
 |---|---|
 | Project identifier | Project key, so `ABC-123` references keep working |
@@ -475,8 +511,9 @@ them are written, so a large project writes nothing for a while. The adapter wai
 the rate limit window to reset and retries 429 and 5xx responses.
 
 **Re-running:** a re-run skips what's already imported and adds new comments and
-attachments. It reads
-everything from Plane again, so it takes about as long. Use `--project` to limit it.
+attachments. It reads every work item's comments and attachments from Plane again, but
+not the links and relations of cards it already finished, so it takes about half as long.
+Use `--project` to limit it.
 The first re-run after upgrading from a version that didn't track finished parent and
 relation steps goes over the cards imported before once, setting any parent that's
 missing (never replacing one) and adding missing relations. That can bring back a parent

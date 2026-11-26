@@ -68,6 +68,10 @@ export interface ImportCard {
   labelSourceIds?: string[];
   relations?: ImportCardRelation[];
   links?: ImportCardLink[];
+  /** Used when `links` is absent. Called only for a card the run creates, so a re-run skips the source request. */
+  loadLinks?(): Promise<ImportCardLink[]>;
+  /** Used when `relations` is absent. Called only for a card whose relation step hasn't finished. */
+  loadRelations?(): Promise<ImportCardRelation[]>;
 }
 
 export interface ImportComment {

@@ -57,12 +57,12 @@ export default function BurndownChart({
         {hasData && (
           <div className="text-right">
             <span className="text-xs text-slate-400 dark:text-slate-500 block">
-              Remaining / Scope
+              {t("analytics.remainingScope")}
             </span>
             <span className="text-sm font-bold text-slate-700 dark:text-slate-200">
               {currentRemaining} / {startRemaining}{" "}
               <span className="text-xs font-normal">
-                {metricMode === "points" ? "pts" : "cards"}
+                {metricMode === "points" ? t("analytics.unitPoints") : t("analytics.unitCards")}
               </span>
             </span>
           </div>

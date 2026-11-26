@@ -442,20 +442,9 @@ describe("MCP Server Core Tools", () => {
     }, { userId });
     const cardId = createCardRes.card!.id;
 
-    // Manually create an activity or use db / actions
-    await db.activity.create({
-      data: {
-        cardId,
-        actorUserId: userId,
-        type: "card_created",
-        toValue: "Task for MCP Activity",
-      },
-    });
-
     const actRes = await executeMcpTool("list_card_activity", { cardId }, { userId });
     expect(actRes.success).toBe(true);
-    expect(actRes.activities!.length).toBeGreaterThan(0);
-    expect(actRes.activities![0].type).toBe("card_created");
+    expect(actRes.activities!.map((activity: { type: string }) => activity.type)).toEqual(["card_created"]);
 
     await executeMcpTool("delete_project", { id: projectId }, { userId });
   });
