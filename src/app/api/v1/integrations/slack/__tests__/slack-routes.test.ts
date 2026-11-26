@@ -216,4 +216,36 @@ describe("Slack Routes", () => {
     const resEvents = await proxy(reqEvents);
     expect(resEvents.status).not.toBe(401);
   });
+
+  it("returns 400 on Slack events route for invalid JSON and 200 ok for signed non-verification events", async () => {
+    process.env.SLACK_SIGNING_SECRET = testSecret;
+
+    const badJsonBody = "{not-valid-json";
+    const badReq = new NextRequest("http://localhost/api/v1/integrations/slack/events", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...makeSlackHeaders(testSecret, badJsonBody),
+      },
+      body: badJsonBody,
+    });
+    const badRes = await eventsHandler(badReq);
+    expect(badRes.status).toBe(400);
+
+    const eventBody = JSON.stringify({
+      type: "event_callback",
+      event: { type: "app_mention", text: "hi" },
+    });
+    const okReq = new NextRequest("http://localhost/api/v1/integrations/slack/events", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...makeSlackHeaders(testSecret, eventBody),
+      },
+      body: eventBody,
+    });
+    const okRes = await eventsHandler(okReq);
+    expect(okRes.status).toBe(200);
+    expect(await okRes.json()).toEqual({ ok: true });
+  });
 });

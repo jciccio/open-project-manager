@@ -10,6 +10,7 @@ import {
   formatCardUnfurl,
   handleSlackSlashCommand,
   linkSlackUser,
+  getLinkedOpmUser,
   escapeSlackMrkdwn,
   decodeSlackText,
 } from "../slack";
@@ -1052,6 +1053,36 @@ describe("Slack Integration", () => {
       } finally {
         await cleanupTestUser(teamOwner.user.id);
         await cleanupTestUser(stranger.user.id);
+      }
+    });
+
+    it("severs Slack link when user tokenVersion is bumped", async () => {
+      const tok = await db.apiToken.create({ data: { userId, name: "Versioned Token" } });
+      await linkSlackUser("U_VERSION_TEST", userId, tok.id);
+      expect(await getLinkedOpmUser("U_VERSION_TEST")).not.toBeNull();
+
+      await db.user.update({
+        where: { id: userId },
+        data: { tokenVersion: { increment: 1 } },
+      });
+
+      expect(await getLinkedOpmUser("U_VERSION_TEST")).toBeNull();
+    });
+
+    it("severs Slack link when stored API token is expired or belongs to another user", async () => {
+      const expiredTok = await db.apiToken.create({
+        data: { userId, name: "Expired Token", expiresAt: new Date(Date.now() - 60_000) },
+      });
+      await linkSlackUser("U_EXPIRED_TEST", userId, expiredTok.id);
+      expect(await getLinkedOpmUser("U_EXPIRED_TEST")).toBeNull();
+
+      const otherUser = await createTestUser(`slack-other-owner-${Date.now()}`);
+      try {
+        const otherTok = await db.apiToken.create({ data: { userId: otherUser.user.id, name: "Foreign Token" } });
+        await linkSlackUser("U_FOREIGN_TEST", userId, otherTok.id);
+        expect(await getLinkedOpmUser("U_FOREIGN_TEST")).toBeNull();
+      } finally {
+        await cleanupTestUser(otherUser.user.id);
       }
     });
   });

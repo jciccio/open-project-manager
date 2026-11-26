@@ -63,13 +63,21 @@ export async function getLinkedOpmUser(slackUserId: string) {
   }
 
   // Active token verification: ensure the API token used to establish the link
-  // exists, belongs to this user, and has not been revoked or expired.
+  // exists, belongs to this user, has not been revoked or expired, and matches tokenVersion.
   if (!record.importRunId) {
     await db.importRecord.deleteMany({ where: { id: record.id } });
     return null;
   }
+  const [storedTokenId, storedVersionRaw] = record.importRunId.split(":", 2);
+  if (storedVersionRaw !== undefined) {
+    const storedVersion = Number(storedVersionRaw);
+    if (!Number.isFinite(storedVersion) || storedVersion !== user.tokenVersion) {
+      await db.importRecord.deleteMany({ where: { id: record.id } });
+      return null;
+    }
+  }
   const apiToken = await db.apiToken.findUnique({
-    where: { id: record.importRunId },
+    where: { id: storedTokenId },
     select: { id: true, userId: true, expiresAt: true },
   });
   if (!apiToken || apiToken.userId !== user.id || (apiToken.expiresAt && apiToken.expiresAt < new Date())) {
@@ -81,6 +89,12 @@ export async function getLinkedOpmUser(slackUserId: string) {
 }
 
 export async function linkSlackUser(slackUserId: string, opmUserId: string, apiTokenId: string) {
+  const opmUser = await db.user.findUnique({
+    where: { id: opmUserId },
+    select: { tokenVersion: true },
+  });
+  const storedRunId = opmUser ? `${apiTokenId}:${opmUser.tokenVersion}` : apiTokenId;
+
   await db.$transaction(async (tx) => {
     // Clear any existing mappings for this Slack user so one Slack account holds exactly one link
     await tx.importRecord.deleteMany({
@@ -98,7 +112,7 @@ export async function linkSlackUser(slackUserId: string, opmUserId: string, apiT
         entityType: "user",
         sourceId: slackUserId,
         localId: opmUserId,
-        importRunId: apiTokenId,
+        importRunId: storedRunId,
       },
     });
   });
